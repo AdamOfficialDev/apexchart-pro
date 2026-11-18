@@ -139,6 +139,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const dataFeed = useTradingStore((s) => s.dataFeed);
   const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
   const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+  const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
 
   const maximizedPaneId = useTradingStore((s) => s.maximizedPaneId);
   const setMaximizedPaneId = useTradingStore((s) => s.setMaximizedPaneId);
@@ -196,7 +197,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const pendingTickRef = useRef<{ candle: Candle; source: FeedSourceType } | null>(null);
   const flushTimerRef = useRef<number | null>(null);
 
-  // Infinite Scroll-Left History Backfill refs
   const loadingMoreRef = useRef(false);
   const lastBackfillMsRef = useRef(0);
   const pendingRangeShiftRef = useRef<{ prevRange: LogicalRange; addedCount: number } | null>(null);
@@ -239,7 +239,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     return fullCandles;
   }, [fullCandles, isThisPaneInReplay, replay.isSelectingStart, replay.currentIndex]);
 
-  // Server-Synced Countdown & World Timezone Clock
   useEffect(() => {
     const tickClock = () => {
       const nowServerSec = getServerNowSec();
@@ -263,7 +262,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     setLastPriceY(coord !== null ? Number(coord) : null);
   }, [displayCandles]);
 
-  // 1. Initialize Chart (attributionLogo: false removes TradingView logo!)
+  // 1. Initialize Chart
   useEffect(() => {
     const el = mainContainerRef.current;
     if (!el) return;
@@ -462,7 +461,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
   }, [theme, chartSettings, tzPreset, tfMeta.seconds, pane.scaleMode]);
 
-  // 2. Fetch Deep Historical Candles
+  // 2. Fetch Historical Candles
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -530,7 +529,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, fullCandles.length, setReplayTotalBars]);
 
-  // 3. Coalesced Live Tick Stream + Auto-Rollover Support (8,000-bar history capacity!)
+  // 3. Coalesced Live Tick Stream
   useEffect(() => {
     if (loading || fullCandles.length === 0 || isThisPaneInReplay) return;
     const lastCandle = fullCandles[fullCandles.length - 1];
@@ -703,7 +702,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showSymbolAxisLabel,
   ]);
 
-  // 5. Feed Data & Reuse Overlay Series + Restore Scroll Position After Prepend Backfill
+  // 5. Feed Data & Reuse Overlay Series
   useEffect(() => {
     const chart = chartRef.current;
     const series = mainSeriesRef.current;
@@ -728,7 +727,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       );
     }
 
-    // Preserve exact viewport after prepending older candles
     if (pendingRangeShiftRef.current) {
       const { prevRange, addedCount } = pendingRangeShiftRef.current;
       pendingRangeShiftRef.current = null;
@@ -1097,7 +1095,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showHighLowLines,
   ]);
 
-  // 7. Crosshair, Scroll-Left Infinite Backfill Trigger & Replay Click
+  // 7. Crosshair, Empty-Area Deselect, Scroll-Left Backfill & Replay Click
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -1123,7 +1121,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       const pos = chart.timeScale().scrollPosition();
       setScrolledAway(pos < -6);
 
-      // Infinite Scroll-Left History Backfill
       if (
         range &&
         range.from < 20 &&
@@ -1166,6 +1163,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     const onClick = (param: { time?: Time }) => {
       setActivePaneId(pane.id);
       setPlusMenuOpen(null);
+      // Clicking empty chart area immediately closes FloatingDrawingToolbar
+      if (useTradingStore.getState().activeDrawingTool === 'cursor') {
+        setSelectedDrawingId(null);
+      }
       if (isThisPaneInReplay && replay.isSelectingStart && param.time !== undefined) {
         const clickedTime = Number(param.time);
         const idx = fullCandles.findIndex((c) => c.time >= clickedTime);
@@ -1196,6 +1197,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     pane.timeframe,
     dataFeed,
     setActivePaneId,
+    setSelectedDrawingId,
     setSyncedCrosshairTime,
     startReplayAt,
     refreshLastPriceY,
@@ -1358,6 +1360,21 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     [displayCandles, fullCandles, symbolInfo.basePrice]
   );
 
+  // Instant pointer-down deselect on empty chart (works on desktop & mobile touch!)
+  const handleChartViewportPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (useTradingStore.getState().activeDrawingTool !== 'cursor') return;
+    const rect = mainContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hitId = hitTestDrawingRef.current?.(x, y) ?? null;
+    if (hitId) {
+      setSelectedDrawingId(hitId);
+    } else {
+      setSelectedDrawingId(null);
+    }
+  };
+
   const handleContainerContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     const rect = mainContainerRef.current?.getBoundingClientRect();
@@ -1486,6 +1503,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           setHoverChart(false);
           setPriceAxisHover(null);
         }}
+        onPointerDown={handleChartViewportPointerDown}
         onMouseMove={handleContainerMouseMove}
         onContextMenu={handleContainerContextMenu}
         onDoubleClick={handleContainerDoubleClick}
@@ -2009,20 +2027,27 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       </div>
 
       {subPaneIndicators.map((ind) => (
-        <SubPaneChart
+        <div
           key={ind.id}
-          indicator={ind}
-          candles={displayCandles}
-          timeframe={pane.timeframe}
-          theme={theme}
-          bgColorDark={chartSettings.bgColorDark || '#131722'}
-          mainChart={chartRef.current}
-          onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
-          onRemove={() => removeIndicator(pane.id, ind.id)}
-        />
+          onMouseDown={() => setSelectedDrawingId(null)}
+        >
+          <SubPaneChart
+            indicator={ind}
+            candles={displayCandles}
+            timeframe={pane.timeframe}
+            theme={theme}
+            bgColorDark={chartSettings.bgColorDark || '#131722'}
+            mainChart={chartRef.current}
+            onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
+            onRemove={() => removeIndicator(pane.id, ind.id)}
+          />
+        </div>
       ))}
 
-      <div className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2.5 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]">
+      <div
+        onMouseDown={() => setSelectedDrawingId(null)}
+        className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2.5 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]"
+      >
         <div className="flex items-center gap-0.5">
           {RANGE_PRESETS.map((preset) => (
             <button

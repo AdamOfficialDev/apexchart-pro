@@ -17,10 +17,15 @@ export function getServerNowSec(): number {
   return Math.floor(Date.now() / 1000) + SERVER_CLOCK.offsetSec;
 }
 
-function updateServerOffsetFromServerTime(serverTimeSec: number) {
+function updateServerOffsetFromAtomicClock(serverTimeSec: number) {
   if (!Number.isFinite(serverTimeSec) || serverTimeSec < 1600000000) return;
   const localSec = Math.floor(Date.now() / 1000);
-  SERVER_CLOCK.offsetSec = serverTimeSec - localSec;
+  const nextOffset = serverTimeSec - localSec;
+  // Smoothly ignore minor <= 2s network jitter once already synced
+  if (SERVER_CLOCK.syncedAt > 0 && Math.abs(nextOffset - SERVER_CLOCK.offsetSec) <= 2) {
+    return;
+  }
+  SERVER_CLOCK.offsetSec = nextOffset;
   SERVER_CLOCK.syncedAt = Date.now();
 }
 
@@ -35,11 +40,11 @@ async function syncServerClock(): Promise<number> {
     if (res.ok) {
       const json = (await res.json()) as { serverTime?: number };
       if (json.serverTime) {
-        updateServerOffsetFromServerTime(Math.floor(json.serverTime / 1000));
+        updateServerOffsetFromAtomicClock(Math.floor(json.serverTime / 1000));
       }
     }
   } catch {
-    // Fallback gracefully to local clock offset 0
+    // Keep existing offset
   } finally {
     window.clearTimeout(timer);
   }
@@ -300,7 +305,6 @@ async function fetchTwelveDataKlines(
     const endParam = endDateSec
       ? `&end_date=${encodeURIComponent(formatUnixSecToTwelveDate(endDateSec))}`
       : '';
-    // Explicitly enforce timezone=UTC so REST bars align 1:1 with WS UTC Unix timestamps!
     const url = `${TWELVE_REST_BASE}/time_series?symbol=${encodeURIComponent(
       tdSymbol
     )}&interval=${encodeURIComponent(
@@ -384,7 +388,6 @@ export async function fetchHistoricalCandles(
 
       if (raw.length > 0) {
         if (tfMeta.seconds < 60) {
-          // Anchor sub-minute synthetic history to TRUE UTC server time (never skewed local PC clock!)
           const lastBar = raw[raw.length - 1];
           const isMarketOpen = serverNowSec - lastBar.time < 900;
           const anchorTime = isMarketOpen ? serverNowSec : lastBar.time + 59;
@@ -416,11 +419,10 @@ export async function fetchHistoricalCandles(
     const resolvedSource: FeedSourceType = info.symbol === 'XAUUSD' ? 'gold-proxy' : 'binance';
     try {
       if (tfMeta.binanceInterval) {
-        const batches = tfMeta.seconds >= 86400 ? 2 : 2;
         const candles = await fetchBinanceDeepKlines(
           info.binanceSymbol,
           tfMeta.binanceInterval,
-          batches
+          2
         );
         if (candles.length > 0) {
           return { candles, source: resolvedSource, warning: tdWarning };
@@ -478,7 +480,6 @@ export async function fetchHistoricalCandles(
   };
 }
 
-// Infinite Scroll-Left Historical Backfill (loads older bars seamlessly!)
 export async function fetchOlderCandles(
   symbol: string,
   timeframe: TimeframeId,
@@ -544,7 +545,7 @@ export async function fetchOlderCandles(
         if (agg.length > 0) return agg;
       }
     } catch {
-      // Fallback synthetic older history
+      // Fallback synthetic
     }
   }
 
@@ -589,20 +590,20 @@ export function subscribeLiveTicks(
     if (disposed) return;
     activeSource = source;
 
-    // Keep global server clock synchronized from live WS timestamps!
-    if (source === 'binance' || source === 'gold-proxy' || source === 'twelvedata') {
-      updateServerOffsetFromServerTime(tradeTimeSec);
+    // ONLY trust Binance atomic UTC timestamps for SERVER_CLOCK!
+    // Never let Twelve Data WS truncated/minute-rounded timestamps corrupt SERVER_CLOCK!
+    if (source === 'binance' || source === 'gold-proxy') {
+      updateServerOffsetFromAtomicClock(tradeTimeSec);
+    }
+    if (source !== 'simulated') {
       hasReceivedLiveStream = true;
       lastLiveMsgLocalMs = Date.now();
     }
 
     const roundedPrice = roundToPrecision(price, info.precision);
-    let bucketTime = Math.floor(tradeTimeSec / tfSec) * tfSec;
-
-    // Clock-skew protection: never freeze on an old bucket if historical candle was anchored slightly ahead
-    if (bucketTime < currentBar.time && currentBar.time - bucketTime <= tfSec * 2) {
-      bucketTime = currentBar.time;
-    }
+    // Strict monotonic bucket: NEVER go backwards earlier than currentBar.time!
+    const rawBucket = Math.floor(tradeTimeSec / tfSec) * tfSec;
+    const bucketTime = Math.max(currentBar.time, rawBucket);
 
     if (bucketTime > currentBar.time) {
       currentBar = {
@@ -613,7 +614,7 @@ export function subscribeLiveTicks(
         close: roundedPrice,
         volume: qty,
       };
-    } else if (bucketTime === currentBar.time) {
+    } else {
       currentBar = {
         ...currentBar,
         high: Math.max(currentBar.high, roundedPrice),
@@ -621,28 +622,17 @@ export function subscribeLiveTicks(
         close: roundedPrice,
         volume: currentBar.volume + qty,
       };
-    } else {
-      // Extreme skew safeguard: jump forward to live server bucket
-      currentBar = {
-        time: bucketTime,
-        open: roundedPrice,
-        high: roundedPrice,
-        low: roundedPrice,
-        close: roundedPrice,
-        volume: qty,
-      };
     }
 
     onTick(currentBar, source);
   };
 
-  // Dedicated 500ms Auto-Rollover Watchdog:
-  // Guarantees a NEW candle opens the exact instant a 1s / 5s / 1m / 3m bucket ends!
+  // Auto-Rollover Watchdog using true atomic UTC getServerNowSec()
   rolloverTimer = window.setInterval(() => {
     if (disposed || !hasReceivedLiveStream) return;
     const nowServer = getServerNowSec();
     const expectedBucket = Math.floor(nowServer / tfSec) * tfSec;
-    if (expectedBucket > currentBar.time && expectedBucket - currentBar.time <= tfSec * 4) {
+    if (expectedBucket > currentBar.time && expectedBucket - currentBar.time <= tfSec * 8) {
       currentBar = {
         time: expectedBucket,
         open: currentBar.close,
@@ -693,6 +683,7 @@ export function subscribeLiveTicks(
       }, 5000);
 
       ws.onopen = () => {
+        hasReceivedLiveStream = true;
         ws?.send(
           JSON.stringify({
             action: 'subscribe',
@@ -716,12 +707,8 @@ export function subscribeLiveTicks(
               window.clearTimeout(wsHandshakeTimeout);
               wsHandshakeTimeout = null;
             }
-            const ts = msg.timestamp
-              ? msg.timestamp > 1e12
-                ? Math.floor(msg.timestamp / 1000)
-                : msg.timestamp
-              : getServerNowSec();
-            processTrade(msg.price, msg.day_volume ? 10 : 5, ts, 'twelvedata');
+            // Use atomic server clock getServerNowSec() so quantized Twelve Data timestamps never rewind candles!
+            processTrade(msg.price, msg.day_volume ? 10 : 5, getServerNowSec(), 'twelvedata');
           }
         } catch {
           // ignore
@@ -735,7 +722,6 @@ export function subscribeLiveTicks(
         if (!disposed && !receivedPrice) startSimulator();
       };
 
-      // Twelve Data REST backup poll if WS goes quiet > 14s (respecting 8 calls/min free quota)
       tdRestPollTimer = window.setInterval(async () => {
         if (disposed || !receivedPrice) return;
         if (Date.now() - lastLiveMsgLocalMs < 14000) return;
@@ -753,7 +739,7 @@ export function subscribeLiveTicks(
             }
           }
         } catch {
-          // ignore transient poll errors
+          // ignore
         }
       }, 15000);
     } catch {
