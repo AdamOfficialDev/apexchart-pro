@@ -11,7 +11,6 @@ export function useAlertMonitor() {
   const layout = useTradingStore((s) => s.layout);
   const prevPricesRef = useRef<Record<string, number>>({});
 
-  // Keep watchlist symbols ticking gently if not already driven by an active chart pane
   useEffect(() => {
     const visiblePaneCount =
       layout === '1x1' ? 1 : layout === '1x2' || layout === '2x1' ? 2 : layout === '1+2' ? 3 : 4;
@@ -35,7 +34,6 @@ export function useAlertMonitor() {
     return () => window.clearInterval(timer);
   }, [layout, watchlist, panes]);
 
-  // Monitor price alerts on every quote tick
   useEffect(() => {
     const store = useTradingStore.getState();
     const activeAlerts = alerts.filter((a) => a.active);
@@ -67,7 +65,9 @@ export function useAlertMonitor() {
       if (triggered) {
         const info = getSymbolInfo(alert.symbol);
         store.markAlertTriggered(alert.id);
-        playAlertSound();
+        if (store.chartSettings.playAlertSound) {
+          playAlertSound();
+        }
         store.addToast({
           title: `Alert Triggered: ${info.displaySymbol}`,
           description: `${alert.note ? alert.note + ' — ' : ''}Price hit ${formatPrice(

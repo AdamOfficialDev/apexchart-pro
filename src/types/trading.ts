@@ -24,6 +24,7 @@ export interface TimeframeMeta {
   seconds: number;
   group: TimeframeGroup;
   binanceInterval?: string;
+  twelveDataInterval?: string;
   defaultBars: number;
 }
 
@@ -40,6 +41,8 @@ export interface SymbolInfo {
   minMove: number;
   volatility: number;
   binanceSymbol?: string;
+  twelveDataSymbol?: string;
+  fxPair?: [string, string]; // e.g. ['EUR', 'USD'] for live FX rate anchor
   currency: string;
   description: string;
 }
@@ -53,6 +56,8 @@ export interface Candle {
   volume: number;
 }
 
+export type FeedSourceType = 'binance' | 'twelvedata' | 'gold-proxy' | 'simulated';
+
 export interface LiveQuote {
   symbol: string;
   price: number;
@@ -63,11 +68,18 @@ export interface LiveQuote {
   low24h: number;
   volume24h: number;
   sparkline: number[];
-  source: 'binance' | 'simulated';
+  source: FeedSourceType;
+}
+
+export interface DataFeedConfig {
+  twelveDataApiKey: string;
+  preferTwelveData: boolean;
+  useGoldProxyWhenNoKey: boolean;
 }
 
 export type ChartStyleType = 'candles' | 'hollow' | 'heikin_ashi' | 'line' | 'area' | 'bars';
 export type ScaleMode = 'normal' | 'logarithmic' | 'percentage';
+export type PriceSource = 'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3' | 'ohlc4';
 
 export interface TimezonePreset {
   id: string;
@@ -76,7 +88,15 @@ export interface TimezonePreset {
   offsetMinutes: number | 'local';
 }
 
+export interface TimeframeVisibility {
+  seconds: boolean;
+  minutes: boolean;
+  hours: boolean;
+  days: boolean;
+}
+
 export interface ChartSettings {
+  // Symbol & Candles
   upColor: string;
   downColor: string;
   wickUpColor: string;
@@ -85,18 +105,57 @@ export interface ChartSettings {
   borderDownColor: string;
   showWicks: boolean;
   showBorders: boolean;
-  showGrid: boolean;
-  gridStyle: 'both' | 'vert' | 'horz' | 'none';
-  gridOpacity: number;
-  crosshairStyle: 'dashed' | 'dotted' | 'solid';
-  showWatermark: boolean;
+  showLastPriceLine: boolean;
+  lastPriceLineStyle: 'solid' | 'dashed' | 'dotted';
+  showHighLowLines: boolean;
+  showPrevCloseLine: boolean;
   showCountdown: boolean;
-  showQuickTrade: boolean;
+  precisionOverride: 'auto' | number;
+
+  // Status Line / Legend
+  showStatusSymbol: boolean;
+  showStatusFeedBadge: boolean;
+  showStatusOHLC: boolean;
+  showStatusBarChange: boolean;
+  showStatusVolume: boolean;
+  showIndicatorTitles: boolean;
+  showIndicatorArgs: boolean;
+
+  // Scales & Lines
+  priceScalePosition: 'right' | 'left';
+  invertScale: boolean;
+  scaleFontSize: number;
+  scaleMarginTop: number; // percentage 2..35
+  scaleMarginBottom: number; // percentage 2..35
+  showSymbolAxisLabel: boolean;
+
+  // Canvas & Appearance
   bgType: 'solid' | 'gradient';
   bgColorDark: string;
+  bgColorDarkBottom: string;
   bgColorLight: string;
-  invertScale: boolean;
-  timezone: string; // matches TimezonePreset.id
+  bgColorLightBottom: string;
+  showGrid: boolean;
+  gridStyle: 'both' | 'vert' | 'horz' | 'none';
+  gridLineStyle: 'solid' | 'dashed' | 'dotted';
+  gridOpacity: number;
+  gridColorDark: string;
+  crosshairStyle: 'dashed' | 'dotted' | 'solid';
+  crosshairColor: string;
+  crosshairWidth: 1 | 2 | 3;
+  showWatermark: boolean;
+  watermarkOpacity: number; // 2..20
+  rightOffset: number; // bars
+  barSpacing: number; // px
+
+  // Trading & Timezone
+  showQuickTrade: boolean;
+  showPositionsOnChart: boolean;
+  showOrdersOnChart: boolean;
+  showAlertsOnChart: boolean;
+  playAlertSound: boolean;
+  defaultRiskPercent: number;
+  timezone: string;
 }
 
 export interface SmartOverlaySettings {
@@ -131,6 +190,15 @@ export interface IndicatorConfig {
   color: string;
   secondaryColor?: string;
   tertiaryColor?: string;
+  lineWidth?: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  source?: PriceSource;
+  offset?: number;
+  upperLevel?: number;
+  lowerLevel?: number;
+  showBands?: boolean;
+  showLastValue?: boolean;
+  visibility?: TimeframeVisibility;
   params: Record<string, number>;
 }
 
@@ -145,13 +213,13 @@ export interface IndicatorCatalogItem {
   secondaryColor?: string;
   tertiaryColor?: string;
   defaultParams: Record<string, number>;
+  defaultUpperLevel?: number;
+  defaultLowerLevel?: number;
 }
 
-// Complete 43 TradingView Drawing Tools
 export type DrawingToolType =
   | 'cursor'
   | 'eraser'
-  // Trend Lines & Channels
   | 'trendline'
   | 'ray'
   | 'extended_line'
@@ -162,7 +230,6 @@ export type DrawingToolType =
   | 'cross_line'
   | 'channel'
   | 'regression_channel'
-  // Gann & Fibonacci
   | 'fib'
   | 'fib_ext'
   | 'fib_channel'
@@ -171,37 +238,38 @@ export type DrawingToolType =
   | 'fib_arc'
   | 'pitchfork'
   | 'gann_box'
-  // Patterns & Waves
   | 'xabcd'
   | 'abcd'
   | 'elliott_impulse'
   | 'elliott_abc'
   | 'head_shoulders'
-  // Forecasting & Risk/Reward
   | 'long_pos'
   | 'short_pos'
   | 'date_price_range'
   | 'bar_pattern'
-  // Geometric Shapes
   | 'rect'
   | 'rotated_rect'
   | 'ellipse'
   | 'triangle'
   | 'arc'
   | 'polyline'
-  // Annotations & Brushes
   | 'brush'
   | 'highlighter'
   | 'arrow_marker'
   | 'text'
   | 'callout'
   | 'price_label'
-  // Measure
   | 'ruler';
 
 export interface DrawingPoint {
   time: number;
   price: number;
+}
+
+export interface FibLevelItem {
+  level: number;
+  color: string;
+  enabled: boolean;
 }
 
 export interface DrawingObject {
@@ -210,10 +278,29 @@ export interface DrawingObject {
   type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>;
   points: DrawingPoint[];
   color: string;
+  opacity?: number; // 10..100
   fillColor?: string;
+  fillOpacity?: number; // 0..80
+  showFill?: boolean;
   lineWidth: number;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
+  extendLeft?: boolean;
+  extendRight?: boolean;
+  showMidline?: boolean;
+  showStats?: boolean;
   text?: string;
+  textColor?: string;
+  fontSize?: number;
+  fontBold?: boolean;
+  fontItalic?: boolean;
+  textAlign?: 'left' | 'center' | 'right';
+  fibLevels?: FibLevelItem[];
+  fibReverse?: boolean;
+  fibShowPrices?: boolean;
+  fibShowPercents?: boolean;
+  riskPercent?: number;
+  accountSize?: number;
+  visibility?: TimeframeVisibility;
   locked?: boolean;
   visible?: boolean;
   createdAt: number;
@@ -234,7 +321,7 @@ export interface DrawingToolMeta {
   label: string;
   group: DrawingToolGroupId;
   shortcut?: string;
-  pointsRequired: number; // 0 = continuous/drag/multi-click
+  pointsRequired: number;
   description: string;
 }
 

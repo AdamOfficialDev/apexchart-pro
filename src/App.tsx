@@ -4,7 +4,9 @@ import { ToastContainer } from '@/components/common/ToastContainer';
 import { DrawingToolbar } from '@/components/layout/DrawingToolbar';
 import { TopToolbar } from '@/components/layout/TopToolbar';
 import { ChartSettingsModal } from '@/components/modals/ChartSettingsModal';
+import { DrawingSettingsModal } from '@/components/modals/DrawingSettingsModal';
 import { IndicatorsModal } from '@/components/modals/IndicatorsModal';
+import { IndicatorSettingsModal } from '@/components/modals/IndicatorSettingsModal';
 import { ShortcutsModal } from '@/components/modals/ShortcutsModal';
 import { SymbolSearchModal } from '@/components/modals/SymbolSearchModal';
 import { RightSidebar } from '@/components/panels/RightSidebar';
@@ -38,6 +40,8 @@ export const App: React.FC = () => {
       {/* Modals & Notifications */}
       <SymbolSearchModal />
       <IndicatorsModal />
+      <IndicatorSettingsModal />
+      <DrawingSettingsModal />
       <ChartSettingsModal />
       <ShortcutsModal />
       <ToastContainer />

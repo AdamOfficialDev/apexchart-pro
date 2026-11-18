@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, EyeOff, Layers, Lock, Trash2, Unlock } from 'lucide-react';
+import { Eye, EyeOff, Layers, Lock, Settings2, Trash2, Unlock } from 'lucide-react';
 import { DRAWING_TOOLS_CATALOG, getSymbolInfo } from '@/data/symbols';
 import { cn, formatPrice } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -10,6 +10,8 @@ export const ObjectTreePanel: React.FC = () => {
   const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
   const selectedDrawingId = useTradingStore((s) => s.selectedDrawingId);
   const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
+  const setEditingDrawingId = useTradingStore((s) => s.setEditingDrawingId);
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
   const updateDrawing = useTradingStore((s) => s.updateDrawing);
   const removeDrawing = useTradingStore((s) => s.removeDrawing);
   const clearDrawings = useTradingStore((s) => s.clearDrawingsForSymbol);
@@ -61,7 +63,14 @@ export const ObjectTreePanel: React.FC = () => {
                       {Object.values(ind.params).join(',')}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setEditingIndicatorId(ind.id)}
+                      title="Indicator Settings"
+                      className="rounded p-1 text-[#787B86] hover:text-[#2962FF]"
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => toggleIndicatorVisibility(activePane.id, ind.id)}
                       className="rounded p-1 text-[#787B86] hover:text-white"
@@ -124,6 +133,16 @@ export const ObjectTreePanel: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingDrawingId(d.id);
+                        }}
+                        title="Drawing Settings"
+                        className="rounded p-1 text-[#787B86] hover:text-[#2962FF]"
+                      >
+                        <Settings2 className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

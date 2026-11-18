@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Lock, Trash2, Unlock, Zap } from 'lucide-react';
+import { Copy, Lock, Settings2, Trash2, Unlock, Zap } from 'lucide-react';
 import { getSymbolInfo } from '@/data/symbols';
 import { cn } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -18,6 +18,7 @@ interface FloatingDrawingToolbarProps {
 
 export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ symbol }) => {
   const selectedId = useTradingStore((s) => s.selectedDrawingId);
+  const setEditingDrawingId = useTradingStore((s) => s.setEditingDrawingId);
   const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
   const updateDrawing = useTradingStore((s) => s.updateDrawing);
   const duplicateDrawing = useTradingStore((s) => s.duplicateDrawing);
@@ -42,7 +43,9 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
     const entry = drawing.points[0].price;
     const tp = drawing.points[1].price;
     const sl = drawing.points[2].price;
-    const riskUsd = paperBalance * 0.01;
+    const riskPct = drawing.riskPercent ?? 1;
+    const acct = drawing.accountSize ?? paperBalance;
+    const riskUsd = acct * (riskPct / 100);
     const stopDist = Math.max(Math.abs(entry - sl), info.minMove);
     const qty = Number((riskUsd / stopDist).toFixed(info.category === 'Crypto' ? 4 : 0));
     const safeQty = Math.max(info.category === 'Crypto' ? 0.001 : 1, qty);
@@ -68,7 +71,7 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
       <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-      {/* Color Swatch Popover */}
+      {/* Color Swatch */}
       <div className="relative">
         <button
           onClick={() => setColorMenu(!colorMenu)}
@@ -150,16 +153,26 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
           <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
           <button
             onClick={handleExecuteRR}
-            title="Auto-calculate 1% risk lot size and place order"
+            title="Auto-calculate risk lot size and place order"
             className="inline-flex items-center gap-1 rounded bg-[#00D4AA]/15 px-2 py-0.5 text-[10px] font-bold text-[#00D4AA] hover:bg-[#00D4AA] hover:text-slate-950 transition"
           >
             <Zap className="h-3 w-3" />
-            <span>Execute 1%</span>
+            <span>Execute {drawing.riskPercent ?? 1}%</span>
           </button>
         </>
       )}
 
       <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+      {/* Full Drawing Settings Modal Button */}
+      <button
+        onClick={() => setEditingDrawingId(drawing.id)}
+        title="Full Drawing Settings (Style, Text, Coordinates, Visibility)"
+        className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+      >
+        <Settings2 className="h-3.5 w-3.5 text-[#2962FF]" />
+        <span className="hidden sm:inline">Settings</span>
+      </button>
 
       <button
         onClick={() => updateDrawing(symbol, drawing.id, { locked: !drawing.locked })}

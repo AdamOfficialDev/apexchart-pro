@@ -1,11 +1,10 @@
-// patch.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 function loadPatchContent() {
   const cwd = process.cwd();
-  const candidates = ['v2-bundle.txt', 'patch-bundle.txt', 'patch.txt'];
+  const candidates = ['v3-bundle.txt', 'v2-bundle.txt', 'patch-bundle.txt', 'patch.txt'];
   for (const name of candidates) {
     const p = path.join(cwd, name);
     if (fs.existsSync(p)) {
@@ -15,25 +14,18 @@ function loadPatchContent() {
   }
 
   const files = fs.readdirSync(cwd);
-  const v2Parts = files
-    .filter((f) => /^v2[-._]?part\d+\.txt$/i.test(f))
-    .sort((a, b) => Number(a.match(/(\d+)/)?.[1] ?? 0) - Number(b.match(/(\d+)/)?.[1] ?? 0));
-
-  if (v2Parts.length > 0) {
-    console.log(`📦 Membaca ${v2Parts.length} file V2 part: ${v2Parts.join(', ')}`);
-    return v2Parts.map((f) => fs.readFileSync(path.join(cwd, f), 'utf8')).join('\n');
+  const prefixes = [/^v3[-._]?part\d+\.txt$/i, /^v2[-._]?part\d+\.txt$/i, /^patch[-._]?part\d+\.txt$/i];
+  for (const regex of prefixes) {
+    const matched = files
+      .filter((f) => regex.test(f))
+      .sort((a, b) => Number(a.match(/(\d+)/)?.[1] ?? 0) - Number(b.match(/(\d+)/)?.[1] ?? 0));
+    if (matched.length > 0) {
+      console.log(`📦 Membaca ${matched.length} file part: ${matched.join(', ')}`);
+      return matched.map((f) => fs.readFileSync(path.join(cwd, f), 'utf8')).join('\n');
+    }
   }
 
-  const patchParts = files
-    .filter((f) => /^patch[-._]?part\d+\.txt$/i.test(f))
-    .sort((a, b) => Number(a.match(/(\d+)/)?.[1] ?? 0) - Number(b.match(/(\d+)/)?.[1] ?? 0));
-
-  if (patchParts.length > 0) {
-    console.log(`📦 Membaca ${patchParts.length} file patch part: ${patchParts.join(', ')}`);
-    return patchParts.map((f) => fs.readFileSync(path.join(cwd, f), 'utf8')).join('\n');
-  }
-
-  console.error('❌ File v2-bundle.txt / v2-part*.txt / patch-bundle.txt tidak ditemukan!');
+  console.error('❌ File v3-bundle.txt atau v3-part*.txt tidak ditemukan!');
   process.exit(1);
 }
 
@@ -60,7 +52,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('🚀 ApexChart Pro V2 — Applying Full Upgrade...\n');
+  console.log('🚀 ApexChart Pro V3 — Applying Full Pro Settings & Live Multi-Asset Feeds...\n');
   const raw = loadPatchContent();
   const entries = extractFiles(raw);
 
@@ -85,12 +77,12 @@ function main() {
   console.log('\n🔍 Memeriksa TypeScript via pnpm typecheck...');
   try {
     execSync('pnpm typecheck', { cwd, stdio: 'inherit' });
-    console.log('\n✅ V2 Upgrade berhasil diterapkan & lolos TypeScript check!');
+    console.log('\n✅ V3 Upgrade berhasil diterapkan & lolos TypeScript check!');
   } catch {
     console.warn('\n⚠️  Typecheck selesai dengan peringatan/error. Cek output di atas.');
   }
 
-  console.log('\n🔥 Jalankan `pnpm dev` untuk menikmati ApexChart Pro V2!\n');
+  console.log('\n🔥 Jalankan `pnpm dev` untuk mencoba ApexChart Pro V3!\n');
 }
 
 main();

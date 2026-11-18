@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IChartApi, ISeriesApi, Logical } from 'lightweight-charts';
-import { DRAWING_TOOLS_CATALOG, TIMEFRAME_MAP } from '@/data/symbols';
+import {
+  DEFAULT_FIB_EXT_LEVELS,
+  DEFAULT_FIB_RETRACE_LEVELS,
+  DRAWING_TOOLS_CATALOG,
+  isVisibleOnTimeframeGroup,
+  TIMEFRAME_MAP,
+} from '@/data/symbols';
 import { formatCompactNumber, formatPrice, generateId } from '@/lib/utils';
 import {
   computeLinearRegression,
@@ -36,31 +42,25 @@ interface ScreenPoint {
   y: number;
 }
 
-const FIB_RETRACE_LEVELS = [
-  { level: 0, color: '#787B86', fill: 'rgba(120,123,134,0.05)' },
-  { level: 0.236, color: '#F23645', fill: 'rgba(242,54,69,0.06)' },
-  { level: 0.382, color: '#F59E0B', fill: 'rgba(245,158,11,0.06)' },
-  { level: 0.5, color: '#089981', fill: 'rgba(8,153,129,0.08)' },
-  { level: 0.618, color: '#00D4AA', fill: 'rgba(0,212,170,0.09)' },
-  { level: 0.786, color: '#2962FF', fill: 'rgba(41,98,255,0.07)' },
-  { level: 1, color: '#8B5CF6', fill: 'rgba(139,92,246,0.05)' },
-  { level: 1.272, color: '#EC4899', fill: 'transparent' },
-  { level: 1.618, color: '#F59E0B', fill: 'transparent' },
-];
-
-const FIB_EXT_LEVELS = [
-  { level: 0, color: '#787B86' },
-  { level: 0.382, color: '#F59E0B' },
-  { level: 0.5, color: '#089981' },
-  { level: 0.618, color: '#00D4AA' },
-  { level: 1.0, color: '#2962FF' },
-  { level: 1.272, color: '#8B5CF6' },
-  { level: 1.618, color: '#EC4899' },
-  { level: 2.0, color: '#F23645' },
-  { level: 2.618, color: '#F59E0B' },
-];
-
 const FIB_TIME_NUMS = [0, 1, 2, 3, 5, 8, 13, 21, 34];
+
+function hexWithOpacity(hex: string, opacityPct: number): string {
+  const alpha = Math.max(0, Math.min(1, opacityPct / 100));
+  const clean = hex.replace('#', '');
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
+  }
+  if (clean.length === 6) {
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
+  }
+  return hex;
+}
 
 function distToSegment(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
   const dx = b.x - a.x;
@@ -119,15 +119,25 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
   const selectedDrawingId = useTradingStore((s) => s.selectedDrawingId);
   const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
+  const setEditingDrawingId = useTradingStore((s) => s.setEditingDrawingId);
   const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
   const addDrawing = useTradingStore((s) => s.addDrawing);
   const updateDrawing = useTradingStore((s) => s.updateDrawing);
   const removeDrawing = useTradingStore((s) => s.removeDrawing);
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
 
-  const symbolDrawings = drawingsBySymbol[symbol] ?? [];
+  const tfMeta = TIMEFRAME_MAP[timeframe];
+  const tfSec = tfMeta.seconds;
 
-  // Memoized Smart Quant Overlays (recompute only when candles or toggles change)
+  const symbolDrawings = useMemo(
+    () =>
+      (drawingsBySymbol[symbol] ?? []).filter((d) =>
+        isVisibleOnTimeframeGroup(d.visibility, tfMeta.group)
+      ),
+    [drawingsBySymbol, symbol, tfMeta.group]
+  );
+
   const vpvrData = useMemo(() => {
     if (!smartOverlays.showVPVR || candles.length < 15) return null;
     return computeVPVR(candles.slice(-220), 42);
@@ -185,8 +195,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     setIsBrushing(false);
     brushPointsRef.current = [];
   }, [activeTool, symbol]);
-
-  const tfSec = TIMEFRAME_MAP[timeframe].seconds;
 
   const timeToX = useCallback(
     (time: number): number | null => {
@@ -288,7 +296,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     [timeToX, priceToY]
   );
 
-  // Comprehensive Hit-Testing across ALL 43 Tools
   const hitTestDrawings = useCallback(
     (
       sx: number,
@@ -307,14 +314,12 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         if (screenPts.some((sp) => sp === null)) continue;
         const pts = screenPts as ScreenPoint[];
 
-        // 1. Anchor handles first
         for (let pi = 0; pi < pts.length; pi++) {
           if (Math.hypot(p.x - pts[pi].x, p.y - pts[pi].y) <= 9) {
             return { id: d.id, mode: 'point', pointIndex: pi };
           }
         }
 
-        // 2. Geometry checks per type
         if (d.type === 'hline' && pts[0]) {
           if (Math.abs(p.y - pts[0].y) <= 7) return { id: d.id, mode: 'move', pointIndex: 0 };
         } else if (d.type === 'hray' && pts[0]) {
@@ -342,13 +347,19 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const len = Math.hypot(dx, dy) || 1;
           const farPt = { x: pts[0].x + (dx / len) * scale, y: pts[0].y + (dy / len) * scale };
           if (distToSegment(p, pts[0], farPt) <= 7) return { id: d.id, mode: 'move', pointIndex: 0 };
-        } else if (d.type === 'extended_line' && pts.length >= 2) {
+        } else if ((d.type === 'extended_line' || d.extendLeft || d.extendRight) && pts.length >= 2) {
           const dx = pts[1].x - pts[0].x;
           const dy = pts[1].y - pts[0].y;
           const scale = Math.max(width, height) * 2;
           const len = Math.hypot(dx, dy) || 1;
-          const pA = { x: pts[0].x - (dx / len) * scale, y: pts[0].y - (dy / len) * scale };
-          const pB = { x: pts[0].x + (dx / len) * scale, y: pts[0].y + (dy / len) * scale };
+          const pA =
+            d.type === 'extended_line' || d.extendLeft
+              ? { x: pts[0].x - (dx / len) * scale, y: pts[0].y - (dy / len) * scale }
+              : pts[0];
+          const pB =
+            d.type === 'extended_line' || d.extendRight
+              ? { x: pts[0].x + (dx / len) * scale, y: pts[0].y + (dy / len) * scale }
+              : pts[1];
           if (distToSegment(p, pA, pB) <= 7) return { id: d.id, mode: 'move', pointIndex: 0 };
         } else if (
           (d.type === 'rect' ||
@@ -421,7 +432,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     }
   }, [stayInDrawingMode, setActiveTool]);
 
-  // Master Canvas Renderer (Smart Overlays + 43 Drawing Tools)
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return;
@@ -437,22 +447,22 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    const chartPlotWidth = Math.max(0, width - 70);
+    const isLeftScale = chartSettings.priceScalePosition === 'left';
+    const plotLeft = isLeftScale ? 70 : 0;
+    const plotRight = isLeftScale ? width : Math.max(0, width - 70);
+    const chartPlotWidth = Math.max(0, plotRight - plotLeft);
 
-    // -----------------------------------------------------------------------
-    // A. SMART AI OVERLAYS LAYER (VPVR, FVG, BOS/CHoCH, Auto S/R, Trendlines)
-    // -----------------------------------------------------------------------
+    // Smart Overlays Layer
     if (vpvrData && smartOverlays.showVPVR) {
       const maxBarW = Math.min(130, chartPlotWidth * 0.22);
-      const rightEdge = chartPlotWidth - 2;
+      const rightEdge = plotRight - 2;
       const vahY = priceToY(vpvrData.vahPrice);
       const valY = priceToY(vpvrData.valPrice);
       const pocY = priceToY(vpvrData.pocPrice);
 
-      // Value Area shading
       if (vahY !== null && valY !== null) {
         ctx.fillStyle = 'rgba(41, 98, 255, 0.055)';
-        ctx.fillRect(0, Math.min(vahY, valY), chartPlotWidth, Math.abs(valY - vahY));
+        ctx.fillRect(plotLeft, Math.min(vahY, valY), chartPlotWidth, Math.abs(valY - vahY));
       }
 
       for (const bin of vpvrData.bins) {
@@ -471,25 +481,23 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.fillRect(rightEdge - sellW, y, sellW, barH);
       }
 
-      // POC Line
       if (pocY !== null) {
         ctx.save();
         ctx.strokeStyle = '#F59E0B';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
-        ctx.moveTo(0, pocY);
-        ctx.lineTo(chartPlotWidth, pocY);
+        ctx.moveTo(plotLeft, pocY);
+        ctx.lineTo(plotRight, pocY);
         ctx.stroke();
         ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = '#F59E0B';
-        ctx.fillText(`POC ${formatPrice(vpvrData.pocPrice, precision)}`, 10, pocY - 4);
+        ctx.fillText(`POC ${formatPrice(vpvrData.pocPrice, precision)}`, plotLeft + 10, pocY - 4);
         ctx.restore();
       }
     }
 
     if (structureData) {
-      // Fair Value Gaps (FVG)
       if (smartOverlays.showFVG) {
         for (const fvg of structureData.fvgs) {
           const x1 = timeToX(fvg.timeStart);
@@ -512,7 +520,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         }
       }
 
-      // Auto Support / Resistance
       if (smartOverlays.showAutoSR) {
         ctx.save();
         for (const lvl of structureData.srLevels) {
@@ -523,21 +530,20 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 4]);
           ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(chartPlotWidth, y);
+          ctx.moveTo(plotLeft, y);
+          ctx.lineTo(plotRight, y);
           ctx.stroke();
           ctx.font = '600 9px "JetBrains Mono", monospace';
           ctx.fillStyle = col;
           ctx.fillText(
             `${lvl.kind === 'support' ? 'SUP' : 'RES'} ${formatPrice(lvl.price, precision)}`,
-            chartPlotWidth - 135,
+            plotRight - 135,
             y - 3
           );
         }
         ctx.restore();
       }
 
-      // Auto Pivot Trendlines
       if (smartOverlays.showAutoTrendlines) {
         ctx.save();
         for (const tl of structureData.trendlines) {
@@ -558,7 +564,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.restore();
       }
 
-      // Market Structure (HH/HL/LH/LL & BOS/CHoCH)
       if (smartOverlays.showMarketStructure) {
         ctx.save();
         for (const br of structureData.breaks) {
@@ -584,17 +589,13 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           if (!sp) continue;
           const isHigh = pv.kind === 'high';
           ctx.font = '700 9px "JetBrains Mono", monospace';
-          ctx.fillStyle =
-            pv.label === 'HH' || pv.label === 'HL' ? '#00D4AA' : '#F23645';
+          ctx.fillStyle = pv.label === 'HH' || pv.label === 'HL' ? '#00D4AA' : '#F23645';
           ctx.fillText(pv.label, sp.x - 8, isHigh ? sp.y - 6 : sp.y + 12);
         }
         ctx.restore();
       }
     }
 
-    // -----------------------------------------------------------------------
-    // B. 43 INTERACTIVE DRAWING TOOLS RENDERER
-    // -----------------------------------------------------------------------
     const drawSingle = (
       type: Exclude<DrawingToolType, 'cursor' | 'eraser'>,
       ptsData: DrawingPoint[],
@@ -602,15 +603,25 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       lineWidth: number,
       lineStyle: 'solid' | 'dashed' | 'dotted',
       isSelected: boolean,
-      extraText?: string
+      obj?: Partial<DrawingObject>
     ) => {
       const screenPts = ptsData.map(toScreen);
       if (screenPts.some((s) => s === null)) return;
       const pts = screenPts as ScreenPoint[];
 
+      const strokeOp = obj?.opacity ?? 100;
+      const strokeCol = hexWithOpacity(color, strokeOp);
+      const fillBase = obj?.fillColor ?? color;
+      const fillOp = obj?.showFill === false ? 0 : obj?.fillOpacity ?? 15;
+      const fillCol = hexWithOpacity(fillBase, fillOp);
+      const fontSpec = `${obj?.fontItalic ? 'italic ' : ''}${
+        obj?.fontBold ? '700 ' : '600 '
+      }${obj?.fontSize ?? 11}px Inter, sans-serif`;
+      const txtCol = obj?.textColor ?? color;
+
       ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
+      ctx.strokeStyle = strokeCol;
+      ctx.fillStyle = strokeCol;
       ctx.lineWidth = lineWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -619,14 +630,37 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       else if (lineStyle === 'dotted') ctx.setLineDash([2, 4]);
       else ctx.setLineDash([]);
 
-      // 1. Trend Line & Info Line
       if ((type === 'trendline' || type === 'info_line') && pts.length >= 2) {
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        const len = Math.hypot(dx, dy) || 1;
+        const scale = Math.max(width, height) * 2.5;
+        const pStart = obj?.extendLeft
+          ? { x: pts[0].x - (dx / len) * scale, y: pts[0].y - (dy / len) * scale }
+          : pts[0];
+        const pEnd = obj?.extendRight
+          ? { x: pts[1].x + (dx / len) * scale, y: pts[1].y + (dy / len) * scale }
+          : pts[1];
+
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.moveTo(pStart.x, pStart.y);
+        ctx.lineTo(pEnd.x, pEnd.y);
         ctx.stroke();
 
-        if (isSelected || type === 'info_line') {
+        if (obj?.text) {
+          ctx.setLineDash([]);
+          ctx.font = fontSpec;
+          ctx.fillStyle = txtCol;
+          const mx =
+            obj.textAlign === 'left'
+              ? pts[0].x + 6
+              : obj.textAlign === 'right'
+              ? pts[1].x - ctx.measureText(obj.text).width - 6
+              : (pts[0].x + pts[1].x) / 2 - ctx.measureText(obj.text).width / 2;
+          ctx.fillText(obj.text, mx, (pts[0].y + pts[1].y) / 2 - 6);
+        }
+
+        if (isSelected || type === 'info_line' || obj?.showStats) {
           ctx.setLineDash([]);
           const diff = ptsData[1].price - ptsData[0].price;
           const pct = (diff / Math.max(ptsData[0].price, 1e-9)) * 100;
@@ -635,7 +669,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             (-Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180) / Math.PI
           );
           const label =
-            type === 'info_line'
+            type === 'info_line' || obj?.showStats
               ? `${diff >= 0 ? '+' : ''}${formatPrice(diff, precision)} (${
                   pct >= 0 ? '+' : ''
                 }${pct.toFixed(2)}%) • ${bars}b • ${angle}°`
@@ -644,9 +678,9 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.font = '600 10px "JetBrains Mono", monospace';
           const tw = ctx.measureText(label).width + 12;
           const lx = (pts[0].x + pts[1].x) / 2 - tw / 2;
-          const ly = (pts[0].y + pts[1].y) / 2 - 22;
+          const ly = (pts[0].y + pts[1].y) / 2 - 24;
           ctx.fillStyle = theme === 'dark' ? 'rgba(19,23,34,0.92)' : 'rgba(255,255,255,0.94)';
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = strokeCol;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.roundRect(lx, ly, tw, 18, 4);
@@ -681,18 +715,31 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
+        if (obj?.text) {
+          ctx.font = fontSpec;
+          ctx.fillStyle = txtCol;
+          ctx.fillText(obj.text, Math.max(plotLeft + 12, startX + 12), pts[0].y - 6);
+        }
+
         const priceLabel = formatPrice(ptsData[0].price, precision);
         ctx.font = '600 10px "JetBrains Mono", monospace';
         const tw = ctx.measureText(priceLabel).width + 12;
         ctx.fillStyle = color;
-        ctx.fillRect(width - tw - 4, pts[0].y - 9, tw, 18);
+        const tagX = isLeftScale ? 4 : width - tw - 4;
+        ctx.fillRect(tagX, pts[0].y - 9, tw, 18);
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(priceLabel, width - tw + 2, pts[0].y + 3.5);
+        ctx.fillText(priceLabel, tagX + 6, pts[0].y + 3.5);
       } else if (type === 'vline' && pts.length >= 1) {
         ctx.beginPath();
         ctx.moveTo(pts[0].x, 0);
         ctx.lineTo(pts[0].x, height);
         ctx.stroke();
+        if (obj?.text) {
+          ctx.setLineDash([]);
+          ctx.font = fontSpec;
+          ctx.fillStyle = txtCol;
+          ctx.fillText(obj.text, pts[0].x + 6, 36);
+        }
       } else if (type === 'cross_line' && pts.length >= 1) {
         ctx.beginPath();
         ctx.moveTo(0, pts[0].y);
@@ -714,7 +761,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.lineTo(p3.x, p3.y);
           ctx.stroke();
 
-          ctx.fillStyle = `${color}1A`;
+          ctx.fillStyle = fillCol;
           ctx.beginPath();
           ctx.moveTo(pts[0].x, pts[0].y);
           ctx.lineTo(pts[1].x, pts[1].y);
@@ -739,7 +786,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const l0 = toScreen({ time: reg.startTime, price: reg.lowerStart });
           const l1 = toScreen({ time: reg.endTime, price: reg.lowerEnd });
           if (m0 && m1 && u0 && u1 && l0 && l1) {
-            ctx.fillStyle = `${color}18`;
+            ctx.fillStyle = fillCol;
             ctx.beginPath();
             ctx.moveTo(u0.x, u0.y);
             ctx.lineTo(u1.x, u1.y);
@@ -766,8 +813,11 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const minX = Math.min(pts[0].x, pts[1].x);
         const maxX = Math.max(pts[0].x, pts[1].x);
         const spanW = Math.max(maxX - minX, 95);
-        const priceSpan = ptsData[1].price - ptsData[0].price;
+        const pStart = obj?.fibReverse ? ptsData[1].price : ptsData[0].price;
+        const pEnd = obj?.fibReverse ? ptsData[0].price : ptsData[1].price;
+        const priceSpan = pEnd - pStart;
 
+        const levels = (obj?.fibLevels ?? DEFAULT_FIB_RETRACE_LEVELS).filter((l) => l.enabled);
         ctx.setLineDash([3, 3]);
         ctx.strokeStyle = 'rgba(120,123,134,0.6)';
         ctx.beginPath();
@@ -776,17 +826,17 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        for (let i = 0; i < FIB_RETRACE_LEVELS.length; i++) {
-          const lvl = FIB_RETRACE_LEVELS[i];
-          const lvlPrice = ptsData[1].price - priceSpan * lvl.level;
+        for (let i = 0; i < levels.length; i++) {
+          const lvl = levels[i];
+          const lvlPrice = pEnd - priceSpan * lvl.level;
           const yCoord = priceToY(lvlPrice);
           if (yCoord === null) continue;
 
-          if (i < FIB_RETRACE_LEVELS.length - 1 && lvl.fill !== 'transparent') {
-            const nextPrice = ptsData[1].price - priceSpan * FIB_RETRACE_LEVELS[i + 1].level;
+          if (i < levels.length - 1) {
+            const nextPrice = pEnd - priceSpan * levels[i + 1].level;
             const nextY = priceToY(nextPrice);
             if (nextY !== null) {
-              ctx.fillStyle = lvl.fill;
+              ctx.fillStyle = hexWithOpacity(lvl.color, 7);
               ctx.fillRect(minX, Math.min(yCoord, nextY), spanW, Math.abs(nextY - yCoord));
             }
           }
@@ -800,11 +850,14 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
           ctx.fillStyle = lvl.color;
           ctx.font = '600 10px "JetBrains Mono", monospace';
-          ctx.fillText(
-            `${lvl.level} (${formatPrice(lvlPrice, precision)})`,
-            minX + 6,
-            yCoord - 3
-          );
+          const levelLabel = obj?.fibShowPercents
+            ? `${(lvl.level * 100).toFixed(1)}%`
+            : String(lvl.level);
+          const textLabel =
+            obj?.fibShowPrices === false
+              ? levelLabel
+              : `${levelLabel} (${formatPrice(lvlPrice, precision)})`;
+          ctx.fillText(textLabel, minX + 6, yCoord - 3);
         }
       } else if (type === 'fib_ext' && pts.length >= 2) {
         ctx.setLineDash([3, 3]);
@@ -819,7 +872,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const impulse = ptsData[1].price - ptsData[0].price;
           const startX = pts[2].x;
           const spanW = Math.max(120, Math.abs(pts[2].x - pts[0].x));
-          for (const lvl of FIB_EXT_LEVELS) {
+          const levels = (obj?.fibLevels ?? DEFAULT_FIB_EXT_LEVELS).filter((l) => l.enabled);
+          for (const lvl of levels) {
             const extPrice = ptsData[2].price + impulse * lvl.level;
             const yCoord = priceToY(extPrice);
             if (yCoord === null) continue;
@@ -831,7 +885,11 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             ctx.stroke();
             ctx.fillStyle = lvl.color;
             ctx.font = '600 10px "JetBrains Mono", monospace';
-            ctx.fillText(`${lvl.level} (${formatPrice(extPrice, precision)})`, startX + 6, yCoord - 3);
+            const label =
+              obj?.fibShowPrices === false
+                ? String(lvl.level)
+                : `${lvl.level} (${formatPrice(extPrice, precision)})`;
+            ctx.fillText(label, startX + 6, yCoord - 3);
           }
         }
       } else if (type === 'fib_channel' && pts.length >= 2) {
@@ -844,7 +902,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const oy = pts[2].y - pts[0].y;
           const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.618];
           for (const lv of levels) {
-            ctx.strokeStyle = lv === 0.618 || lv === 0.5 ? '#00D4AA' : color;
+            ctx.strokeStyle = lv === 0.618 || lv === 0.5 ? '#00D4AA' : strokeCol;
             ctx.lineWidth = lv === 0 || lv === 1 ? lineWidth : 1;
             ctx.beginPath();
             ctx.moveTo(pts[0].x + ox * lv, pts[0].y + oy * lv);
@@ -861,7 +919,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           for (const n of FIB_TIME_NUMS) {
             const x = timeToX(ptsData[0].time + dt * n);
             if (x === null) continue;
-            ctx.strokeStyle = n === 0 || n === 1 ? color : '#00D4AA';
+            ctx.strokeStyle = n === 0 || n === 1 ? strokeCol : '#00D4AA';
             ctx.lineWidth = 1.2;
             ctx.setLineDash(n <= 1 ? [] : [4, 4]);
             ctx.beginPath();
@@ -889,7 +947,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const dx = pts[1].x - pts[0].x;
           const dy = targetY - pts[0].y;
           const len = Math.hypot(dx, dy) || 1;
-          ctx.strokeStyle = r === 0.618 ? '#00D4AA' : color;
+          ctx.strokeStyle = r === 0.618 ? '#00D4AA' : strokeCol;
           ctx.lineWidth = 1.2;
           ctx.beginPath();
           ctx.moveTo(pts[0].x, pts[0].y);
@@ -906,7 +964,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const baseR = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         const ratios = [0.382, 0.5, 0.618, 0.786, 1.0, 1.618];
         for (const r of ratios) {
-          ctx.strokeStyle = r === 0.618 ? '#00D4AA' : color;
+          ctx.strokeStyle = r === 0.618 ? '#00D4AA' : strokeCol;
           ctx.lineWidth = 1.2;
           ctx.beginPath();
           ctx.arc(pts[0].x, pts[0].y, baseR * r, 0, Math.PI * 2);
@@ -933,7 +991,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const ux = (dx / len) * scale;
           const uy = (dy / len) * scale;
 
-          // Median line
           ctx.strokeStyle = '#F23645';
           ctx.lineWidth = lineWidth;
           ctx.beginPath();
@@ -941,8 +998,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.lineTo(pts[0].x + ux, pts[0].y + uy);
           ctx.stroke();
 
-          // Upper & lower parallel prongs
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = strokeCol;
           ctx.beginPath();
           ctx.moveTo(pts[1].x, pts[1].y);
           ctx.lineTo(pts[1].x + ux, pts[1].y + uy);
@@ -950,8 +1006,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.lineTo(pts[2].x + ux, pts[2].y + uy);
           ctx.stroke();
 
-          // Shaded interior
-          ctx.fillStyle = `${color}15`;
+          ctx.fillStyle = fillCol;
           ctx.beginPath();
           ctx.moveTo(pts[1].x, pts[1].y);
           ctx.lineTo(pts[1].x + ux, pts[1].y + uy);
@@ -965,7 +1020,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const y = Math.min(pts[0].y, pts[1].y);
         const w = Math.abs(pts[1].x - pts[0].x);
         const h = Math.abs(pts[1].y - pts[0].y);
-        ctx.fillStyle = `${color}12`;
+        ctx.fillStyle = fillCol;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
 
@@ -981,7 +1036,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.stroke();
         }
         ctx.setLineDash([]);
-        // Gann diagonals
         ctx.strokeStyle = '#F59E0B';
         ctx.beginPath();
         ctx.moveTo(x, y + h);
@@ -1000,9 +1054,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
         ctx.stroke();
 
-        // Shaded harmonic wings
         if (pts.length >= 3) {
-          ctx.fillStyle = `${color}22`;
+          ctx.fillStyle = fillCol;
           ctx.beginPath();
           ctx.moveTo(pts[0].x, pts[0].y);
           ctx.lineTo(pts[1].x, pts[1].y);
@@ -1011,7 +1064,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.fill();
         }
         if (pts.length >= 5) {
-          ctx.fillStyle = `${color}22`;
+          ctx.fillStyle = fillCol;
           ctx.beginPath();
           ctx.moveTo(pts[2].x, pts[2].y);
           ctx.lineTo(pts[3].x, pts[3].y);
@@ -1020,7 +1073,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.fill();
         }
 
-        // Dashed leg ratios
         ctx.setLineDash([4, 4]);
         ctx.font = '700 10px "JetBrains Mono", monospace';
         if (pts.length >= 3) {
@@ -1058,7 +1110,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         }
         ctx.setLineDash([]);
 
-        // Vertex Labels
         ctx.font = '700 11px Inter, sans-serif';
         pts.forEach((pt, idx) => {
           ctx.fillStyle = color;
@@ -1112,12 +1163,11 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.strokeRect(x1, y1, Math.max(12, x2 - x1), Math.max(12, y2 - y1));
         ctx.setLineDash([]);
 
-        // Project ghost candles at anchor pts[2]
         if (pts.length >= 3 && srcBars.length > 0) {
           const baseSrcOpen = srcBars[0].open;
           const anchorPrice = ptsData[2].price;
           const anchorTime = ptsData[2].time;
-          const barW = Math.max(3, (x2 - x1) / Math.max(srcBars.length, 1) * 0.65);
+          const barW = Math.max(3, ((x2 - x1) / Math.max(srcBars.length, 1)) * 0.65);
 
           for (let i = 0; i < srcBars.length; i++) {
             const b = srcBars[i];
@@ -1145,15 +1195,28 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const y = Math.min(pts[0].y, pts[1].y);
         const w = Math.abs(pts[1].x - pts[0].x);
         const h = Math.abs(pts[1].y - pts[0].y);
-        ctx.fillStyle = `${color}22`;
+        ctx.fillStyle = fillCol;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
-        // Equilibrium midline
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x, y + h / 2);
-        ctx.lineTo(x + w, y + h / 2);
-        ctx.stroke();
+        if (obj?.showMidline !== false) {
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, y + h / 2);
+          ctx.lineTo(x + w, y + h / 2);
+          ctx.stroke();
+        }
+        if (obj?.text) {
+          ctx.setLineDash([]);
+          ctx.font = fontSpec;
+          ctx.fillStyle = txtCol;
+          const tx =
+            obj.textAlign === 'left'
+              ? x + 8
+              : obj.textAlign === 'right'
+              ? x + w - ctx.measureText(obj.text).width - 8
+              : x + w / 2 - ctx.measureText(obj.text).width / 2;
+          ctx.fillText(obj.text, tx, y + h / 2 + 4);
+        }
       } else if (type === 'rotated_rect' && pts.length >= 2) {
         if (pts.length === 2) {
           ctx.beginPath();
@@ -1164,7 +1227,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           const ox = pts[2].x - pts[0].x;
           const oy = pts[2].y - pts[0].y;
           const p3 = { x: pts[1].x + ox, y: pts[1].y + oy };
-          ctx.fillStyle = `${color}22`;
+          ctx.fillStyle = fillCol;
           ctx.beginPath();
           ctx.moveTo(pts[0].x, pts[0].y);
           ctx.lineTo(pts[1].x, pts[1].y);
@@ -1179,13 +1242,13 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const cy = (pts[0].y + pts[1].y) / 2;
         const rx = Math.max(4, Math.abs(pts[1].x - pts[0].x) / 2);
         const ry = Math.max(4, Math.abs(pts[1].y - pts[0].y) / 2);
-        ctx.fillStyle = `${color}22`;
+        ctx.fillStyle = fillCol;
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       } else if (type === 'triangle' && pts.length >= 2) {
-        ctx.fillStyle = `${color}22`;
+        ctx.fillStyle = fillCol;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         ctx.lineTo(pts[1].x, pts[1].y);
@@ -1242,9 +1305,15 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const rr = reward / risk;
         const pctReward = (reward / Math.max(ptsData[0].price, 1e-9)) * 100;
         const pctRisk = (risk / Math.max(ptsData[0].price, 1e-9)) * 100;
+        const acct = obj?.accountSize ?? 100000;
+        const rPct = obj?.riskPercent ?? 1;
+        const riskUsd = acct * (rPct / 100);
+        const qtyCalc = riskUsd / risk;
 
         ctx.font = '600 10px "JetBrains Mono", monospace';
-        const rrText = `${type === 'long_pos' ? 'LONG' : 'SHORT'} R:R 1:${rr.toFixed(2)}`;
+        const rrText = `${type === 'long_pos' ? 'LONG' : 'SHORT'} R:R 1:${rr.toFixed(
+          2
+        )} • Qty ${qtyCalc >= 10 ? qtyCalc.toFixed(1) : qtyCalc.toFixed(3)}`;
         ctx.fillStyle = theme === 'dark' ? 'rgba(19,23,34,0.92)' : 'rgba(255,255,255,0.94)';
         const bw = ctx.measureText(rrText).width + 12;
         ctx.fillRect(boxLeft + 6, entryPt.y - 10, bw, 18);
@@ -1253,13 +1322,13 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
         ctx.fillStyle = '#089981';
         ctx.fillText(
-          `TP +${pctReward.toFixed(2)}%`,
+          `TP +${pctReward.toFixed(2)}% (+$${(riskUsd * rr).toFixed(0)})`,
           boxLeft + 6,
           tpPt.y + (type === 'long_pos' ? 12 : -5)
         );
         ctx.fillStyle = '#F23645';
         ctx.fillText(
-          `SL -${pctRisk.toFixed(2)}%`,
+          `SL -${pctRisk.toFixed(2)}% (-$${riskUsd.toFixed(0)})`,
           boxLeft + 6,
           slPt.y + (type === 'long_pos' ? -5 : 12)
         );
@@ -1281,22 +1350,22 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         drawArrowHead(ctx, pts[0], pts[1], 10 + lineWidth);
       } else if (type === 'text' && pts[0]) {
         ctx.setLineDash([]);
-        const label = extraText || 'Note';
-        ctx.font = '600 12px Inter, sans-serif';
+        const label = obj?.text || 'Note';
+        ctx.font = fontSpec;
         const tw = ctx.measureText(label).width + 14;
         ctx.fillStyle = theme === 'dark' ? 'rgba(19, 23, 34, 0.9)' : 'rgba(255, 255, 255, 0.94)';
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = strokeCol;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(pts[0].x, pts[0].y - 16, tw, 24, 5);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = color;
+        ctx.fillStyle = txtCol;
         ctx.fillText(label, pts[0].x + 7, pts[0].y);
       } else if (type === 'callout' && pts.length >= 2) {
         ctx.setLineDash([]);
-        const label = extraText || 'Callout';
-        ctx.font = '600 11px Inter, sans-serif';
+        const label = obj?.text || 'Callout';
+        ctx.font = fontSpec;
         const tw = Math.max(70, ctx.measureText(label).width + 16);
         const bx = pts[1].x - tw / 2;
         const by = pts[1].y - 14;
@@ -1307,13 +1376,13 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.stroke();
 
         ctx.fillStyle = theme === 'dark' ? '#1E222D' : '#FFFFFF';
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = strokeCol;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.roundRect(bx, by, tw, 26, 6);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = color;
+        ctx.fillStyle = txtCol;
         ctx.fillText(label, bx + 8, by + 16.5);
       } else if (type === 'price_label' && pts[0]) {
         ctx.setLineDash([]);
@@ -1339,7 +1408,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const isUp = ptsData[1].price >= ptsData[0].price;
         const rc = type === 'date_price_range' ? color : isUp ? '#089981' : '#F23645';
 
-        ctx.fillStyle = `${rc}24`;
+        ctx.fillStyle = hexWithOpacity(rc, obj?.fillOpacity ?? 15);
         ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = rc;
         ctx.setLineDash([4, 3]);
@@ -1398,7 +1467,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           d.lineWidth,
           d.lineStyle ?? 'solid',
           d.id === selectedDrawingId,
-          d.text
+          d
         );
       }
     }
@@ -1474,6 +1543,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     vpvrData,
     structureData,
     smartOverlays,
+    chartSettings.priceScalePosition,
   ]);
 
   useEffect(() => {
@@ -1516,14 +1586,12 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const dataPt = screenToData(x, y, true);
     if (!dataPt) return;
 
-    // Eraser Tool: 1-click delete drawing
     if (activeTool === 'eraser') {
       const hit = hitTestDrawings(x, y, true);
       if (hit) removeDrawing(symbol, hit.id);
       return;
     }
 
-    // Cursor Mode: Select & drag
     if (activeTool === 'cursor') {
       const hit = hitTestDrawings(x, y);
       if (hit) {
@@ -1586,7 +1654,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       return;
     }
 
-    // 1-Click Risk/Reward Box
     if (activeTool === 'long_pos' || activeTool === 'short_pos') {
       const topPrice = series?.coordinateToPrice(Math.max(10, y - height * 0.14));
       const botPrice = series?.coordinateToPrice(Math.min(height - 10, y + height * 0.08));
@@ -1609,13 +1676,14 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         color: isLong ? '#089981' : '#F23645',
         lineWidth: 1.5,
         lineStyle: 'solid',
+        riskPercent: chartSettings.defaultRiskPercent,
+        accountSize: 100000,
         createdAt: Date.now(),
       });
       finishToolUsage();
       return;
     }
 
-    // Generic N-Point Tool Handling via Catalog Metadata
     const meta = DRAWING_TOOLS_CATALOG.find((t) => t.id === activeTool);
     const reqPts = meta?.pointsRequired ?? 2;
     const nextPts = [...draftPoints, dataPt];
@@ -1715,8 +1783,10 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const hit = hitTestDrawings(x, y);
     if (!hit) return;
     const target = symbolDrawings.find((d) => d.id === hit.id);
-    if (target && (target.type === 'text' || target.type === 'callout')) {
-      e.stopPropagation();
+    if (!target) return;
+
+    e.stopPropagation();
+    if (target.type === 'text' || target.type === 'callout') {
       setTextDraft({
         x,
         y,
@@ -1725,6 +1795,9 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         editingId: target.id,
       });
       setTextValue(target.text ?? '');
+    } else {
+      setSelectedDrawingId(target.id);
+      setEditingDrawingId(target.id);
     }
   };
 
@@ -1790,7 +1863,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         }`}
       />
 
-      {/* Multi-Click Drawing HUD Hint */}
       {activeTool !== 'cursor' && activeToolMeta && (
         <div className="pointer-events-none absolute bottom-10 left-3 z-20 rounded-md border border-[#2A2E39] bg-[#1E222D]/90 px-2.5 py-1 text-[11px] text-[#D1D4DC] shadow-lg backdrop-blur">
           <span className="font-bold text-[#2962FF]">{activeToolMeta.label}</span>

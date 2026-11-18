@@ -1,10 +1,12 @@
 import { getSymbolInfo, TIMEFRAME_MAP } from '@/data/symbols';
-import { Candle, SymbolInfo, TimeframeId } from '@/types/trading';
+import { Candle, DataFeedConfig, FeedSourceType, SymbolInfo, TimeframeId } from '@/types/trading';
 
 const BINANCE_REST_BASE = 'https://data-api.binance.vision/api/v3';
 const BINANCE_WS_BASE = 'wss://data-stream.binance.vision/ws';
+const TWELVE_REST_BASE = 'https://api.twelvedata.com';
+const TWELVE_WS_BASE = 'wss://ws.twelvedata.com/v1/quotes/price';
+const FX_RATE_CACHE: { rates?: Record<string, number>; fetchedAt?: number } = {};
 
-// Seeded deterministic pseudo-random generator for reproducible synthetic history
 function createSeededRng(seedStr: string) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < seedStr.length; i++) {
@@ -24,6 +26,41 @@ function roundToPrecision(val: number, precision: number): number {
   return Math.round(val * factor) / factor;
 }
 
+async function fetchLiveFxSpotAnchor(info: SymbolInfo): Promise<number | null> {
+  if (!info.fxPair) return null;
+  const now = Date.now();
+  try {
+    if (!FX_RATE_CACHE.rates || !FX_RATE_CACHE.fetchedAt || now - FX_RATE_CACHE.fetchedAt > 300000) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const json = (await res.json()) as { rates?: Record<string, number> };
+          if (json.rates) {
+            FX_RATE_CACHE.rates = json.rates;
+            FX_RATE_CACHE.fetchedAt = now;
+          }
+        }
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+
+    const rates = FX_RATE_CACHE.rates;
+    if (!rates) return null;
+    const [base, quote] = info.fxPair;
+    if (base === 'USD' && rates[quote]) return rates[quote];
+    if (quote === 'USD' && rates[base]) return 1 / rates[base];
+    if (rates[base] && rates[quote]) return rates[quote] / rates[base];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function generateSyntheticCandles(
   symbolInfo: SymbolInfo,
   timeframe: TimeframeId,
@@ -35,14 +72,12 @@ export function generateSyntheticCandles(
   const nowBucket = Math.floor((endAnchorTimeSec ?? Math.floor(Date.now() / 1000)) / tfSec) * tfSec;
   const rng = createSeededRng(`${symbolInfo.symbol}-${timeframe}`);
 
-  // Scale daily volatility to timeframe step
   const stepScale = Math.sqrt(tfSec / 86400);
   const stepVol = Math.max(symbolInfo.volatility * stepScale, symbolInfo.volatility * 0.045);
 
   const rawCloses: number[] = [];
   let price = endAnchorPrice ?? symbolInfo.basePrice;
 
-  // Walk backwards or generate forward then normalize end price to anchor
   let trendRegime = 0;
   for (let i = 0; i < count; i++) {
     if (i % 24 === 0) {
@@ -57,7 +92,6 @@ export function generateSyntheticCandles(
     rawCloses.push(price);
   }
 
-  // Re-anchor final close smoothly to desired anchor price if provided
   const finalGenerated = rawCloses[rawCloses.length - 1];
   const anchorFactor = endAnchorPrice ? endAnchorPrice / finalGenerated : 1;
 
@@ -79,7 +113,8 @@ export function generateSyntheticCandles(
       symbolInfo.precision
     );
 
-    const baseVol = symbolInfo.category === 'Crypto' ? 850 : symbolInfo.category === 'IDX' ? 420000 : 18500;
+    const baseVol =
+      symbolInfo.category === 'Crypto' ? 850 : symbolInfo.category === 'IDX' ? 420000 : 18500;
     const volume = Math.round(
       baseVol * (0.4 + rng() * 1.9) * (1 + (bodySize / Math.max(open * stepVol, 1e-9)) * 0.5)
     );
@@ -117,7 +152,7 @@ async function fetchBinanceKlines(
   limit: number
 ): Promise<Candle[]> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 3500);
+  const timer = window.setTimeout(() => controller.abort(), 3800);
 
   try {
     const url = `${BINANCE_REST_BASE}/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
@@ -144,26 +179,143 @@ async function fetchBinanceKlines(
   }
 }
 
+function parseTwelveDatetimeToUnixSec(dtStr: string): number {
+  const iso = dtStr.includes(' ') ? dtStr.replace(' ', 'T') + 'Z' : dtStr + 'T00:00:00Z';
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
+}
+
+async function fetchTwelveDataKlines(
+  tdSymbol: string,
+  interval: string,
+  apiKey: string,
+  outputsize = 380
+): Promise<Candle[]> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const url = `${TWELVE_REST_BASE}/time_series?symbol=${encodeURIComponent(
+      tdSymbol
+    )}&interval=${encodeURIComponent(interval)}&outputsize=${outputsize}&apikey=${encodeURIComponent(
+      apiKey
+    )}`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Twelve Data HTTP ${res.status}`);
+    const json = (await res.json()) as {
+      status?: string;
+      message?: string;
+      values?: Array<{
+        datetime: string;
+        open: string;
+        high: string;
+        low: string;
+        close: string;
+        volume?: string;
+      }>;
+    };
+    if (json.status === 'error' || !Array.isArray(json.values) || json.values.length === 0) {
+      throw new Error(json.message || 'Twelve Data returned empty values');
+    }
+
+    const map = new Map<number, Candle>();
+    for (const row of json.values) {
+      const time = parseTwelveDatetimeToUnixSec(row.datetime);
+      map.set(time, {
+        time,
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume ?? 1000) || 1000,
+      });
+    }
+    return Array.from(map.values()).sort((a, b) => a.time - b.time);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function testTwelveDataKey(
+  apiKey: string
+): Promise<{ ok: boolean; price?: string; error?: string }> {
+  if (!apiKey.trim()) return { ok: false, error: 'API Key empty' };
+  try {
+    const res = await fetch(
+      `${TWELVE_REST_BASE}/price?symbol=XAU/USD&apikey=${encodeURIComponent(apiKey.trim())}`
+    );
+    const json = (await res.json()) as { price?: string; status?: string; message?: string };
+    if (json.price) return { ok: true, price: json.price };
+    return { ok: false, error: json.message ?? 'Invalid API key or quota limit' };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 export async function fetchHistoricalCandles(
   symbol: string,
-  timeframe: TimeframeId
-): Promise<{ candles: Candle[]; source: 'binance' | 'simulated' }> {
+  timeframe: TimeframeId,
+  feedConfig?: DataFeedConfig
+): Promise<{ candles: Candle[]; source: FeedSourceType }> {
   const info = getSymbolInfo(symbol);
   const tfMeta = TIMEFRAME_MAP[timeframe];
+  const tdKey = feedConfig?.twelveDataApiKey?.trim() || '';
 
-  if (info.binanceSymbol) {
+  // 1. Twelve Data Path (Native XAU/USD, Forex, US Stocks, IDX, or Crypto if preferred)
+  const shouldTryTwelveData =
+    Boolean(tdKey) &&
+    Boolean(info.twelveDataSymbol) &&
+    (feedConfig?.preferTwelveData || !info.binanceSymbol || info.symbol === 'XAUUSD');
+
+  if (shouldTryTwelveData && info.twelveDataSymbol) {
     try {
-      // Native Binance interval directly supported
+      const interval = tfMeta.twelveDataInterval ?? '1min';
+      const raw = await fetchTwelveDataKlines(
+        info.twelveDataSymbol,
+        interval,
+        tdKey,
+        Math.min(500, tfMeta.defaultBars)
+      );
+      if (raw.length > 0) {
+        if (tfMeta.seconds < 60) {
+          // Smooth sub-minute bars anchored to latest real Twelve Data quote
+          const lastBar = raw[raw.length - 1];
+          const synth = generateSyntheticCandles(
+            info,
+            timeframe,
+            tfMeta.defaultBars,
+            Math.floor(Date.now() / 1000),
+            lastBar.close
+          );
+          return { candles: synth, source: 'twelvedata' };
+        }
+        if (timeframe === '3m') {
+          const agg = aggregateCandles(raw, 180);
+          if (agg.length > 0) return { candles: agg, source: 'twelvedata' };
+        }
+        return { candles: raw, source: 'twelvedata' };
+      }
+    } catch {
+      // Fallback gracefully below
+    }
+  }
+
+  // 2. Binance Public Vision Path (Crypto + XAUUSD 24/7 Spot Gold Proxy PAXGUSDT)
+  const allowBinance =
+    Boolean(info.binanceSymbol) &&
+    (info.symbol !== 'XAUUSD' || feedConfig?.useGoldProxyWhenNoKey !== false);
+
+  if (allowBinance && info.binanceSymbol) {
+    const resolvedSource: FeedSourceType = info.symbol === 'XAUUSD' ? 'gold-proxy' : 'binance';
+    try {
       if (tfMeta.binanceInterval) {
         const candles = await fetchBinanceKlines(
           info.binanceSymbol,
           tfMeta.binanceInterval,
           Math.min(1000, tfMeta.defaultBars)
         );
-        return { candles, source: 'binance' };
+        return { candles, source: resolvedSource };
       }
 
-      // Sub-minute intervals (5s, 15s, 30s) -> fetch 1s klines & aggregate + backfill smooth history
       if (tfMeta.seconds < 60) {
         const raw1s = await fetchBinanceKlines(info.binanceSymbol, '1s', 1000);
         const aggregated = aggregateCandles(raw1s, tfMeta.seconds);
@@ -177,33 +329,39 @@ export async function fetchHistoricalCandles(
               aggregated[0].time - tfMeta.seconds,
               aggregated[0].open
             );
-            const merged = [...prefix, ...aggregated];
             const dedup = new Map<number, Candle>();
-            for (const b of merged) dedup.set(b.time, b);
+            for (const b of [...prefix, ...aggregated]) dedup.set(b.time, b);
             return {
               candles: Array.from(dedup.values()).sort((a, b) => a.time - b.time),
-              source: 'binance',
+              source: resolvedSource,
             };
           }
-          return { candles: aggregated, source: 'binance' };
+          return { candles: aggregated, source: resolvedSource };
         }
       }
 
-      // 45m -> aggregate from 15m klines
       if (timeframe === '45m') {
         const raw15m = await fetchBinanceKlines(info.binanceSymbol, '15m', 1000);
         const aggregated = aggregateCandles(raw15m, tfMeta.seconds);
         if (aggregated.length > 0) {
-          return { candles: aggregated, source: 'binance' };
+          return { candles: aggregated, source: resolvedSource };
         }
       }
     } catch {
-      // Graceful fallback to simulated historical generator below
+      // Fall through to anchored simulated history
     }
   }
 
+  // 3. Anchored FX Spot Rate or Deterministic Synthetic History
+  const fxAnchor = await fetchLiveFxSpotAnchor(info);
   return {
-    candles: generateSyntheticCandles(info, timeframe, tfMeta.defaultBars),
+    candles: generateSyntheticCandles(
+      info,
+      timeframe,
+      tfMeta.defaultBars,
+      undefined,
+      fxAnchor ?? info.basePrice
+    ),
     source: 'simulated',
   };
 }
@@ -212,10 +370,12 @@ export function subscribeLiveTicks(
   symbol: string,
   timeframe: TimeframeId,
   initialLastCandle: Candle,
-  onTick: (candle: Candle, source: 'binance' | 'simulated') => void
+  onTick: (candle: Candle, source: FeedSourceType) => void,
+  feedConfig?: DataFeedConfig
 ): () => void {
   const info = getSymbolInfo(symbol);
   const tfSec = TIMEFRAME_MAP[timeframe].seconds;
+  const tdKey = feedConfig?.twelveDataApiKey?.trim() || '';
 
   let disposed = false;
   let currentBar: Candle = { ...initialLastCandle };
@@ -223,7 +383,12 @@ export function subscribeLiveTicks(
   let simTimer: number | null = null;
   let wsHandshakeTimeout: number | null = null;
 
-  const processTrade = (price: number, qty: number, tradeTimeSec: number, source: 'binance' | 'simulated') => {
+  const processTrade = (
+    price: number,
+    qty: number,
+    tradeTimeSec: number,
+    source: FeedSourceType
+  ) => {
     if (disposed) return;
     const roundedPrice = roundToPrecision(price, info.precision);
     const bucketTime = Math.floor(tradeTimeSec / tfSec) * tfSec;
@@ -253,23 +418,89 @@ export function subscribeLiveTicks(
     if (disposed || simTimer !== null) return;
     const intervalMs = tfSec <= 15 ? 350 : 750;
     const tickScale = Math.sqrt(intervalMs / 1000 / 86400);
-    const tickVol = Math.max(info.volatility * tickScale * 1.4, info.minMove / Math.max(currentBar.close, 1));
+    const tickVol = Math.max(
+      info.volatility * tickScale * 1.4,
+      info.minMove / Math.max(currentBar.close, 1)
+    );
 
     simTimer = window.setInterval(() => {
       if (disposed) return;
       const noise = (Math.random() - 0.496) * 2.1;
-      const nextPrice = Math.max(
-        info.minMove,
-        currentBar.close * (1 + noise * tickVol)
-      );
+      const nextPrice = Math.max(info.minMove, currentBar.close * (1 + noise * tickVol));
       const qty = Math.round(
-        (info.category === 'Crypto' ? 1.5 : info.category === 'IDX' ? 2500 : 120) * (0.2 + Math.random() * 1.8)
+        (info.category === 'Crypto' ? 1.5 : info.category === 'IDX' ? 2500 : 120) *
+          (0.2 + Math.random() * 1.8)
       );
       processTrade(nextPrice, qty, Math.floor(Date.now() / 1000), 'simulated');
     }, intervalMs);
   };
 
-  if (info.binanceSymbol) {
+  const useTwelveDataWs =
+    Boolean(tdKey) &&
+    Boolean(info.twelveDataSymbol) &&
+    (feedConfig?.preferTwelveData || !info.binanceSymbol || info.symbol === 'XAUUSD');
+
+  if (useTwelveDataWs && info.twelveDataSymbol) {
+    try {
+      ws = new WebSocket(`${TWELVE_WS_BASE}?apikey=${encodeURIComponent(tdKey)}`);
+      let receivedPrice = false;
+      wsHandshakeTimeout = window.setTimeout(() => {
+        if (!receivedPrice && !disposed) {
+          ws?.close();
+          startSimulator();
+        }
+      }, 5000);
+
+      ws.onopen = () => {
+        ws?.send(
+          JSON.stringify({
+            action: 'subscribe',
+            params: { symbols: info.twelveDataSymbol },
+          })
+        );
+      };
+
+      ws.onmessage = (ev) => {
+        if (disposed) return;
+        try {
+          const msg = JSON.parse(ev.data as string) as {
+            event?: string;
+            price?: number;
+            timestamp?: number;
+            day_volume?: number;
+          };
+          if (msg.event === 'price' && typeof msg.price === 'number' && msg.price > 0) {
+            receivedPrice = true;
+            if (wsHandshakeTimeout) {
+              window.clearTimeout(wsHandshakeTimeout);
+              wsHandshakeTimeout = null;
+            }
+            processTrade(
+              msg.price,
+              msg.day_volume ? 10 : 5,
+              msg.timestamp ?? Math.floor(Date.now() / 1000),
+              'twelvedata'
+            );
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      ws.onerror = () => {
+        if (!disposed && !receivedPrice) startSimulator();
+      };
+      ws.onclose = () => {
+        if (!disposed && !receivedPrice) startSimulator();
+      };
+    } catch {
+      startSimulator();
+    }
+  } else if (
+    info.binanceSymbol &&
+    (info.symbol !== 'XAUUSD' || feedConfig?.useGoldProxyWhenNoKey !== false)
+  ) {
+    const resolvedSource: FeedSourceType = info.symbol === 'XAUUSD' ? 'gold-proxy' : 'binance';
     try {
       const streamName = `${info.binanceSymbol.toLowerCase()}@trade`;
       ws = new WebSocket(`${BINANCE_WS_BASE}/${streamName}`);
@@ -290,24 +521,27 @@ export function subscribeLiveTicks(
           wsHandshakeTimeout = null;
         }
         try {
-          const msg = JSON.parse(event.data as string) as { p?: string; q?: string; T?: number };
+          const msg = JSON.parse(event.data as string) as {
+            p?: string;
+            q?: string;
+            T?: number;
+          };
           if (msg.p) {
             const p = Number(msg.p);
             const q = Number(msg.q ?? 0);
             const tSec = Math.floor((msg.T ?? Date.now()) / 1000);
             if (Number.isFinite(p) && p > 0) {
-              processTrade(p, Number.isFinite(q) ? q : 0, tSec, 'binance');
+              processTrade(p, Number.isFinite(q) ? q : 0, tSec, resolvedSource);
             }
           }
         } catch {
-          // Ignore malformed frame
+          // ignore
         }
       };
 
       ws.onerror = () => {
         if (!disposed) startSimulator();
       };
-
       ws.onclose = () => {
         if (!disposed && !receivedMessage) startSimulator();
       };
@@ -358,14 +592,21 @@ export function generateOrderBookSnapshot(
   let bidCum = 0;
 
   for (let i = 1; i <= levels; i++) {
-    const askPrice = roundToPrecision(midPrice + i * step * (0.8 + Math.random() * 0.4), info.precision);
+    const askPrice = roundToPrecision(
+      midPrice + i * step * (0.8 + Math.random() * 0.4),
+      info.precision
+    );
     const bidPrice = roundToPrecision(
       Math.max(info.minMove, midPrice - i * step * (0.8 + Math.random() * 0.4)),
       info.precision
     );
     const baseSize = info.category === 'Crypto' ? 2.5 : info.category === 'IDX' ? 8500 : 450;
-    const askSize = Number((baseSize * (0.2 + Math.random() * 2.4)).toFixed(info.category === 'Crypto' ? 3 : 0));
-    const bidSize = Number((baseSize * (0.2 + Math.random() * 2.4)).toFixed(info.category === 'Crypto' ? 3 : 0));
+    const askSize = Number(
+      (baseSize * (0.2 + Math.random() * 2.4)).toFixed(info.category === 'Crypto' ? 3 : 0)
+    );
+    const bidSize = Number(
+      (baseSize * (0.2 + Math.random() * 2.4)).toFixed(info.category === 'Crypto' ? 3 : 0)
+    );
 
     askCum += askSize;
     bidCum += bidSize;

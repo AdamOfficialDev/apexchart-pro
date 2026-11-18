@@ -7,9 +7,11 @@ import {
   ChartSettings,
   ChartStyleType,
   ClosedTrade,
+  DataFeedConfig,
   DrawingObject,
   DrawingToolGroupId,
   DrawingToolType,
+  FeedSourceType,
   IndicatorConfig,
   IndicatorType,
   LayoutType,
@@ -37,17 +39,52 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   borderDownColor: '#F23645',
   showWicks: true,
   showBorders: false,
-  showGrid: true,
-  gridStyle: 'both',
-  gridOpacity: 55,
-  crosshairStyle: 'dashed',
-  showWatermark: true,
+  showLastPriceLine: true,
+  lastPriceLineStyle: 'dotted',
+  showHighLowLines: false,
+  showPrevCloseLine: false,
   showCountdown: true,
-  showQuickTrade: true,
+  precisionOverride: 'auto',
+
+  showStatusSymbol: true,
+  showStatusFeedBadge: true,
+  showStatusOHLC: true,
+  showStatusBarChange: true,
+  showStatusVolume: true,
+  showIndicatorTitles: true,
+  showIndicatorArgs: true,
+
+  priceScalePosition: 'right',
+  invertScale: false,
+  scaleFontSize: 11,
+  scaleMarginTop: 12,
+  scaleMarginBottom: 16,
+  showSymbolAxisLabel: false,
+
   bgType: 'solid',
   bgColorDark: '#131722',
+  bgColorDarkBottom: '#0B0E14',
   bgColorLight: '#FFFFFF',
-  invertScale: false,
+  bgColorLightBottom: '#F0F3FA',
+  showGrid: true,
+  gridStyle: 'both',
+  gridLineStyle: 'solid',
+  gridOpacity: 55,
+  gridColorDark: '#2A2E39',
+  crosshairStyle: 'dashed',
+  crosshairColor: '#94A3B8',
+  crosshairWidth: 1,
+  showWatermark: true,
+  watermarkOpacity: 5,
+  rightOffset: 10,
+  barSpacing: 8,
+
+  showQuickTrade: true,
+  showPositionsOnChart: true,
+  showOrdersOnChart: true,
+  showAlertsOnChart: true,
+  playAlertSound: true,
+  defaultRiskPercent: 1,
   timezone: 'local',
 };
 
@@ -57,6 +94,12 @@ export const DEFAULT_SMART_OVERLAYS: SmartOverlaySettings = {
   showFVG: false,
   showAutoSR: false,
   showAutoTrendlines: false,
+};
+
+export const DEFAULT_DATA_FEED: DataFeedConfig = {
+  twelveDataApiKey: '',
+  preferTwelveData: false,
+  useGoldProxyWhenNoKey: true,
 };
 
 function createIndicatorInstance(
@@ -74,6 +117,15 @@ function createIndicatorInstance(
     color: overrideColor ?? meta.defaultColor,
     secondaryColor: meta.secondaryColor,
     tertiaryColor: meta.tertiaryColor,
+    lineWidth: 2,
+    lineStyle: 'solid',
+    source: 'close',
+    offset: 0,
+    upperLevel: meta.defaultUpperLevel,
+    lowerLevel: meta.defaultLowerLevel,
+    showBands: true,
+    showLastValue: true,
+    visibility: { seconds: true, minutes: true, hours: true, days: true },
     params: { ...meta.defaultParams, ...(overrideParams ?? {}) },
   };
 }
@@ -94,8 +146,8 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
   },
   {
     id: 'pane-2',
-    symbol: 'ETHUSDT',
-    timeframe: '1h',
+    symbol: 'XAUUSD',
+    timeframe: '15m',
     chartStyle: 'candles',
     scaleMode: 'normal',
     indicators: [
@@ -105,8 +157,8 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
   },
   {
     id: 'pane-3',
-    symbol: 'SOLUSDT',
-    timeframe: '5m',
+    symbol: 'ETHUSDT',
+    timeframe: '1h',
     chartStyle: 'candles',
     scaleMode: 'normal',
     indicators: [
@@ -116,8 +168,8 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
   },
   {
     id: 'pane-4',
-    symbol: 'XAUUSD',
-    timeframe: '15m',
+    symbol: 'SOLUSDT',
+    timeframe: '5m',
     chartStyle: 'candles',
     scaleMode: 'normal',
     indicators: [
@@ -146,6 +198,8 @@ interface TradingStore {
   resetChartSettings: () => void;
   smartOverlays: SmartOverlaySettings;
   updateSmartOverlays: (patch: Partial<SmartOverlaySettings>) => void;
+  dataFeed: DataFeedConfig;
+  updateDataFeed: (patch: Partial<DataFeedConfig>) => void;
 
   rightSidebarTab: RightSidebarTab;
   setRightSidebarTab: (tab: RightSidebarTab) => void;
@@ -162,6 +216,12 @@ interface TradingStore {
   setShortcutsModalOpen: (open: boolean) => void;
   chartSettingsModalOpen: boolean;
   setChartSettingsModalOpen: (open: boolean) => void;
+  chartSettingsInitialTab: 'symbol' | 'status' | 'scales' | 'canvas' | 'trading' | 'feeds';
+  openChartSettingsTab: (tab: 'symbol' | 'status' | 'scales' | 'canvas' | 'trading' | 'feeds') => void;
+  editingDrawingId: string | null;
+  setEditingDrawingId: (id: string | null) => void;
+  editingIndicatorId: string | null;
+  setEditingIndicatorId: (id: string | null) => void;
   snapshotRequestCounter: number;
   triggerSnapshot: () => void;
 
@@ -239,7 +299,7 @@ interface TradingStore {
   updateQuote: (
     symbol: string,
     price: number,
-    source?: 'binance' | 'simulated',
+    source?: FeedSourceType,
     volume?: number
   ) => void;
 
@@ -311,6 +371,12 @@ export const useTradingStore = create<TradingStore>()(
           smartOverlays: { ...state.smartOverlays, ...patch },
         })),
 
+      dataFeed: DEFAULT_DATA_FEED,
+      updateDataFeed: (patch) =>
+        set((state) => ({
+          dataFeed: { ...state.dataFeed, ...patch },
+        })),
+
       rightSidebarTab: 'watchlist',
       setRightSidebarTab: (tab) => set({ rightSidebarTab: tab }),
       bottomPanelOpen: false,
@@ -326,6 +392,13 @@ export const useTradingStore = create<TradingStore>()(
       setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
       chartSettingsModalOpen: false,
       setChartSettingsModalOpen: (open) => set({ chartSettingsModalOpen: open }),
+      chartSettingsInitialTab: 'symbol',
+      openChartSettingsTab: (tab) =>
+        set({ chartSettingsInitialTab: tab, chartSettingsModalOpen: true }),
+      editingDrawingId: null,
+      setEditingDrawingId: (editingDrawingId) => set({ editingDrawingId }),
+      editingIndicatorId: null,
+      setEditingIndicatorId: (editingIndicatorId) => set({ editingIndicatorId }),
       snapshotRequestCounter: 0,
       triggerSnapshot: () =>
         set((s) => ({ snapshotRequestCounter: s.snapshotRequestCounter + 1 })),
@@ -685,10 +758,10 @@ export const useTradingStore = create<TradingStore>()(
         'BTCUSDT',
         'ETHUSDT',
         'SOLUSDT',
-        'BNBUSDT',
-        'XRPUSDT',
-        'EURUSD',
         'XAUUSD',
+        'EURUSD',
+        'GBPUSD',
+        'USDJPY',
         'NVDA',
         'TSLA',
         'BBCA.JK',
@@ -940,11 +1013,12 @@ export const useTradingStore = create<TradingStore>()(
         })),
     }),
     {
-      name: 'apexchart-pro-storage-v3',
+      name: 'apexchart-pro-storage-v4',
       partialize: (state) => ({
         theme: state.theme,
         chartSettings: state.chartSettings,
         smartOverlays: state.smartOverlays,
+        dataFeed: state.dataFeed,
         layout: state.layout,
         panes: state.panes,
         activePaneId: state.activePaneId,

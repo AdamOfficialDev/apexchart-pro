@@ -9,13 +9,22 @@ import {
   UTCTimestamp,
   createChart,
 } from 'lightweight-charts';
-import { Eye, EyeOff, X } from 'lucide-react';
-import { computeATR, computeMACD, computeRSI, computeStochastic } from '@/services/indicators';
-import { Candle, IndicatorConfig } from '@/types/trading';
+import { Eye, EyeOff, Settings2, X } from 'lucide-react';
+import { isVisibleOnTimeframeGroup, TIMEFRAME_MAP } from '@/data/symbols';
+import {
+  applyIndicatorOffset,
+  computeATR,
+  computeMACD,
+  computeRSI,
+  computeStochastic,
+} from '@/services/indicators';
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, IndicatorConfig, TimeframeId } from '@/types/trading';
 
 interface SubPaneChartProps {
   indicator: IndicatorConfig;
   candles: Candle[];
+  timeframe: TimeframeId;
   theme: 'dark' | 'light';
   bgColorDark: string;
   mainChart: IChartApi | null;
@@ -26,6 +35,7 @@ interface SubPaneChartProps {
 export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   indicator,
   candles,
+  timeframe,
   theme,
   bgColorDark,
   mainChart,
@@ -36,42 +46,74 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
   const syncingRef = useRef(false);
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+
+  const tfMeta = TIMEFRAME_MAP[timeframe];
+  const isTimeframeVisible = isVisibleOnTimeframeGroup(indicator.visibility, tfMeta.group);
 
   const computed = useMemo(() => {
-    if (!indicator.visible || candles.length === 0) return null;
+    if (!indicator.visible || !isTimeframeVisible || candles.length === 0) return null;
+    const src = indicator.source ?? 'close';
+    const offset = indicator.offset ?? 0;
+
     if (indicator.type === 'RSI') {
-      return { kind: 'RSI' as const, data: computeRSI(candles, indicator.params.period ?? 14) };
+      return {
+        kind: 'RSI' as const,
+        data: applyIndicatorOffset(
+          computeRSI(candles, indicator.params.period ?? 14, src),
+          offset,
+          tfMeta.seconds
+        ),
+      };
     }
     if (indicator.type === 'MACD') {
+      const m = computeMACD(
+        candles,
+        indicator.params.fast ?? 12,
+        indicator.params.slow ?? 26,
+        indicator.params.signal ?? 9,
+        src
+      );
       return {
         kind: 'MACD' as const,
-        data: computeMACD(
-          candles,
-          indicator.params.fast ?? 12,
-          indicator.params.slow ?? 26,
-          indicator.params.signal ?? 9
-        ),
+        data: {
+          macd: applyIndicatorOffset(m.macd, offset, tfMeta.seconds),
+          signal: applyIndicatorOffset(m.signal, offset, tfMeta.seconds),
+          histogram: applyIndicatorOffset(m.histogram, offset, tfMeta.seconds),
+        },
       };
     }
     if (indicator.type === 'STOCH') {
+      const st = computeStochastic(
+        candles,
+        indicator.params.kPeriod ?? 14,
+        indicator.params.dPeriod ?? 3,
+        indicator.params.smooth ?? 3
+      );
       return {
         kind: 'STOCH' as const,
-        data: computeStochastic(
-          candles,
-          indicator.params.kPeriod ?? 14,
-          indicator.params.dPeriod ?? 3,
-          indicator.params.smooth ?? 3
-        ),
+        data: {
+          k: applyIndicatorOffset(st.k, offset, tfMeta.seconds),
+          d: applyIndicatorOffset(st.d, offset, tfMeta.seconds),
+        },
       };
     }
     if (indicator.type === 'ATR') {
-      return { kind: 'ATR' as const, data: computeATR(candles, indicator.params.period ?? 14) };
+      return {
+        kind: 'ATR' as const,
+        data: applyIndicatorOffset(
+          computeATR(candles, indicator.params.period ?? 14),
+          offset,
+          tfMeta.seconds
+        ),
+      };
     }
     return null;
-  }, [indicator, candles]);
+  }, [indicator, candles, isTimeframeVisible, tfMeta.seconds]);
 
   const latestReadout = useMemo(() => {
-    if (!computed || !indicator.visible) return 'Hidden';
+    if (!computed || !indicator.visible || !isTimeframeVisible) return 'Hidden';
     if (computed.kind === 'RSI') {
       const last = computed.data[computed.data.length - 1];
       return last ? last.value.toFixed(2) : '—';
@@ -91,13 +133,14 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       return k && d ? `%K ${k.value.toFixed(1)}  %D ${d.value.toFixed(1)}` : '—';
     }
     return '—';
-  }, [computed, indicator.visible]);
+  }, [computed, indicator.visible, isTimeframeVisible]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const isDark = theme === 'dark';
+    const isLeft = chartSettings.priceScalePosition === 'left';
     const chart = createChart(el, {
       width: el.clientWidth,
       height: el.clientHeight,
@@ -105,7 +148,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         background: { type: ColorType.Solid, color: isDark ? bgColorDark : '#FFFFFF' },
         textColor: isDark ? '#787B86' : '#475569',
         fontFamily: '"JetBrains Mono", monospace',
-        fontSize: 10,
+        fontSize: Math.max(9, chartSettings.scaleFontSize - 1),
       },
       grid: {
         vertLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
@@ -113,6 +156,12 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
+        visible: !isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      leftPriceScale: {
+        visible: isLeft,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         scaleMargins: { top: 0.14, bottom: 0.14 },
       },
@@ -138,7 +187,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       chartRef.current = null;
       seriesRefs.current = [];
     };
-  }, [theme, bgColorDark]);
+  }, [theme, bgColorDark, chartSettings.priceScalePosition, chartSettings.scaleFontSize]);
 
   useEffect(() => {
     const sub = chartRef.current;
@@ -183,21 +232,28 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     }
     seriesRefs.current = [];
 
-    if (!computed || !indicator.visible) return;
+    if (!computed || !indicator.visible || !isTimeframeVisible) return;
+
+    const lw = (indicator.lineWidth ?? 2) as 1 | 2 | 3 | 4;
+    const ls =
+      indicator.lineStyle === 'dashed'
+        ? LineStyle.Dashed
+        : indicator.lineStyle === 'dotted'
+        ? LineStyle.Dotted
+        : LineStyle.Solid;
 
     if (computed.kind === 'RSI' || computed.kind === 'ATR') {
       const line = chart.addLineSeries({
         color: indicator.color,
-        lineWidth: 2,
+        lineWidth: lw,
+        lineStyle: ls,
         priceLineVisible: false,
-        lastValueVisible: true,
+        lastValueVisible: indicator.showLastValue !== false,
       });
-      line.setData(
-        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
-      );
-      if (computed.kind === 'RSI') {
+      line.setData(computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      if (computed.kind === 'RSI' && indicator.showBands !== false) {
         line.createPriceLine({
-          price: 70,
+          price: indicator.upperLevel ?? 70,
           color: 'rgba(242,54,69,0.5)',
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
@@ -205,7 +261,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
           title: '',
         });
         line.createPriceLine({
-          price: 30,
+          price: indicator.lowerLevel ?? 30,
           color: 'rgba(8,153,129,0.5)',
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
@@ -228,7 +284,8 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       );
       const macdLine = chart.addLineSeries({
         color: indicator.color,
-        lineWidth: 2,
+        lineWidth: lw,
+        lineStyle: ls,
         priceLineVisible: false,
       });
       macdLine.setData(
@@ -246,26 +303,29 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     } else if (computed.kind === 'STOCH') {
       const kLine = chart.addLineSeries({
         color: indicator.color,
-        lineWidth: 2,
+        lineWidth: lw,
+        lineStyle: ls,
         priceLineVisible: false,
       });
       kLine.setData(computed.data.k.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-      kLine.createPriceLine({
-        price: 80,
-        color: 'rgba(242,54,69,0.4)',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: '',
-      });
-      kLine.createPriceLine({
-        price: 20,
-        color: 'rgba(8,153,129,0.4)',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: '',
-      });
+      if (indicator.showBands !== false) {
+        kLine.createPriceLine({
+          price: indicator.upperLevel ?? 80,
+          color: 'rgba(242,54,69,0.4)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '',
+        });
+        kLine.createPriceLine({
+          price: indicator.lowerLevel ?? 20,
+          color: 'rgba(8,153,129,0.4)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '',
+        });
+      }
       const dLine = chart.addLineSeries({
         color: indicator.secondaryColor ?? '#F23645',
         lineWidth: 1,
@@ -279,13 +339,18 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       const r = mainChart.timeScale().getVisibleLogicalRange();
       if (r) chart.timeScale().setVisibleLogicalRange(r);
     }
-  }, [computed, indicator, mainChart]);
+  }, [computed, indicator, mainChart, isTimeframeVisible]);
 
   const paramSummary = Object.values(indicator.params).join(', ');
+  const isLeftScale = chartSettings.priceScalePosition === 'left';
 
   return (
     <div className="relative h-[106px] w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]">
-      <div className="pointer-events-auto absolute left-3 top-1.5 z-10 flex items-center gap-2 text-[11px]">
+      <div
+        className={`pointer-events-auto absolute top-1.5 z-10 flex items-center gap-2 text-[11px] ${
+          isLeftScale ? 'left-20' : 'left-3'
+        }`}
+      >
         <span className="font-semibold text-slate-700 dark:text-[#D1D4DC]">
           {indicator.name}
           {paramSummary ? ` (${paramSummary})` : ''}
@@ -294,16 +359,23 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
           {latestReadout}
         </span>
         <button
+          onClick={() => setEditingIndicatorId(indicator.id)}
+          title="Indicator Settings"
+          className="text-[#787B86] hover:text-white"
+        >
+          <Settings2 className="h-3 w-3" />
+        </button>
+        <button
           onClick={onToggleVisibility}
           title={indicator.visible ? 'Hide' : 'Show'}
-          className="text-slate-400 hover:text-white"
+          className="text-[#787B86] hover:text-white"
         >
           {indicator.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
         </button>
         <button
           onClick={onRemove}
           title="Remove Indicator"
-          className="text-slate-400 hover:text-rose-400"
+          className="text-[#787B86] hover:text-rose-400"
         >
           <X className="h-3 w-3" />
         </button>

@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Columns2,
+  Database,
   Grid2X2,
   Keyboard,
   LayoutGrid,
@@ -52,6 +53,7 @@ export const TopToolbar: React.FC = () => {
   const updateChartSettings = useTradingStore((s) => s.updateChartSettings);
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
   const updateSmartOverlays = useTradingStore((s) => s.updateSmartOverlays);
+  const dataFeed = useTradingStore((s) => s.dataFeed);
 
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
@@ -77,7 +79,7 @@ export const TopToolbar: React.FC = () => {
   const setSearchModalOpen = useTradingStore((s) => s.setSearchModalOpen);
   const setIndicatorsModalOpen = useTradingStore((s) => s.setIndicatorsModalOpen);
   const setShortcutsModalOpen = useTradingStore((s) => s.setShortcutsModalOpen);
-  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+  const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
   const triggerSnapshot = useTradingStore((s) => s.triggerSnapshot);
 
   const activePane = useMemo(
@@ -106,6 +108,7 @@ export const TopToolbar: React.FC = () => {
   }, [favoriteTimeframes]);
 
   const activeSmartCount = Object.values(smartOverlays).filter(Boolean).length;
+  const hasTdKey = Boolean(dataFeed.twelveDataApiKey?.trim());
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -120,7 +123,6 @@ export const TopToolbar: React.FC = () => {
       ref={navRef}
       className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
     >
-      {/* Left Cluster */}
       <div className="flex min-w-0 items-center gap-1">
         <div className="hidden xl:flex items-center gap-1.5 pr-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#2962FF] to-[#00D4AA] text-white">
@@ -131,11 +133,10 @@ export const TopToolbar: React.FC = () => {
           </span>
           <span className="inline-flex items-center gap-0.5 rounded bg-[#089981]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
             <Unlock className="h-2.5 w-2.5" />
-            V2
+            V3
           </span>
         </div>
 
-        {/* Symbol Search */}
         <button
           onClick={() => setSearchModalOpen(true)}
           className="flex items-center gap-2 rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
@@ -161,7 +162,6 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-        {/* All Timeframes */}
         <div className="relative flex items-center gap-0.5">
           <div className="hidden lg:flex items-center gap-0.5">
             {orderedFavorites.map((tf) => (
@@ -264,7 +264,6 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-        {/* Chart Type */}
         <div className="relative">
           <button
             onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
@@ -304,7 +303,6 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-        {/* Unlimited Indicators */}
         <button
           onClick={() => setIndicatorsModalOpen(true)}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
@@ -316,11 +314,10 @@ export const TopToolbar: React.FC = () => {
           </span>
         </button>
 
-        {/* Smart AI Overlays Menu (VPVR, BOS/CHoCH, FVG, Auto S/R) */}
         <div className="relative">
           <button
             onClick={() => setOpenMenu(openMenu === 'smart' ? null : 'smart')}
-            title="Smart Quant & AI Overlays (VPVR, BOS/CHoCH, FVG, Auto S/R)"
+            title="Smart Quant & AI Overlays"
             className={cn(
               'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-semibold transition',
               activeSmartCount > 0 || openMenu === 'smart'
@@ -405,7 +402,6 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
-        {/* Bar Replay */}
         <button
           onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
           className={cn(
@@ -423,10 +419,24 @@ export const TopToolbar: React.FC = () => {
       {/* Right Cluster */}
       <div className="flex items-center gap-1">
         <button
-          onClick={() => updateChartSettings({ showQuickTrade: !chartSettings.showQuickTrade })}
-          title="Toggle One-Click Buy/Sell Buttons on Chart"
+          onClick={() => openChartSettingsTab('feeds')}
+          title="Configure Live Data Feeds & Twelve Data API Key (XAUUSD, Forex, Stocks, IDX)"
           className={cn(
-            'hidden md:inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition',
+            'hidden md:inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold transition',
+            hasTdKey
+              ? 'bg-[#089981]/15 text-[#089981]'
+              : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+          )}
+        >
+          <Database className="h-3 w-3" />
+          <span>{hasTdKey ? 'TD API Live' : 'Data Feeds'}</span>
+        </button>
+
+        <button
+          onClick={() => updateChartSettings({ showQuickTrade: !chartSettings.showQuickTrade })}
+          title="Toggle One-Click Buy/Sell Buttons"
+          className={cn(
+            'hidden lg:inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition',
             chartSettings.showQuickTrade
               ? 'bg-[#2962FF]/15 text-[#2962FF]'
               : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]'
@@ -436,7 +446,6 @@ export const TopToolbar: React.FC = () => {
           <span>1-Click</span>
         </button>
 
-        {/* Multi-Chart Grid */}
         <div className="relative">
           <button
             onClick={() => setOpenMenu(openMenu === 'layout' ? null : 'layout')}
@@ -520,7 +529,7 @@ export const TopToolbar: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setChartSettingsModalOpen(true)}
+          onClick={() => openChartSettingsTab('symbol')}
           title="Chart Settings"
           className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >

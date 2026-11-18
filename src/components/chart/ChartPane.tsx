@@ -33,9 +33,15 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { getSymbolInfo, getTimezonePreset, TIMEFRAME_MAP } from '@/data/symbols';
+import {
+  getSymbolInfo,
+  getTimezonePreset,
+  isVisibleOnTimeframeGroup,
+  TIMEFRAME_MAP,
+} from '@/data/symbols';
 import { cn, formatCompactNumber, formatPrice, formatTimeInOffset, generateId } from '@/lib/utils';
 import {
+  applyIndicatorOffset,
   computeBollingerBands,
   computeDonchian,
   computeEMA,
@@ -46,7 +52,13 @@ import {
 } from '@/services/indicators';
 import { fetchHistoricalCandles, subscribeLiveTicks } from '@/services/marketData';
 import { useTradingStore } from '@/store/useTradingStore';
-import { Candle, ChartContextMenuData, ChartPaneConfig, TimeframeId } from '@/types/trading';
+import {
+  Candle,
+  ChartContextMenuData,
+  ChartPaneConfig,
+  FeedSourceType,
+  TimeframeId,
+} from '@/types/trading';
 import { ChartContextMenu } from './ChartContextMenu';
 import { DrawingOverlay } from './DrawingOverlay';
 import { FloatingDrawingToolbar } from './FloatingDrawingToolbar';
@@ -106,10 +118,18 @@ function formatCountdown(secondsLeft: number): string {
   return `${pad(mins)}:${pad(secs)}`;
 }
 
+function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
+  if (ls === 'dashed') return LineStyle.Dashed;
+  if (ls === 'dotted') return LineStyle.Dotted;
+  return LineStyle.Solid;
+}
+
 export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPane }) => {
   const theme = useTradingStore((s) => s.theme);
   const chartSettings = useTradingStore((s) => s.chartSettings);
-  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+  const dataFeed = useTradingStore((s) => s.dataFeed);
+  const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
 
   const setActivePaneId = useTradingStore((s) => s.setActivePaneId);
   const updatePaneTimeframe = useTradingStore((s) => s.updatePaneTimeframe);
@@ -140,6 +160,12 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const addToast = useTradingStore((s) => s.addToast);
 
   const symbolInfo = useMemo(() => getSymbolInfo(pane.symbol), [pane.symbol]);
+  const effectivePrecision =
+    chartSettings.precisionOverride === 'auto'
+      ? symbolInfo.precision
+      : chartSettings.precisionOverride;
+  const effectiveMinMove = Math.pow(10, -effectivePrecision);
+
   const tfMeta = TIMEFRAME_MAP[pane.timeframe];
   const tzPreset = useMemo(() => getTimezonePreset(chartSettings.timezone), [chartSettings.timezone]);
 
@@ -154,7 +180,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
   const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
   const [fullCandles, setFullCandles] = useState<Candle[]>([]);
-  const [dataSource, setDataSource] = useState<'binance' | 'simulated'>('simulated');
+  const [dataSource, setDataSource] = useState<FeedSourceType>('simulated');
   const [loading, setLoading] = useState(true);
   const [hoveredBar, setHoveredBar] = useState<Candle | null>(null);
 
@@ -187,7 +213,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     return fullCandles;
   }, [fullCandles, isThisPaneInReplay, replay.isSelectingStart, replay.currentIndex]);
 
-  // Live Candle Countdown & Selected World Timezone Clock
   useEffect(() => {
     const tickClock = () => {
       const nowSec = Math.floor(Date.now() / 1000);
@@ -211,15 +236,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     setLastPriceY(coord !== null ? Number(coord) : null);
   }, [displayCandles]);
 
-  // 1. Initialize main lightweight-charts instance
+  // 1. Initialize main chart
   useEffect(() => {
     const el = mainContainerRef.current;
     if (!el) return;
 
     const isDark = theme === 'dark';
     const bgDark = chartSettings.bgColorDark || '#131722';
+    const bgDarkBot = chartSettings.bgColorDarkBottom || '#0B0E14';
     const bgLight = chartSettings.bgColorLight || '#FFFFFF';
-    const gridAlpha = Math.max(0.05, Math.min(1, (chartSettings.gridOpacity ?? 55) / 100));
+    const bgLightBot = chartSettings.bgColorLightBottom || '#F0F3FA';
+    const isLeft = chartSettings.priceScalePosition === 'left';
 
     const chart = createChart(el, {
       width: el.clientWidth,
@@ -230,65 +257,38 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             ? {
                 type: ColorType.VerticalGradient,
                 topColor: isDark ? bgDark : bgLight,
-                bottomColor: isDark ? '#0B0E14' : '#F0F3FA',
+                bottomColor: isDark ? bgDarkBot : bgLightBot,
               }
             : { type: ColorType.Solid, color: isDark ? bgDark : bgLight },
         textColor: isDark ? '#787B86' : '#475569',
         fontFamily: '"JetBrains Mono", monospace',
-        fontSize: 11,
+        fontSize: chartSettings.scaleFontSize,
       },
-      grid: {
-        vertLines: {
-          visible:
-            chartSettings.showGrid &&
-            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'vert'),
-          color: isDark
-            ? `rgba(42, 46, 57, ${gridAlpha.toFixed(2)})`
-            : `rgba(15, 23, 42, ${(gridAlpha * 0.14).toFixed(2)})`,
-        },
-        horzLines: {
-          visible:
-            chartSettings.showGrid &&
-            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'horz'),
-          color: isDark
-            ? `rgba(42, 46, 57, ${gridAlpha.toFixed(2)})`
-            : `rgba(15, 23, 42, ${(gridAlpha * 0.14).toFixed(2)})`,
-        },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: {
-          style:
-            chartSettings.crosshairStyle === 'solid'
-              ? LineStyle.Solid
-              : chartSettings.crosshairStyle === 'dotted'
-              ? LineStyle.Dotted
-              : LineStyle.Dashed,
-          color: isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.45)',
-          labelBackgroundColor: '#2962FF',
-        },
-        horzLine: {
-          style:
-            chartSettings.crosshairStyle === 'solid'
-              ? LineStyle.Solid
-              : chartSettings.crosshairStyle === 'dotted'
-              ? LineStyle.Dotted
-              : LineStyle.Dashed,
-          color: isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.45)',
-          labelBackgroundColor: '#2962FF',
-        },
-      },
+      crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
+        visible: !isLeft,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
-        scaleMargins: { top: 0.12, bottom: 0.16 },
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        invertScale: chartSettings.invertScale,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
         invertScale: chartSettings.invertScale,
       },
       timeScale: {
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         timeVisible: true,
         secondsVisible: tfMeta.seconds < 60,
-        rightOffset: 10,
-        barSpacing: 8,
+        rightOffset: chartSettings.rightOffset,
+        barSpacing: chartSettings.barSpacing,
       },
       handleScroll: { vertTouchDrag: true },
       handleScale: { axisPressedMouseMove: true },
@@ -318,14 +318,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     };
   }, [theme]);
 
-  // Apply appearance, timezone & scale updates live
+  // Live apply ALL ChartSettings without destroying chart
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const isDark = theme === 'dark';
     const bgDark = chartSettings.bgColorDark || '#131722';
+    const bgDarkBot = chartSettings.bgColorDarkBottom || '#0B0E14';
     const bgLight = chartSettings.bgColorLight || '#FFFFFF';
+    const bgLightBot = chartSettings.bgColorLightBottom || '#F0F3FA';
     const gridAlpha = Math.max(0.05, Math.min(1, (chartSettings.gridOpacity ?? 55) / 100));
+    const isLeft = chartSettings.priceScalePosition === 'left';
 
     chart.applyOptions({
       layout: {
@@ -334,9 +337,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             ? {
                 type: ColorType.VerticalGradient,
                 topColor: isDark ? bgDark : bgLight,
-                bottomColor: isDark ? '#0B0E14' : '#F0F3FA',
+                bottomColor: isDark ? bgDarkBot : bgLightBot,
               }
             : { type: ColorType.Solid, color: isDark ? bgDark : bgLight },
+        fontSize: chartSettings.scaleFontSize,
       },
       localization: {
         timeFormatter: (time: Time) => {
@@ -356,6 +360,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           visible:
             chartSettings.showGrid &&
             (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'vert'),
+          style: toChartLineStyle(chartSettings.gridLineStyle),
           color: isDark
             ? `rgba(42, 46, 57, ${gridAlpha.toFixed(2)})`
             : `rgba(15, 23, 42, ${(gridAlpha * 0.14).toFixed(2)})`,
@@ -364,6 +369,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           visible:
             chartSettings.showGrid &&
             (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'horz'),
+          style: toChartLineStyle(chartSettings.gridLineStyle),
           color: isDark
             ? `rgba(42, 46, 57, ${gridAlpha.toFixed(2)})`
             : `rgba(15, 23, 42, ${(gridAlpha * 0.14).toFixed(2)})`,
@@ -371,25 +377,22 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       },
       crosshair: {
         vertLine: {
-          style:
-            chartSettings.crosshairStyle === 'solid'
-              ? LineStyle.Solid
-              : chartSettings.crosshairStyle === 'dotted'
-              ? LineStyle.Dotted
-              : LineStyle.Dashed,
+          style: toChartLineStyle(chartSettings.crosshairStyle),
+          color: chartSettings.crosshairColor,
+          width: chartSettings.crosshairWidth,
+          labelBackgroundColor: '#2962FF',
         },
         horzLine: {
-          style:
-            chartSettings.crosshairStyle === 'solid'
-              ? LineStyle.Solid
-              : chartSettings.crosshairStyle === 'dotted'
-              ? LineStyle.Dotted
-              : LineStyle.Dashed,
+          style: toChartLineStyle(chartSettings.crosshairStyle),
+          color: chartSettings.crosshairColor,
+          width: chartSettings.crosshairWidth,
+          labelBackgroundColor: '#2962FF',
         },
       },
       timeScale: {
         timeVisible: true,
         secondsVisible: tfMeta.seconds < 60,
+        rightOffset: chartSettings.rightOffset,
         tickMarkFormatter: (time: Time, tickType: TickMarkType) => {
           if (typeof time === 'number') {
             return formatTickInOffset(time, tzPreset.offsetMinutes, tickType);
@@ -398,7 +401,26 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         },
       },
       rightPriceScale: {
+        visible: !isLeft,
         invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
         mode:
           pane.scaleMode === 'logarithmic'
             ? PriceScaleMode.Logarithmic
@@ -409,13 +431,13 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
   }, [theme, chartSettings, tzPreset, tfMeta.seconds, pane.scaleMode]);
 
-  // 2. Fetch historical candles
+  // 2. Fetch Historical Candles (re-runs on symbol, timeframe, or DataFeed config change!)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setHoveredBar(null);
 
-    fetchHistoricalCandles(pane.symbol, pane.timeframe).then(({ candles, source }) => {
+    fetchHistoricalCandles(pane.symbol, pane.timeframe, dataFeed).then(({ candles, source }) => {
       if (cancelled) return;
       setFullCandles(candles);
       setDataSource(source);
@@ -437,7 +459,16 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     return () => {
       cancelled = true;
     };
-  }, [pane.symbol, pane.timeframe, pane.id, updateQuote, setReplayTotalBars]);
+  }, [
+    pane.symbol,
+    pane.timeframe,
+    pane.id,
+    dataFeed.twelveDataApiKey,
+    dataFeed.preferTwelveData,
+    dataFeed.useGoldProxyWhenNoKey,
+    updateQuote,
+    setReplayTotalBars,
+  ]);
 
   useEffect(() => {
     if (isThisPaneInReplay && fullCandles.length > 0) {
@@ -472,11 +503,21 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
         updateQuote(pane.symbol, tickCandle.close, source, tickCandle.volume);
         processPaper(pane.symbol, tickCandle.high, tickCandle.low, tickCandle.close);
-      }
+      },
+      dataFeed
     );
 
     return unsubscribe;
-  }, [pane.symbol, pane.timeframe, loading, isThisPaneInReplay, fullCandles.length > 0]);
+  }, [
+    pane.symbol,
+    pane.timeframe,
+    loading,
+    isThisPaneInReplay,
+    fullCandles.length > 0,
+    dataFeed.twelveDataApiKey,
+    dataFeed.preferTwelveData,
+    dataFeed.useGoldProxyWhenNoKey,
+  ]);
 
   useEffect(() => {
     if (!isThisPaneInReplay || replay.isSelectingStart || displayCandles.length === 0) return;
@@ -488,7 +529,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, replay.isSelectingStart, displayCandles, pane.symbol]);
 
-  // 4. Create / recreate Main Price Series
+  // 4. Create Main Price Series
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -505,8 +546,15 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
     const priceFormat = {
       type: 'price' as const,
-      precision: symbolInfo.precision,
-      minMove: symbolInfo.minMove,
+      precision: effectivePrecision,
+      minMove: effectiveMinMove,
+    };
+
+    const commonLineOpts = {
+      priceLineVisible: chartSettings.showLastPriceLine,
+      priceLineStyle: toChartLineStyle(chartSettings.lastPriceLineStyle),
+      priceScaleId: chartSettings.priceScalePosition === 'left' ? 'left' : 'right',
+      title: chartSettings.showSymbolAxisLabel ? symbolInfo.displaySymbol : '',
     };
 
     let s: MainSeriesApi;
@@ -520,18 +568,21 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         wickUpColor: chartSettings.wickUpColor,
         wickDownColor: chartSettings.wickDownColor,
         priceFormat,
+        ...commonLineOpts,
       });
     } else if (pane.chartStyle === 'bars') {
       s = chart.addBarSeries({
         upColor: chartSettings.upColor,
         downColor: chartSettings.downColor,
         priceFormat,
+        ...commonLineOpts,
       });
     } else if (pane.chartStyle === 'line') {
       s = chart.addLineSeries({
         color: '#2962FF',
         lineWidth: 2,
         priceFormat,
+        ...commonLineOpts,
       });
     } else if (pane.chartStyle === 'area') {
       s = chart.addAreaSeries({
@@ -540,6 +591,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         bottomColor: 'rgba(41, 98, 255, 0.02)',
         lineWidth: 2,
         priceFormat,
+        ...commonLineOpts,
       });
     } else {
       s = chart.addCandlestickSeries({
@@ -552,15 +604,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         wickUpColor: chartSettings.wickUpColor,
         wickDownColor: chartSettings.wickDownColor,
         priceFormat,
+        ...commonLineOpts,
       });
     }
 
     mainSeriesRef.current = s;
   }, [
     pane.chartStyle,
-    symbolInfo.precision,
-    symbolInfo.minMove,
+    effectivePrecision,
+    effectiveMinMove,
     theme,
+    symbolInfo.displaySymbol,
     chartSettings.upColor,
     chartSettings.downColor,
     chartSettings.wickUpColor,
@@ -569,9 +623,13 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.borderDownColor,
     chartSettings.showWicks,
     chartSettings.showBorders,
+    chartSettings.showLastPriceLine,
+    chartSettings.lastPriceLineStyle,
+    chartSettings.priceScalePosition,
+    chartSettings.showSymbolAxisLabel,
   ]);
 
-  // 5. Feed price data & overlay indicators
+  // 5. Feed Data & Overlay Indicators (with Source, Offset, Style, Visibility!)
   useEffect(() => {
     const chart = chartRef.current;
     const series = mainSeriesRef.current;
@@ -609,9 +667,21 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
     overlaySeriesRef.current.clear();
 
-    const overlays = pane.indicators.filter((i) => i.placement === 'overlay' && i.visible);
+    const targetScaleId = chartSettings.priceScalePosition === 'left' ? 'left' : 'right';
+    const overlays = pane.indicators.filter(
+      (i) =>
+        i.placement === 'overlay' &&
+        i.visible &&
+        isVisibleOnTimeframeGroup(i.visibility, tfMeta.group)
+    );
+
     for (const ind of overlays) {
       const created: ISeriesApi<'Line' | 'Histogram'>[] = [];
+      const src = ind.source ?? 'close';
+      const offset = ind.offset ?? 0;
+      const lw = (ind.lineWidth ?? 2) as 1 | 2 | 3 | 4;
+      const ls = toChartLineStyle(ind.lineStyle);
+      const showLast = Boolean(ind.showLastValue);
 
       if (ind.type === 'VOLUME') {
         const volSeries = chart.addHistogramSeries({
@@ -633,33 +703,46 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         );
         created.push(volSeries);
       } else if (ind.type === 'SMA') {
-        const pts = computeSMA(displayCandles, ind.params.period ?? 50);
+        const pts = applyIndicatorOffset(
+          computeSMA(displayCandles, ind.params.period ?? 50, src),
+          offset,
+          tfMeta.seconds
+        );
         const l = chart.addLineSeries({
           color: ind.color,
-          lineWidth: 2,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
         l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
         created.push(l);
       } else if (ind.type === 'EMA') {
-        const pts = computeEMA(displayCandles, ind.params.period ?? 21);
+        const pts = applyIndicatorOffset(
+          computeEMA(displayCandles, ind.params.period ?? 21, src),
+          offset,
+          tfMeta.seconds
+        );
         const l = chart.addLineSeries({
           color: ind.color,
-          lineWidth: 2,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
         l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
         created.push(l);
       } else if (ind.type === 'VWAP') {
-        const pts = computeVWAP(displayCandles);
+        const pts = applyIndicatorOffset(computeVWAP(displayCandles), offset, tfMeta.seconds);
         const l = chart.addLineSeries({
           color: ind.color,
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
         l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
         created.push(l);
@@ -667,72 +750,119 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         const bb = computeBollingerBands(
           displayCandles,
           ind.params.period ?? 20,
-          ind.params.stdDev ?? 2
+          ind.params.stdDev ?? 2,
+          src
         );
         const up = chart.addLineSeries({
           color: ind.color,
           lineWidth: 1,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
         const mid = chart.addLineSeries({
           color: ind.secondaryColor ?? '#64748B',
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
           lastValueVisible: false,
         });
         const low = chart.addLineSeries({
           color: ind.color,
           lineWidth: 1,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
-        up.setData(bb.upper.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        mid.setData(bb.middle.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        low.setData(bb.lower.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        up.setData(
+          applyIndicatorOffset(bb.upper, offset, tfMeta.seconds).map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
+        );
+        mid.setData(
+          applyIndicatorOffset(bb.middle, offset, tfMeta.seconds).map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
+        );
+        low.setData(
+          applyIndicatorOffset(bb.lower, offset, tfMeta.seconds).map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
+        );
         created.push(up, mid, low);
       } else if (ind.type === 'DONCHIAN') {
         const dc = computeDonchian(displayCandles, ind.params.period ?? 20);
         const up = chart.addLineSeries({
           color: ind.color,
-          lineWidth: 1,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
         const low = chart.addLineSeries({
           color: ind.color,
-          lineWidth: 1,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
-        up.setData(dc.upper.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        low.setData(dc.lower.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        up.setData(
+          applyIndicatorOffset(dc.upper, offset, tfMeta.seconds).map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
+        );
+        low.setData(
+          applyIndicatorOffset(dc.lower, offset, tfMeta.seconds).map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
+        );
         created.push(up, low);
       } else if (ind.type === 'SUPERTREND') {
-        const st = computeSupertrend(
-          displayCandles,
-          ind.params.period ?? 10,
-          ind.params.multiplier ?? 3,
-          ind.color,
-          ind.secondaryColor ?? '#F23645'
+        const st = applyIndicatorOffset(
+          computeSupertrend(
+            displayCandles,
+            ind.params.period ?? 10,
+            ind.params.multiplier ?? 3,
+            ind.color,
+            ind.secondaryColor ?? '#F23645'
+          ),
+          offset,
+          tfMeta.seconds
         );
         const l = chart.addLineSeries({
-          lineWidth: 2,
+          lineWidth: lw,
+          priceScaleId: targetScaleId,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: showLast,
         });
-        l.setData(
-          st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color }))
-        );
+        l.setData(st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color })));
         created.push(l);
       }
 
       overlaySeriesRef.current.set(ind.id, created);
     }
-  }, [displayCandles, pane.chartStyle, pane.indicators, theme, refreshLastPriceY]);
+  }, [
+    displayCandles,
+    pane.chartStyle,
+    pane.indicators,
+    theme,
+    tfMeta.group,
+    tfMeta.seconds,
+    chartSettings.priceScalePosition,
+    refreshLastPriceY,
+  ]);
 
-  // 6. Plot Alerts & Paper Positions
+  // 6. Plot Alerts, Positions & High/Low Lines
   useEffect(() => {
     const series = mainSeriesRef.current;
     if (!series) return;
@@ -746,60 +876,100 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
     priceLinesRef.current = [];
 
-    const symAlerts = alerts.filter((a) => a.active && a.symbol === pane.symbol);
-    for (const a of symAlerts) {
+    if (chartSettings.showHighLowLines && displayCandles.length > 0) {
+      let hi = -Infinity;
+      let lo = Infinity;
+      for (const c of displayCandles) {
+        if (c.high > hi) hi = c.high;
+        if (c.low < lo) lo = c.low;
+      }
       priceLinesRef.current.push(
         series.createPriceLine({
-          price: a.price,
-          color: '#F59E0B',
+          price: hi,
+          color: 'rgba(8, 153, 129, 0.55)',
           lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          lineStyle: LineStyle.Dotted,
           axisLabelVisible: true,
-          title: 'Alert',
-        })
-      );
-    }
-
-    const symPositions = positions.filter((p) => p.symbol === pane.symbol);
-    for (const pos of symPositions) {
-      priceLinesRef.current.push(
+          title: 'High',
+        }),
         series.createPriceLine({
-          price: pos.entryPrice,
-          color: pos.side === 'buy' ? '#00D4AA' : '#F23645',
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
+          price: lo,
+          color: 'rgba(242, 54, 69, 0.55)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
           axisLabelVisible: true,
-          title: `${pos.side === 'buy' ? 'LONG' : 'SHORT'} ${pos.quantity}`,
+          title: 'Low',
         })
       );
-      if (pos.stopLoss) {
+    }
+
+    if (chartSettings.showAlertsOnChart) {
+      const symAlerts = alerts.filter((a) => a.active && a.symbol === pane.symbol);
+      for (const a of symAlerts) {
         priceLinesRef.current.push(
           series.createPriceLine({
-            price: pos.stopLoss,
-            color: '#F23645',
+            price: a.price,
+            color: '#F59E0B',
             lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
+            lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
-            title: 'SL',
-          })
-        );
-      }
-      if (pos.takeProfit) {
-        priceLinesRef.current.push(
-          series.createPriceLine({
-            price: pos.takeProfit,
-            color: '#089981',
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
-            axisLabelVisible: true,
-            title: 'TP',
+            title: 'Alert',
           })
         );
       }
     }
-  }, [alerts, positions, pane.symbol, pane.chartStyle]);
 
-  // 7. Crosshair, Scroll-Away & Replay Click
+    if (chartSettings.showPositionsOnChart) {
+      const symPositions = positions.filter((p) => p.symbol === pane.symbol);
+      for (const pos of symPositions) {
+        priceLinesRef.current.push(
+          series.createPriceLine({
+            price: pos.entryPrice,
+            color: pos.side === 'buy' ? '#00D4AA' : '#F23645',
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `${pos.side === 'buy' ? 'LONG' : 'SHORT'} ${pos.quantity}`,
+          })
+        );
+        if (pos.stopLoss) {
+          priceLinesRef.current.push(
+            series.createPriceLine({
+              price: pos.stopLoss,
+              color: '#F23645',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dotted,
+              axisLabelVisible: true,
+              title: 'SL',
+            })
+          );
+        }
+        if (pos.takeProfit) {
+          priceLinesRef.current.push(
+            series.createPriceLine({
+              price: pos.takeProfit,
+              color: '#089981',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dotted,
+              axisLabelVisible: true,
+              title: 'TP',
+            })
+          );
+        }
+      }
+    }
+  }, [
+    alerts,
+    positions,
+    pane.symbol,
+    pane.chartStyle,
+    displayCandles.length,
+    chartSettings.showAlertsOnChart,
+    chartSettings.showPositionsOnChart,
+    chartSettings.showHighLowLines,
+  ]);
+
+  // 7. Crosshair & Replay Click
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -878,7 +1048,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     isExternalCrosshairRef.current = false;
   }, [syncedCrosshairTime, syncCrosshair, isActive, displayCandles]);
 
-  // 8. Export High-Res Snapshot
+  // 8. Export PNG Snapshot
   const prevSnapshotRef = useRef(snapshotCounter);
   useEffect(() => {
     if (snapshotCounter === prevSnapshotRef.current) return;
@@ -933,18 +1103,25 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const handleResetView = useCallback(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    chart.priceScale('right').applyOptions({ autoScale: true });
-    chart.timeScale().applyOptions({ barSpacing: 8, rightOffset: 10 });
+    chart.priceScale(chartSettings.priceScalePosition === 'left' ? 'left' : 'right').applyOptions({
+      autoScale: true,
+    });
+    chart.timeScale().applyOptions({
+      barSpacing: chartSettings.barSpacing,
+      rightOffset: chartSettings.rightOffset,
+    });
     chart.timeScale().scrollToRealTime();
     setScrolledAway(false);
-  }, []);
+  }, [chartSettings.priceScalePosition, chartSettings.barSpacing, chartSettings.rightOffset]);
 
   const handleFitContent = useCallback(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    chart.priceScale('right').applyOptions({ autoScale: true });
+    chart.priceScale(chartSettings.priceScalePosition === 'left' ? 'left' : 'right').applyOptions({
+      autoScale: true,
+    });
     chart.timeScale().fitContent();
-  }, []);
+  }, [chartSettings.priceScalePosition]);
 
   const handleZoom = useCallback((factor: number) => {
     const chart = chartRef.current;
@@ -1028,9 +1205,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     if (!rect || !chartRef.current) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const isLeft = chartSettings.priceScalePosition === 'left';
 
-    if (x >= chartSize.width - 74) {
-      chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+    if ((isLeft && x <= 74) || (!isLeft && x >= chartSize.width - 74)) {
+      chartRef.current.priceScale(isLeft ? 'left' : 'right').applyOptions({ autoScale: true });
       addToast({ title: 'Price Scale Auto-Fitted', variant: 'info' });
       return;
     }
@@ -1040,7 +1218,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       return;
     }
 
-    setChartSettingsModalOpen(true);
+    openChartSettingsTab('symbol');
   };
 
   const handleContainerMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1048,8 +1226,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     if (!rect || !mainSeriesRef.current) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const isLeft = chartSettings.priceScalePosition === 'left';
+    const inPlotX = isLeft ? x >= 68 && x <= chartSize.width : x >= 0 && x <= chartSize.width - 68;
 
-    if (x >= 0 && x <= chartSize.width - 68 && y >= 8 && y <= chartSize.height - 32) {
+    if (inPlotX && y >= 8 && y <= chartSize.height - 32) {
       const p = mainSeriesRef.current.coordinateToPrice(y);
       if (p !== null) {
         setPriceAxisHover({ y, price: Number(p) });
@@ -1100,14 +1280,15 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const barChangePct = activeBar && activeBar.open > 0 ? (barChange / activeBar.open) * 100 : 0;
   const isBull = barChange >= 0;
 
-  const spreadStep = symbolInfo.minMove * (symbolInfo.precision >= 4 ? 2 : 3);
+  const spreadStep = effectiveMinMove * (effectivePrecision >= 4 ? 2 : 3);
   const bidPrice = lastBar
-    ? Math.max(symbolInfo.minMove, lastBar.close - spreadStep)
+    ? Math.max(effectiveMinMove, lastBar.close - spreadStep)
     : symbolInfo.basePrice;
   const askPrice = lastBar ? lastBar.close + spreadStep : symbolInfo.basePrice;
 
   const subPaneIndicators = pane.indicators.filter((i) => i.placement === 'subpane');
   const overlayIndicators = pane.indicators.filter((i) => i.placement === 'overlay');
+  const isLeftScale = chartSettings.priceScalePosition === 'left';
 
   return (
     <div
@@ -1135,9 +1316,11 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         onContextMenu={handleContainerContextMenu}
         onDoubleClick={handleContainerDoubleClick}
       >
-        {/* Subtle Watermark */}
         {chartSettings.showWatermark && (
-          <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center select-none opacity-[0.045] dark:opacity-[0.055]">
+          <div
+            style={{ opacity: (chartSettings.watermarkOpacity ?? 5) / 100 }}
+            className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center select-none"
+          >
             <div className="text-4xl sm:text-6xl font-black tracking-tight text-slate-900 dark:text-white">
               {symbolInfo.displaySymbol}
             </div>
@@ -1148,73 +1331,107 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         )}
 
         {/* Top-Left Inline Legend */}
-        <div className="pointer-events-none absolute left-3 top-2 z-20 flex max-w-[82%] flex-col gap-1.5">
+        <div
+          className={`pointer-events-none absolute top-2 z-20 flex max-w-[82%] flex-col gap-1.5 ${
+            isLeftScale ? 'left-20' : 'left-3'
+          }`}
+        >
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
-              {symbolInfo.displaySymbol}
-            </span>
-            <span className="text-[11px] font-medium text-[#787B86]">· {pane.timeframe} ·</span>
-            <span className="text-[11px] font-medium text-[#787B86]">{symbolInfo.exchange}</span>
+            {chartSettings.showStatusSymbol && (
+              <>
+                <span className="font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
+                  {symbolInfo.displaySymbol}
+                </span>
+                <span className="text-[11px] font-medium text-[#787B86]">· {pane.timeframe} ·</span>
+                <span className="text-[11px] font-medium text-[#787B86]">{symbolInfo.exchange}</span>
+              </>
+            )}
 
-            {isThisPaneInReplay ? (
-              <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                REPLAY
-              </span>
-            ) : dataSource === 'binance' ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#089981]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[#089981]" />
-                LIVE
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-400">
-                <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                SIM
-              </span>
+            {chartSettings.showStatusFeedBadge && (
+              <button
+                onClick={() => openChartSettingsTab('feeds')}
+                title="Click to configure Twelve Data Live API / Data Feeds"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold transition hover:brightness-125"
+              >
+                {isThisPaneInReplay ? (
+                  <span className="inline-flex items-center gap-1 text-amber-400">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                    REPLAY
+                  </span>
+                ) : dataSource === 'twelvedata' ? (
+                  <span className="inline-flex items-center gap-1 text-[#2962FF]">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#2962FF]" />
+                    TWELVE WS
+                  </span>
+                ) : dataSource === 'gold-proxy' ? (
+                  <span className="inline-flex items-center gap-1 text-amber-400">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+                    LIVE GOLD
+                  </span>
+                ) : dataSource === 'binance' ? (
+                  <span className="inline-flex items-center gap-1 text-[#089981]">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#089981]" />
+                    LIVE WS
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-cyan-400">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                    SIM (Add API)
+                  </span>
+                )}
+              </button>
             )}
 
             {activeBar && (
               <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] tabular-nums">
-                <span className="text-[#787B86]">
-                  O
-                  <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
-                    {formatPrice(activeBar.open, symbolInfo.precision)}
+                {chartSettings.showStatusOHLC && (
+                  <>
+                    <span className="text-[#787B86]">
+                      O
+                      <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                        {formatPrice(activeBar.open, effectivePrecision)}
+                      </span>
+                    </span>
+                    <span className="text-[#787B86]">
+                      H
+                      <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                        {formatPrice(activeBar.high, effectivePrecision)}
+                      </span>
+                    </span>
+                    <span className="text-[#787B86]">
+                      L
+                      <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                        {formatPrice(activeBar.low, effectivePrecision)}
+                      </span>
+                    </span>
+                    <span className="text-[#787B86]">
+                      C
+                      <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                        {formatPrice(activeBar.close, effectivePrecision)}
+                      </span>
+                    </span>
+                  </>
+                )}
+                {chartSettings.showStatusBarChange && (
+                  <span className={cn('font-semibold', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                    {barChange >= 0 ? '+' : ''}
+                    {formatPrice(barChange, effectivePrecision)} ({barChange >= 0 ? '+' : ''}
+                    {barChangePct.toFixed(2)}%)
                   </span>
-                </span>
-                <span className="text-[#787B86]">
-                  H
-                  <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
-                    {formatPrice(activeBar.high, symbolInfo.precision)}
+                )}
+                {chartSettings.showStatusVolume && (
+                  <span className="text-[#787B86]">
+                    Vol{' '}
+                    <span className="text-slate-700 dark:text-[#D1D4DC]">
+                      {formatCompactNumber(activeBar.volume)}
+                    </span>
                   </span>
-                </span>
-                <span className="text-[#787B86]">
-                  L
-                  <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
-                    {formatPrice(activeBar.low, symbolInfo.precision)}
-                  </span>
-                </span>
-                <span className="text-[#787B86]">
-                  C
-                  <span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
-                    {formatPrice(activeBar.close, symbolInfo.precision)}
-                  </span>
-                </span>
-                <span className={cn('font-semibold', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
-                  {barChange >= 0 ? '+' : ''}
-                  {formatPrice(barChange, symbolInfo.precision)} ({barChange >= 0 ? '+' : ''}
-                  {barChangePct.toFixed(2)}%)
-                </span>
-                <span className="text-[#787B86]">
-                  Vol{' '}
-                  <span className="text-slate-700 dark:text-[#D1D4DC]">
-                    {formatCompactNumber(activeBar.volume)}
-                  </span>
-                </span>
+                )}
               </div>
             )}
 
             <button
-              onClick={() => setChartSettingsModalOpen(true)}
+              onClick={() => openChartSettingsTab('symbol')}
               title="Chart Settings"
               className="rounded p-0.5 text-[#787B86] hover:bg-white/10 hover:text-[#D1D4DC]"
             >
@@ -1237,7 +1454,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                 className="flex flex-col items-start px-2.5 py-0.5 text-left transition hover:bg-[#F23645]/15"
               >
                 <span className="font-mono text-[11px] font-bold leading-tight text-[#F23645] tabular-nums">
-                  {formatPrice(bidPrice, symbolInfo.precision)}
+                  {formatPrice(bidPrice, effectivePrecision)}
                 </span>
                 <span className="text-[9px] font-semibold tracking-wider text-[#F23645]/80 uppercase">
                   SELL
@@ -1264,7 +1481,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                 className="flex flex-col items-end px-2.5 py-0.5 text-right transition hover:bg-[#089981]/15"
               >
                 <span className="font-mono text-[11px] font-bold leading-tight text-[#089981] tabular-nums">
-                  {formatPrice(askPrice, symbolInfo.precision)}
+                  {formatPrice(askPrice, effectivePrecision)}
                 </span>
                 <span className="text-[9px] font-semibold tracking-wider text-[#089981]/80 uppercase">
                   BUY
@@ -1273,7 +1490,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             </div>
           )}
 
-          {overlayIndicators.length > 0 && (
+          {chartSettings.showIndicatorTitles && overlayIndicators.length > 0 && (
             <div className="pointer-events-auto flex flex-col items-start gap-0.5">
               <button
                 onClick={() => setLegendExpanded(!legendExpanded)}
@@ -1304,11 +1521,19 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                       />
                       <span className="font-medium text-slate-700 dark:text-[#D1D4DC]">
                         {ind.name}
-                        {paramStr ? ` (${paramStr})` : ''}
+                        {chartSettings.showIndicatorArgs && paramStr ? ` (${paramStr})` : ''}
                       </span>
                       <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                         <button
+                          onClick={() => setEditingIndicatorId(ind.id)}
+                          title="Indicator Settings"
+                          className="text-[#787B86] hover:text-white"
+                        >
+                          <Settings2 className="h-3 w-3" />
+                        </button>
+                        <button
                           onClick={() => toggleIndicatorVisibility(pane.id, ind.id)}
+                          title={ind.visible ? 'Hide' : 'Show'}
                           className="text-[#787B86] hover:text-white"
                         >
                           {ind.visible ? (
@@ -1319,6 +1544,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                         </button>
                         <button
                           onClick={() => removeIndicator(pane.id, ind.id)}
+                          title="Remove"
                           className="text-[#787B86] hover:text-rose-400"
                         >
                           <X className="h-3 w-3" />
@@ -1348,7 +1574,8 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               top: Math.max(18, Math.min(chartSize.height - 46, lastPriceY + 11)),
             }}
             className={cn(
-              'pointer-events-none absolute right-[4px] z-20 rounded px-1.5 py-[1px] font-mono text-[10px] font-bold text-white shadow-sm tabular-nums',
+              'pointer-events-none absolute z-20 rounded px-1.5 py-[1px] font-mono text-[10px] font-bold text-white shadow-sm tabular-nums',
+              isLeftScale ? 'left-[4px]' : 'right-[4px]',
               lastBar.close >= lastBar.open ? 'bg-[#089981]' : 'bg-[#F23645]'
             )}
           >
@@ -1365,8 +1592,11 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             style={{
               top: Math.max(8, Math.min(chartSize.height - 40, priceAxisHover.y - 10)),
             }}
-            title={`Quick Action @ ${formatPrice(priceAxisHover.price, symbolInfo.precision)}`}
-            className="absolute right-[72px] z-20 flex h-5 w-5 items-center justify-center rounded bg-[#2962FF] text-white shadow-md transition hover:scale-110"
+            title={`Quick Action @ ${formatPrice(priceAxisHover.price, effectivePrecision)}`}
+            className={cn(
+              'absolute z-20 flex h-5 w-5 items-center justify-center rounded bg-[#2962FF] text-white shadow-md transition hover:scale-110',
+              isLeftScale ? 'left-[72px]' : 'right-[72px]'
+            )}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -1378,14 +1608,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               top: Math.max(8, Math.min(chartSize.height - 170, plusMenuOpen.y - 16)),
             }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-[76px] z-40 w-52 rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+            className={cn(
+              'absolute z-40 w-52 rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]',
+              isLeftScale ? 'left-[76px]' : 'right-[76px]'
+            )}
           >
             <div className="border-b border-slate-200 px-3 py-1 font-mono text-[10px] font-bold text-[#2962FF] dark:border-[#2A2E39]">
-              @ {formatPrice(plusMenuOpen.price, symbolInfo.precision)}
+              @ {formatPrice(plusMenuOpen.price, effectivePrecision)}
             </div>
             <button
               onClick={() => {
-                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const px = Number(plusMenuOpen.price.toFixed(effectivePrecision));
                 const live = lastBar?.close ?? symbolInfo.basePrice;
                 addAlert({
                   symbol: pane.symbol,
@@ -1394,7 +1627,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                   note: 'Quick price axis alert',
                 });
                 addToast({
-                  title: `Alert Created @ ${formatPrice(px, symbolInfo.precision)}`,
+                  title: `Alert Created @ ${formatPrice(px, effectivePrecision)}`,
                   variant: 'warning',
                 });
                 setPlusMenuOpen(null);
@@ -1407,7 +1640,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             <button
               onClick={() => {
                 handleDrawHLineAtPrice(
-                  Number(plusMenuOpen.price.toFixed(symbolInfo.precision)),
+                  Number(plusMenuOpen.price.toFixed(effectivePrecision)),
                   'hline'
                 );
                 setPlusMenuOpen(null);
@@ -1420,7 +1653,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             <button
               onClick={() => {
                 handleDrawHLineAtPrice(
-                  Number(plusMenuOpen.price.toFixed(symbolInfo.precision)),
+                  Number(plusMenuOpen.price.toFixed(effectivePrecision)),
                   'hray'
                 );
                 setPlusMenuOpen(null);
@@ -1432,7 +1665,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             </button>
             <button
               onClick={() => {
-                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const px = Number(plusMenuOpen.price.toFixed(effectivePrecision));
                 const qty =
                   symbolInfo.category === 'Crypto' ? 0.25 : symbolInfo.category === 'IDX' ? 1000 : 10;
                 placeLimitOrder({
@@ -1450,7 +1683,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             </button>
             <button
               onClick={() => {
-                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const px = Number(plusMenuOpen.price.toFixed(effectivePrecision));
                 const qty =
                   symbolInfo.category === 'Crypto' ? 0.25 : symbolInfo.category === 'IDX' ? 1000 : 10;
                 placeLimitOrder({
@@ -1544,7 +1777,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           candles={displayCandles}
           symbol={pane.symbol}
           timeframe={pane.timeframe}
-          precision={symbolInfo.precision}
+          precision={effectivePrecision}
           width={chartSize.width}
           height={chartSize.height}
           theme={theme}
@@ -1563,6 +1796,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           key={ind.id}
           indicator={ind}
           candles={displayCandles}
+          timeframe={pane.timeframe}
           theme={theme}
           bgColorDark={chartSettings.bgColorDark || '#131722'}
           mainChart={chartRef.current}
@@ -1597,7 +1831,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
         <div className="flex items-center gap-2 font-mono text-[11px]">
           <button
-            onClick={() => setChartSettingsModalOpen(true)}
+            onClick={() => openChartSettingsTab('trading')}
             title="Click to configure Timezone"
             className="hidden sm:inline text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC] tabular-nums"
           >

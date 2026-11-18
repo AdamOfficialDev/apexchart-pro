@@ -1,11 +1,59 @@
 import {
   DrawingToolMeta,
+  FibLevelItem,
   IndicatorCatalogItem,
   SymbolInfo,
+  TimeframeGroup,
   TimeframeId,
   TimeframeMeta,
+  TimeframeVisibility,
   TimezonePreset,
 } from '@/types/trading';
+
+export const DEFAULT_FIB_RETRACE_LEVELS: FibLevelItem[] = [
+  { level: 0, color: '#787B86', enabled: true },
+  { level: 0.236, color: '#F23645', enabled: true },
+  { level: 0.382, color: '#F59E0B', enabled: true },
+  { level: 0.5, color: '#089981', enabled: true },
+  { level: 0.618, color: '#00D4AA', enabled: true },
+  { level: 0.705, color: '#38BDF8', enabled: false },
+  { level: 0.786, color: '#2962FF', enabled: true },
+  { level: 0.886, color: '#6366F1', enabled: false },
+  { level: 1, color: '#8B5CF6', enabled: true },
+  { level: 1.272, color: '#EC4899', enabled: true },
+  { level: 1.618, color: '#F59E0B', enabled: true },
+  { level: 2.618, color: '#F23645', enabled: false },
+];
+
+export const DEFAULT_FIB_EXT_LEVELS: FibLevelItem[] = [
+  { level: 0, color: '#787B86', enabled: true },
+  { level: 0.382, color: '#F59E0B', enabled: true },
+  { level: 0.5, color: '#089981', enabled: true },
+  { level: 0.618, color: '#00D4AA', enabled: true },
+  { level: 1.0, color: '#2962FF', enabled: true },
+  { level: 1.272, color: '#8B5CF6', enabled: true },
+  { level: 1.618, color: '#EC4899', enabled: true },
+  { level: 2.0, color: '#F23645', enabled: true },
+  { level: 2.618, color: '#F59E0B', enabled: true },
+];
+
+export const DEFAULT_VISIBILITY: TimeframeVisibility = {
+  seconds: true,
+  minutes: true,
+  hours: true,
+  days: true,
+};
+
+export function isVisibleOnTimeframeGroup(
+  vis: TimeframeVisibility | undefined,
+  group: TimeframeGroup
+): boolean {
+  if (!vis) return true;
+  if (group === 'Seconds') return vis.seconds;
+  if (group === 'Minutes') return vis.minutes;
+  if (group === 'Hours') return vis.hours;
+  return vis.days;
+}
 
 export const TIMEZONE_PRESETS: TimezonePreset[] = [
   { id: 'local', label: 'Browser Local Time', short: 'LOCAL', offsetMinutes: 'local' },
@@ -27,18 +75,18 @@ export const TIMEFRAMES: TimeframeMeta[] = [
   { id: '5s', label: '5s', seconds: 5, group: 'Seconds', defaultBars: 360 },
   { id: '15s', label: '15s', seconds: 15, group: 'Seconds', defaultBars: 360 },
   { id: '30s', label: '30s', seconds: 30, group: 'Seconds', defaultBars: 360 },
-  { id: '1m', label: '1m', seconds: 60, group: 'Minutes', binanceInterval: '1m', defaultBars: 420 },
+  { id: '1m', label: '1m', seconds: 60, group: 'Minutes', binanceInterval: '1m', twelveDataInterval: '1min', defaultBars: 420 },
   { id: '3m', label: '3m', seconds: 180, group: 'Minutes', binanceInterval: '3m', defaultBars: 400 },
-  { id: '5m', label: '5m', seconds: 300, group: 'Minutes', binanceInterval: '5m', defaultBars: 400 },
-  { id: '15m', label: '15m', seconds: 900, group: 'Minutes', binanceInterval: '15m', defaultBars: 400 },
-  { id: '30m', label: '30m', seconds: 1800, group: 'Minutes', binanceInterval: '30m', defaultBars: 380 },
-  { id: '45m', label: '45m', seconds: 2700, group: 'Minutes', defaultBars: 360 },
-  { id: '1h', label: '1h', seconds: 3600, group: 'Hours', binanceInterval: '1h', defaultBars: 380 },
-  { id: '2h', label: '2h', seconds: 7200, group: 'Hours', binanceInterval: '2h', defaultBars: 360 },
-  { id: '4h', label: '4h', seconds: 14400, group: 'Hours', binanceInterval: '4h', defaultBars: 360 },
-  { id: '1D', label: '1D', seconds: 86400, group: 'Days & Above', binanceInterval: '1d', defaultBars: 365 },
-  { id: '1W', label: '1W', seconds: 604800, group: 'Days & Above', binanceInterval: '1w', defaultBars: 260 },
-  { id: '1M', label: '1M', seconds: 2592000, group: 'Days & Above', binanceInterval: '1M', defaultBars: 160 },
+  { id: '5m', label: '5m', seconds: 300, group: 'Minutes', binanceInterval: '5m', twelveDataInterval: '5min', defaultBars: 400 },
+  { id: '15m', label: '15m', seconds: 900, group: 'Minutes', binanceInterval: '15m', twelveDataInterval: '15min', defaultBars: 400 },
+  { id: '30m', label: '30m', seconds: 1800, group: 'Minutes', binanceInterval: '30m', twelveDataInterval: '30min', defaultBars: 380 },
+  { id: '45m', label: '45m', seconds: 2700, group: 'Minutes', twelveDataInterval: '45min', defaultBars: 360 },
+  { id: '1h', label: '1h', seconds: 3600, group: 'Hours', binanceInterval: '1h', twelveDataInterval: '1h', defaultBars: 380 },
+  { id: '2h', label: '2h', seconds: 7200, group: 'Hours', binanceInterval: '2h', twelveDataInterval: '2h', defaultBars: 360 },
+  { id: '4h', label: '4h', seconds: 14400, group: 'Hours', binanceInterval: '4h', twelveDataInterval: '4h', defaultBars: 360 },
+  { id: '1D', label: '1D', seconds: 86400, group: 'Days & Above', binanceInterval: '1d', twelveDataInterval: '1day', defaultBars: 365 },
+  { id: '1W', label: '1W', seconds: 604800, group: 'Days & Above', binanceInterval: '1w', twelveDataInterval: '1week', defaultBars: 260 },
+  { id: '1M', label: '1M', seconds: 2592000, group: 'Days & Above', binanceInterval: '1M', twelveDataInterval: '1month', defaultBars: 160 },
 ];
 
 export const TIMEFRAME_MAP: Record<TimeframeId, TimeframeMeta> = TIMEFRAMES.reduce(
@@ -61,6 +109,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.01,
     volatility: 0.024,
     binanceSymbol: 'BTCUSDT',
+    twelveDataSymbol: 'BTC/USD',
     currency: 'USDT',
     description: 'Bitcoin spot market benchmark against Tether USD.',
   },
@@ -75,6 +124,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.01,
     volatility: 0.031,
     binanceSymbol: 'ETHUSDT',
+    twelveDataSymbol: 'ETH/USD',
     currency: 'USDT',
     description: 'Ethereum smart contract ecosystem native token.',
   },
@@ -89,6 +139,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.01,
     volatility: 0.042,
     binanceSymbol: 'SOLUSDT',
+    twelveDataSymbol: 'SOL/USD',
     currency: 'USDT',
     description: 'High-throughput Layer-1 blockchain asset.',
   },
@@ -103,6 +154,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.01,
     volatility: 0.025,
     binanceSymbol: 'BNBUSDT',
+    twelveDataSymbol: 'BNB/USD',
     currency: 'USDT',
     description: 'BNB Chain native exchange & utility asset.',
   },
@@ -117,6 +169,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.0001,
     volatility: 0.038,
     binanceSymbol: 'XRPUSDT',
+    twelveDataSymbol: 'XRP/USD',
     currency: 'USDT',
     description: 'Cross-border settlement digital asset.',
   },
@@ -131,6 +184,7 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.00001,
     volatility: 0.052,
     binanceSymbol: 'DOGEUSDT',
+    twelveDataSymbol: 'DOGE/USD',
     currency: 'USDT',
     description: 'Community-driven proof-of-work cryptocurrency.',
   },
@@ -145,19 +199,51 @@ export const SYMBOLS: SymbolInfo[] = [
     minMove: 0.01,
     volatility: 0.044,
     binanceSymbol: 'AVAXUSDT',
+    twelveDataSymbol: 'AVAX/USD',
     currency: 'USDT',
     description: 'Avalanche subnet smart-contract platform.',
+  },
+  {
+    symbol: 'XAUUSD',
+    displaySymbol: 'XAU/USD',
+    name: 'Gold Spot / U.S. Dollar',
+    category: 'Commodities',
+    exchange: 'SPOT/GOLD',
+    basePrice: 2985.4,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.011,
+    binanceSymbol: 'PAXGUSDT', // 1:1 physical Gold proxy live 24/7 when no Twelve Data key
+    twelveDataSymbol: 'XAU/USD',
+    currency: 'USD',
+    description: 'Spot Gold bullion (1 Troy Oz). Live via Twelve Data API or 24/7 Gold Proxy (PAXG).',
+  },
+  {
+    symbol: 'USOIL',
+    displaySymbol: 'WTI/USD',
+    name: 'Crude Oil WTI Futures',
+    category: 'Commodities',
+    exchange: 'NYMEX',
+    basePrice: 68.45,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.019,
+    twelveDataSymbol: 'WTI/USD',
+    currency: 'USD',
+    description: 'West Texas Intermediate benchmark crude oil.',
   },
   {
     symbol: 'EURUSD',
     displaySymbol: 'EUR/USD',
     name: 'Euro / U.S. Dollar',
     category: 'Forex',
-    exchange: 'FXCM',
+    exchange: 'FX',
     basePrice: 1.0842,
     precision: 5,
     minMove: 0.00001,
     volatility: 0.0052,
+    twelveDataSymbol: 'EUR/USD',
+    fxPair: ['EUR', 'USD'],
     currency: 'USD',
     description: 'Most liquid global major currency pair.',
   },
@@ -166,11 +252,13 @@ export const SYMBOLS: SymbolInfo[] = [
     displaySymbol: 'GBP/USD',
     name: 'British Pound / U.S. Dollar',
     category: 'Forex',
-    exchange: 'FXCM',
+    exchange: 'FX',
     basePrice: 1.2935,
     precision: 5,
     minMove: 0.00001,
     volatility: 0.0061,
+    twelveDataSymbol: 'GBP/USD',
+    fxPair: ['GBP', 'USD'],
     currency: 'USD',
     description: 'Major UK sterling to US dollar pair.',
   },
@@ -179,11 +267,13 @@ export const SYMBOLS: SymbolInfo[] = [
     displaySymbol: 'USD/JPY',
     name: 'U.S. Dollar / Japanese Yen',
     category: 'Forex',
-    exchange: 'FXCM',
+    exchange: 'FX',
     basePrice: 149.65,
     precision: 3,
     minMove: 0.001,
     volatility: 0.0068,
+    twelveDataSymbol: 'USD/JPY',
+    fxPair: ['USD', 'JPY'],
     currency: 'JPY',
     description: 'Major USD carry-trade benchmark pair.',
   },
@@ -197,34 +287,10 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 1,
     volatility: 0.0045,
+    twelveDataSymbol: 'USD/IDR',
+    fxPair: ['USD', 'IDR'],
     currency: 'IDR',
     description: 'US Dollar against Indonesian Rupiah spot rate.',
-  },
-  {
-    symbol: 'XAUUSD',
-    displaySymbol: 'XAU/USD',
-    name: 'Gold Spot / U.S. Dollar',
-    category: 'Commodities',
-    exchange: 'OANDA',
-    basePrice: 2985.4,
-    precision: 2,
-    minMove: 0.01,
-    volatility: 0.011,
-    currency: 'USD',
-    description: 'Spot Gold bullion priced in US Dollars per Troy Oz.',
-  },
-  {
-    symbol: 'USOIL',
-    displaySymbol: 'WTI/USD',
-    name: 'Crude Oil WTI Futures',
-    category: 'Commodities',
-    exchange: 'NYMEX',
-    basePrice: 68.45,
-    precision: 2,
-    minMove: 0.01,
-    volatility: 0.019,
-    currency: 'USD',
-    description: 'West Texas Intermediate benchmark crude oil.',
   },
   {
     symbol: 'NVDA',
@@ -236,6 +302,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 2,
     minMove: 0.01,
     volatility: 0.028,
+    twelveDataSymbol: 'NVDA',
     currency: 'USD',
     description: 'Semiconductor & AI accelerated computing leader.',
   },
@@ -249,6 +316,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 2,
     minMove: 0.01,
     volatility: 0.015,
+    twelveDataSymbol: 'AAPL',
     currency: 'USD',
     description: 'Consumer hardware, silicon, and ecosystem giant.',
   },
@@ -262,6 +330,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 2,
     minMove: 0.01,
     volatility: 0.036,
+    twelveDataSymbol: 'TSLA',
     currency: 'USD',
     description: 'Electric vehicles, autonomy, and energy storage.',
   },
@@ -270,11 +339,12 @@ export const SYMBOLS: SymbolInfo[] = [
     displaySymbol: 'SPY',
     name: 'SPDR S&P 500 ETF Trust',
     category: 'Stocks',
-    exchange: 'ARCA',
+    exchange: 'NYSE',
     basePrice: 571.2,
     precision: 2,
     minMove: 0.01,
     volatility: 0.01,
+    twelveDataSymbol: 'SPY',
     currency: 'USD',
     description: 'Benchmark US large-cap equity market ETF.',
   },
@@ -288,6 +358,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 2,
     minMove: 0.01,
     volatility: 0.013,
+    twelveDataSymbol: 'NDX',
     currency: 'USD',
     description: 'Top 100 non-financial Nasdaq technology companies.',
   },
@@ -301,6 +372,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 25,
     volatility: 0.014,
+    twelveDataSymbol: 'BBCA:IDX',
     currency: 'IDR',
     description: 'Indonesia largest private commercial bank by market cap.',
   },
@@ -314,6 +386,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 10,
     volatility: 0.018,
+    twelveDataSymbol: 'BBRI:IDX',
     currency: 'IDR',
     description: 'Leading Indonesian microfinance and state-owned bank.',
   },
@@ -327,6 +400,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 25,
     volatility: 0.017,
+    twelveDataSymbol: 'BMRI:IDX',
     currency: 'IDR',
     description: 'Major corporate and retail banking group in Indonesia.',
   },
@@ -340,6 +414,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 10,
     volatility: 0.016,
+    twelveDataSymbol: 'TLKM:IDX',
     currency: 'IDR',
     description: 'National telecommunications and digital infrastructure provider.',
   },
@@ -353,6 +428,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 0,
     minMove: 1,
     volatility: 0.035,
+    twelveDataSymbol: 'GOTO:IDX',
     currency: 'IDR',
     description: 'Indonesian digital ecosystem & on-demand technology giant.',
   },
@@ -371,6 +447,7 @@ export function getSymbolInfo(symbol: string): SymbolInfo {
     precision: 2,
     minMove: 0.01,
     volatility: 0.02,
+    twelveDataSymbol: symbol,
     currency: 'USD',
     description: 'Custom market instrument.',
   };
@@ -460,6 +537,8 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
     description: 'Momentum oscillator (0–100) highlighting overbought/oversold zones.',
     defaultColor: '#A855F7',
     defaultParams: { period: 14 },
+    defaultUpperLevel: 70,
+    defaultLowerLevel: 30,
   },
   {
     type: 'MACD',
@@ -483,6 +562,8 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
     defaultColor: '#0EA5E9',
     secondaryColor: '#F23645',
     defaultParams: { kPeriod: 14, dPeriod: 3, smooth: 3 },
+    defaultUpperLevel: 80,
+    defaultLowerLevel: 20,
   },
   {
     type: 'ATR',
@@ -497,11 +578,9 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
 ];
 
 export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
-  // Group: Cursors
   { id: 'cursor', label: 'Crosshair / Select', group: 'cursors', pointsRequired: 0, description: 'Inspect candles or select and drag drawings' },
   { id: 'eraser', label: 'Eraser', group: 'cursors', pointsRequired: 1, description: 'Click any drawing to remove it instantly' },
 
-  // Group: Trend Lines & Channels
   { id: 'trendline', label: 'Trend Line', group: 'lines', shortcut: 'Alt+T', pointsRequired: 2, description: '2-point diagonal line' },
   { id: 'ray', label: 'Ray', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely forward' },
   { id: 'extended_line', label: 'Extended Line', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely in both directions' },
@@ -513,8 +592,7 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'channel', label: 'Parallel Channel', group: 'lines', pointsRequired: 3, description: '3-point parallel trend channel with midline' },
   { id: 'regression_channel', label: 'Regression Trend', group: 'lines', pointsRequired: 2, description: 'Statistical OLS Linear Regression ±2σ channel' },
 
-  // Group: Gann & ALL Fibonacci Tools
-  { id: 'fib', label: 'Fib Retracement', group: 'fib_gann', shortcut: 'Alt+F', pointsRequired: 2, description: 'Standard 0–1.618 retracement zones' },
+  { id: 'fib', label: 'Fib Retracement', group: 'fib_gann', shortcut: 'Alt+F', pointsRequired: 2, description: 'Standard & custom Fibonacci retracement levels' },
   { id: 'fib_ext', label: 'Trend-Based Fib Extension', group: 'fib_gann', pointsRequired: 3, description: '3-point A-B-C projection up to 2.618' },
   { id: 'fib_channel', label: 'Fib Channel', group: 'fib_gann', pointsRequired: 3, description: 'Diagonal Fibonacci parallel channels' },
   { id: 'fib_timezone', label: 'Fib Time Zones', group: 'fib_gann', pointsRequired: 2, description: 'Vertical Fibonacci sequence time intervals (1,2,3,5,8,13,21)' },
@@ -523,20 +601,17 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'pitchfork', label: "Andrews' Pitchfork", group: 'fib_gann', pointsRequired: 3, description: '3-point median line & parallel channel prongs' },
   { id: 'gann_box', label: 'Gann Box', group: 'fib_gann', pointsRequired: 2, description: 'Price-time square proportions & Gann diagonals' },
 
-  // Group: Harmonic & Elliott Patterns
   { id: 'xabcd', label: 'XABCD Harmonic Pattern', group: 'patterns', pointsRequired: 5, description: '5-point harmonic pattern with live Fib leg ratios' },
   { id: 'abcd', label: 'ABCD Pattern', group: 'patterns', pointsRequired: 4, description: '4-point harmonic AB=CD wave with ratios' },
   { id: 'elliott_impulse', label: 'Elliott Impulse Wave (12345)', group: 'patterns', pointsRequired: 6, description: '6-point 0-1-2-3-4-5 Elliott impulse structure' },
   { id: 'elliott_abc', label: 'Elliott Correction (ABC)', group: 'patterns', pointsRequired: 4, description: '4-point 0-A-B-C corrective wave' },
   { id: 'head_shoulders', label: 'Head & Shoulders', group: 'patterns', pointsRequired: 7, description: '7-point reversal pattern with neckline' },
 
-  // Group: Forecasting & Risk-Reward
   { id: 'long_pos', label: 'Long Position (R:R)', group: 'forecast', shortcut: 'Alt+L', pointsRequired: 1, description: 'Entry / TP / SL risk-reward box' },
   { id: 'short_pos', label: 'Short Position (R:R)', group: 'forecast', shortcut: 'Alt+S', pointsRequired: 1, description: 'Short Entry / TP / SL risk-reward box' },
   { id: 'date_price_range', label: 'Date & Price Range', group: 'forecast', pointsRequired: 2, description: 'Persistent measurement box with bars & volume' },
   { id: 'bar_pattern', label: 'Bars Pattern (Ghost Copy)', group: 'forecast', pointsRequired: 3, description: 'Copy historical candle sequence & project forward' },
 
-  // Group: Geometric Shapes
   { id: 'rect', label: 'Rectangle Zone', group: 'shapes', shortcut: 'Alt+R', pointsRequired: 2, description: 'Supply/demand box with midline' },
   { id: 'rotated_rect', label: 'Rotated Rectangle', group: 'shapes', pointsRequired: 3, description: 'Angled channel/box zone' },
   { id: 'ellipse', label: 'Ellipse / Circle', group: 'shapes', pointsRequired: 2, description: 'Elliptical highlight zone' },
@@ -544,7 +619,6 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'arc', label: 'Curved Arc', group: 'shapes', pointsRequired: 3, description: '3-point smooth Bezier curve' },
   { id: 'polyline', label: 'Polyline Path', group: 'shapes', pointsRequired: 0, description: 'Multi-click path (double-click to finish)' },
 
-  // Group: Annotations & Brushes
   { id: 'brush', label: 'Brush', group: 'annotations', pointsRequired: 0, description: 'Freehand drawing brush' },
   { id: 'highlighter', label: 'Highlighter', group: 'annotations', pointsRequired: 0, description: 'Wide translucent marker stroke' },
   { id: 'arrow_marker', label: 'Arrow', group: 'annotations', pointsRequired: 2, description: 'Directional pointer arrow' },
@@ -552,6 +626,5 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'callout', label: 'Callout', group: 'annotations', pointsRequired: 2, description: 'Anchor pointer with speech bubble note' },
   { id: 'price_label', label: 'Price Label', group: 'annotations', pointsRequired: 1, description: 'Sticky exact price callout tag' },
 
-  // Group: Measure
   { id: 'ruler', label: 'Measure Ruler', group: 'measure', pointsRequired: 2, description: 'Measure price change, % & bar duration' },
 ];

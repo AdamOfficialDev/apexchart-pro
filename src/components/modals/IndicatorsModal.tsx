@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Activity, Plus, Search, Trash2, Unlock, X } from 'lucide-react';
+import { Activity, Plus, Search, Settings2, Trash2, Unlock, X } from 'lucide-react';
 import { INDICATOR_CATALOG } from '@/data/symbols';
 import { cn } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -9,6 +9,7 @@ const IND_CATS = ['All', 'Trend', 'Momentum', 'Volatility', 'Volume'] as const;
 export const IndicatorsModal: React.FC = () => {
   const open = useTradingStore((s) => s.indicatorsModalOpen);
   const setOpen = useTradingStore((s) => s.setIndicatorsModalOpen);
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
   const addIndicator = useTradingStore((s) => s.addIndicator);
@@ -56,7 +57,7 @@ export const IndicatorsModal: React.FC = () => {
               </h2>
               <p className="flex items-center gap-1 text-[11px] text-[#089981]">
                 <Unlock className="h-3 w-3" />
-                Unlimited simultaneous indicators unlocked
+                Unlimited indicators + Full Inputs/Source/Offset/Style settings
               </p>
             </div>
           </div>
@@ -154,12 +155,24 @@ export const IndicatorsModal: React.FC = () => {
                           {ind.name}
                         </span>
                       </div>
-                      <button
-                        onClick={() => removeIndicator(activePane.id, ind.id)}
-                        className="rounded p-1 text-[#787B86] hover:bg-rose-500/15 hover:text-rose-400"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setOpen(false);
+                            setEditingIndicatorId(ind.id);
+                          }}
+                          title="Full Indicator Settings (Source, Offset, Style, Visibility)"
+                          className="rounded p-1 text-[#2962FF] hover:bg-[#2962FF]/15"
+                        >
+                          <Settings2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => removeIndicator(activePane.id, ind.id)}
+                          className="rounded p-1 text-[#787B86] hover:bg-rose-500/15 hover:text-rose-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {Object.keys(ind.params).length > 0 && (

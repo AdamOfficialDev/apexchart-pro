@@ -6,6 +6,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Database,
   Eye,
   EyeOff,
   Lock,
@@ -76,7 +77,8 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
   const addToast = useTradingStore((s) => s.addToast);
   const placeLimitOrder = useTradingStore((s) => s.placeLimitOrder);
   const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
-  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+  const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
+  const setEditingDrawingId = useTradingStore((s) => s.setEditingDrawingId);
 
   const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
   const toggleDrawingsVisible = useTradingStore((s) => s.toggleDrawingsVisible);
@@ -116,8 +118,8 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
   const livePrice = quotes[symbol]?.price ?? info.basePrice;
   const defaultQty = info.category === 'Crypto' ? 0.25 : info.category === 'IDX' ? 1000 : 10;
 
-  const menuW = 262;
-  const menuH = 450;
+  const menuW = 264;
+  const menuH = 470;
   const left = Math.min(menu.x, window.innerWidth - menuW - 12);
   const top = Math.min(menu.y, window.innerHeight - menuH - 12);
 
@@ -131,7 +133,8 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
     const tp = targetDrawing.points[1].price;
     const sl = targetDrawing.points[2].price;
     const isLong = targetDrawing.type === 'long_pos';
-    const riskUsd = paperBalance * 0.01; // Smart 1% account risk
+    const riskPct = targetDrawing.riskPercent ?? 1;
+    const riskUsd = (targetDrawing.accountSize ?? paperBalance) * (riskPct / 100);
     const stopDist = Math.max(Math.abs(entry - sl), info.minMove);
     const qty = Number((riskUsd / stopDist).toFixed(info.category === 'Crypto' ? 4 : 0));
     const safeQty = Math.max(info.category === 'Crypto' ? 0.001 : 1, qty);
@@ -152,20 +155,30 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
       ref={menuRef}
       style={{ left: Math.max(8, left), top: Math.max(8, top) }}
       onContextMenu={(e) => e.preventDefault()}
-      className="fixed z-50 w-[262px] rounded-lg border border-slate-200 bg-white py-1.5 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+      className="fixed z-50 w-[264px] rounded-lg border border-slate-200 bg-white py-1.5 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
     >
       {targetDrawing && (
         <>
           <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#2962FF]">
             Drawing: {targetDrawing.type.replace(/_/g, ' ')}
           </div>
+          <button
+            onClick={() => {
+              setEditingDrawingId(targetDrawing.id);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 font-semibold hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+          >
+            <Settings2 className="h-3.5 w-3.5 text-[#2962FF]" />
+            <span>Drawing Settings...</span>
+          </button>
           {(targetDrawing.type === 'long_pos' || targetDrawing.type === 'short_pos') && (
             <button
               onClick={executeFromRRBox}
               className="flex w-full items-center gap-2.5 px-3 py-1.5 font-semibold text-[#00D4AA] hover:bg-[#00D4AA]/10"
             >
               <Zap className="h-3.5 w-3.5" />
-              <span>Execute Trade (1% Risk Auto-Size)</span>
+              <span>Execute Trade (Auto-Size)</span>
             </button>
           )}
           <button
@@ -345,7 +358,6 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
 
       <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
 
-      {/* Smart AI Overlays Submenu */}
       <div
         className="relative"
         onMouseEnter={() => setSubMenu('smart')}
@@ -385,7 +397,6 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
         )}
       </div>
 
-      {/* Chart Style Submenu */}
       <div
         className="relative"
         onMouseEnter={() => setSubMenu('style')}
@@ -418,7 +429,6 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
         )}
       </div>
 
-      {/* Price Scale Submenu */}
       <div
         className="relative"
         onMouseEnter={() => setSubMenu('scale')}
@@ -505,7 +515,18 @@ export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
 
       <button
         onClick={() => {
-          setChartSettingsModalOpen(true);
+          openChartSettingsTab('feeds');
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-[#00D4AA] hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <Database className="h-3.5 w-3.5" />
+        <span>Data Feeds / Twelve Data API...</span>
+      </button>
+
+      <button
+        onClick={() => {
+          openChartSettingsTab('symbol');
           onClose();
         }}
         className="flex w-full items-center gap-2.5 px-3 py-1.5 font-medium hover:bg-slate-100 dark:hover:bg-[#2A2E39]"

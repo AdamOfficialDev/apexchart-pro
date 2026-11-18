@@ -1,4 +1,4 @@
-import { Candle } from '@/types/trading';
+import { Candle, PriceSource } from '@/types/trading';
 
 export interface TimeValuePoint {
   time: number;
@@ -9,6 +9,38 @@ export interface ColoredPoint {
   time: number;
   value: number;
   color?: string;
+}
+
+export function getCandleSourceValue(c: Candle, source: PriceSource = 'close'): number {
+  switch (source) {
+    case 'open':
+      return c.open;
+    case 'high':
+      return c.high;
+    case 'low':
+      return c.low;
+    case 'hl2':
+      return (c.high + c.low) / 2;
+    case 'hlc3':
+      return (c.high + c.low + c.close) / 3;
+    case 'ohlc4':
+      return (c.open + c.high + c.low + c.close) / 4;
+    case 'close':
+    default:
+      return c.close;
+  }
+}
+
+export function applyIndicatorOffset<T extends { time: number }>(
+  points: T[],
+  offset: number | undefined,
+  tfSec: number
+): T[] {
+  if (!offset || offset === 0) return points;
+  return points.map((p) => ({
+    ...p,
+    time: p.time + offset * tfSec,
+  }));
 }
 
 export function computeHeikinAshi(candles: Candle[]): Candle[] {
@@ -33,13 +65,17 @@ export function computeHeikinAshi(candles: Candle[]): Candle[] {
   return result;
 }
 
-export function computeSMA(candles: Candle[], period = 20): TimeValuePoint[] {
+export function computeSMA(
+  candles: Candle[],
+  period = 20,
+  source: PriceSource = 'close'
+): TimeValuePoint[] {
   if (candles.length < period || period < 1) return [];
   const out: TimeValuePoint[] = [];
   let sum = 0;
   for (let i = 0; i < candles.length; i++) {
-    sum += candles[i].close;
-    if (i >= period) sum -= candles[i - period].close;
+    sum += getCandleSourceValue(candles[i], source);
+    if (i >= period) sum -= getCandleSourceValue(candles[i - period], source);
     if (i >= period - 1) {
       out.push({ time: candles[i].time, value: sum / period });
     }
@@ -47,22 +83,32 @@ export function computeSMA(candles: Candle[], period = 20): TimeValuePoint[] {
   return out;
 }
 
-export function computeEMA(candles: Candle[], period = 21): TimeValuePoint[] {
+export function computeEMA(
+  candles: Candle[],
+  period = 21,
+  source: PriceSource = 'close'
+): TimeValuePoint[] {
   if (candles.length < period || period < 1) return [];
   const k = 2 / (period + 1);
   const out: TimeValuePoint[] = [];
   let sum = 0;
-  for (let i = 0; i < period; i++) sum += candles[i].close;
+  for (let i = 0; i < period; i++) sum += getCandleSourceValue(candles[i], source);
   let ema = sum / period;
   out.push({ time: candles[period - 1].time, value: ema });
   for (let i = period; i < candles.length; i++) {
-    ema = candles[i].close * k + ema * (1 - k);
+    const v = getCandleSourceValue(candles[i], source);
+    ema = v * k + ema * (1 - k);
     out.push({ time: candles[i].time, value: ema });
   }
   return out;
 }
 
-export function computeBollingerBands(candles: Candle[], period = 20, stdDevMult = 2) {
+export function computeBollingerBands(
+  candles: Candle[],
+  period = 20,
+  stdDevMult = 2,
+  source: PriceSource = 'close'
+) {
   const upper: TimeValuePoint[] = [];
   const middle: TimeValuePoint[] = [];
   const lower: TimeValuePoint[] = [];
@@ -70,12 +116,12 @@ export function computeBollingerBands(candles: Candle[], period = 20, stdDevMult
 
   for (let i = period - 1; i < candles.length; i++) {
     let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) sum += candles[j].close;
+    for (let j = i - period + 1; j <= i; j++) sum += getCandleSourceValue(candles[j], source);
     const mean = sum / period;
 
     let sqDiff = 0;
     for (let j = i - period + 1; j <= i; j++) {
-      const diff = candles[j].close - mean;
+      const diff = getCandleSourceValue(candles[j], source) - mean;
       sqDiff += diff * diff;
     }
     const sd = Math.sqrt(sqDiff / period);
@@ -140,8 +186,8 @@ export function computeSupertrend(
   candles: Candle[],
   period = 10,
   multiplier = 3,
-  bullColor = '#10B981',
-  bearColor = '#F43F5E'
+  bullColor = '#089981',
+  bearColor = '#F23645'
 ): ColoredPoint[] {
   const atrPoints = computeATR(candles, period);
   if (atrPoints.length === 0) return [];
@@ -184,11 +230,8 @@ export function computeSupertrend(
       basicLower > prevFinalLower || prevClose < prevFinalLower ? basicLower : prevFinalLower;
 
     let trend: 1 | -1 = prevTrend;
-    if (prevTrend === -1 && c.close > prevFinalUpper) {
-      trend = 1;
-    } else if (prevTrend === 1 && c.close < prevFinalLower) {
-      trend = -1;
-    }
+    if (prevTrend === -1 && c.close > prevFinalUpper) trend = 1;
+    else if (prevTrend === 1 && c.close < prevFinalLower) trend = -1;
 
     prevFinalUpper = finalUpper;
     prevFinalLower = finalLower;
@@ -224,14 +267,19 @@ export function computeDonchian(candles: Candle[], period = 20) {
   return { upper, middle, lower };
 }
 
-export function computeRSI(candles: Candle[], period = 14): TimeValuePoint[] {
+export function computeRSI(
+  candles: Candle[],
+  period = 14,
+  source: PriceSource = 'close'
+): TimeValuePoint[] {
   if (candles.length <= period) return [];
   const out: TimeValuePoint[] = [];
 
   let gainSum = 0;
   let lossSum = 0;
   for (let i = 1; i <= period; i++) {
-    const diff = candles[i].close - candles[i - 1].close;
+    const diff =
+      getCandleSourceValue(candles[i], source) - getCandleSourceValue(candles[i - 1], source);
     if (diff >= 0) gainSum += diff;
     else lossSum += Math.abs(diff);
   }
@@ -243,7 +291,8 @@ export function computeRSI(candles: Candle[], period = 14): TimeValuePoint[] {
   out.push({ time: candles[period].time, value: calcRsi(avgGain, avgLoss) });
 
   for (let i = period + 1; i < candles.length; i++) {
-    const diff = candles[i].close - candles[i - 1].close;
+    const diff =
+      getCandleSourceValue(candles[i], source) - getCandleSourceValue(candles[i - 1], source);
     const gain = diff > 0 ? diff : 0;
     const loss = diff < 0 ? Math.abs(diff) : 0;
     avgGain = (avgGain * (period - 1) + gain) / period;
@@ -254,11 +303,21 @@ export function computeRSI(candles: Candle[], period = 14): TimeValuePoint[] {
   return out;
 }
 
-export function computeMACD(candles: Candle[], fast = 12, slow = 26, signalPeriod = 9) {
-  const fastEma = computeEMA(candles, fast);
-  const slowEma = computeEMA(candles, slow);
+export function computeMACD(
+  candles: Candle[],
+  fast = 12,
+  slow = 26,
+  signalPeriod = 9,
+  source: PriceSource = 'close'
+) {
+  const fastEma = computeEMA(candles, fast, source);
+  const slowEma = computeEMA(candles, slow, source);
   if (fastEma.length === 0 || slowEma.length === 0) {
-    return { macd: [] as TimeValuePoint[], signal: [] as TimeValuePoint[], histogram: [] as ColoredPoint[] };
+    return {
+      macd: [] as TimeValuePoint[],
+      signal: [] as TimeValuePoint[],
+      histogram: [] as ColoredPoint[],
+    };
   }
 
   const fastMap = new Map(fastEma.map((p) => [p.time, p.value]));
@@ -292,7 +351,7 @@ export function computeMACD(candles: Candle[], fast = 12, slow = 26, signalPerio
     histogram.push({
       time: macdLine[i].time,
       value: histVal,
-      color: histVal >= 0 ? 'rgba(16, 185, 129, 0.72)' : 'rgba(244, 63, 94, 0.72)',
+      color: histVal >= 0 ? 'rgba(8, 153, 129, 0.72)' : 'rgba(242, 54, 69, 0.72)',
     });
   }
 
