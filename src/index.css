@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-app: #f0f3fa;
+  --bg-panel: #ffffff;
+  --bg-elevated: #f8fafd;
+  --border-hairline: #e0e3eb;
+  --text-primary: #131722;
+  --text-muted: #787b86;
+}
+
+html.dark {
+  --bg-app: #0c0f17;
+  --bg-panel: #131722;
+  --bg-elevated: #1e222d;
+  --border-hairline: #2a2e39;
+  --text-primary: #d1d4dc;
+  --text-muted: #787b86;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Trebuchet MS', sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp TradingView-style thin scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 123, 134, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 123, 134, 0.5);
+}
+
+.glass-panel {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}

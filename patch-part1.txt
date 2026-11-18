@@ -1,0 +1,1998 @@
+<<<=== FILE: tailwind.config.js ===>>>
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: 'class',
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Trebuchet MS', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      colors: {
+        obsidian: {
+          950: '#0A0D14',
+          900: '#131722',
+          850: '#181C27',
+          800: '#1E222D',
+          700: '#2A2E39',
+          600: '#363A45',
+        },
+        brand: {
+          blue: '#2962FF',
+          cyan: '#00D4AA',
+          bull: '#089981',
+          bear: '#F23645',
+        },
+      },
+    },
+  },
+  plugins: [],
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/index.css ===>>>
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-app: #f0f3fa;
+  --bg-panel: #ffffff;
+  --bg-elevated: #f8fafd;
+  --border-hairline: #e0e3eb;
+  --text-primary: #131722;
+  --text-muted: #787b86;
+}
+
+html.dark {
+  --bg-app: #0c0f17;
+  --bg-panel: #131722;
+  --bg-elevated: #1e222d;
+  --border-hairline: #2a2e39;
+  --text-primary: #d1d4dc;
+  --text-muted: #787b86;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Trebuchet MS', sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp TradingView-style thin scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 123, 134, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 123, 134, 0.5);
+}
+
+.glass-panel {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/types/trading.ts ===>>>
+export type TimeframeId =
+  | '1s'
+  | '5s'
+  | '15s'
+  | '30s'
+  | '1m'
+  | '3m'
+  | '5m'
+  | '15m'
+  | '30m'
+  | '45m'
+  | '1h'
+  | '2h'
+  | '4h'
+  | '1D'
+  | '1W'
+  | '1M';
+
+export type TimeframeGroup = 'Seconds' | 'Minutes' | 'Hours' | 'Days & Above';
+
+export interface TimeframeMeta {
+  id: TimeframeId;
+  label: string;
+  seconds: number;
+  group: TimeframeGroup;
+  binanceInterval?: string;
+  defaultBars: number;
+}
+
+export type MarketCategory = 'Crypto' | 'Forex' | 'Stocks' | 'IDX' | 'Commodities';
+
+export interface SymbolInfo {
+  symbol: string;
+  displaySymbol: string;
+  name: string;
+  category: MarketCategory;
+  exchange: string;
+  basePrice: number;
+  precision: number;
+  minMove: number;
+  volatility: number;
+  binanceSymbol?: string;
+  currency: string;
+  description: string;
+}
+
+export interface Candle {
+  time: number; // UTC unix seconds
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface LiveQuote {
+  symbol: string;
+  price: number;
+  prevClose: number;
+  change: number;
+  changePercent: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  sparkline: number[];
+  source: 'binance' | 'simulated';
+}
+
+export type ChartStyleType = 'candles' | 'hollow' | 'heikin_ashi' | 'line' | 'area' | 'bars';
+export type ScaleMode = 'normal' | 'logarithmic' | 'percentage';
+
+export interface ChartSettings {
+  upColor: string;
+  downColor: string;
+  wickUpColor: string;
+  wickDownColor: string;
+  borderUpColor: string;
+  borderDownColor: string;
+  showGrid: boolean;
+  gridStyle: 'both' | 'vert' | 'horz' | 'none';
+  crosshairStyle: 'dashed' | 'dotted' | 'solid';
+  showWatermark: boolean;
+  showCountdown: boolean;
+  showQuickTrade: boolean;
+  bgType: 'solid' | 'gradient';
+  bgColorDark: string;
+  bgColorLight: string;
+  invertScale: boolean;
+  timezone: 'local' | 'UTC';
+}
+
+export type IndicatorType =
+  | 'SMA'
+  | 'EMA'
+  | 'BB'
+  | 'VWAP'
+  | 'SUPERTREND'
+  | 'DONCHIAN'
+  | 'VOLUME'
+  | 'RSI'
+  | 'MACD'
+  | 'STOCH'
+  | 'ATR';
+
+export type IndicatorPlacement = 'overlay' | 'subpane';
+
+export interface IndicatorConfig {
+  id: string;
+  type: IndicatorType;
+  name: string;
+  placement: IndicatorPlacement;
+  visible: boolean;
+  color: string;
+  secondaryColor?: string;
+  tertiaryColor?: string;
+  params: Record<string, number>;
+}
+
+export interface IndicatorCatalogItem {
+  type: IndicatorType;
+  name: string;
+  shortName: string;
+  category: 'Trend' | 'Momentum' | 'Volatility' | 'Volume';
+  placement: IndicatorPlacement;
+  description: string;
+  defaultColor: string;
+  secondaryColor?: string;
+  tertiaryColor?: string;
+  defaultParams: Record<string, number>;
+}
+
+export type DrawingToolType =
+  | 'cursor'
+  | 'trendline'
+  | 'ray'
+  | 'hline'
+  | 'vline'
+  | 'channel'
+  | 'fib'
+  | 'rect'
+  | 'long_pos'
+  | 'short_pos'
+  | 'brush'
+  | 'text'
+  | 'ruler';
+
+export interface DrawingPoint {
+  time: number;
+  price: number;
+}
+
+export interface DrawingObject {
+  id: string;
+  symbol: string;
+  type: Exclude<DrawingToolType, 'cursor' | 'ruler'>;
+  points: DrawingPoint[];
+  color: string;
+  fillColor?: string;
+  lineWidth: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  text?: string;
+  locked?: boolean;
+  visible?: boolean;
+  createdAt: number;
+}
+
+export type LayoutType = '1x1' | '1x2' | '2x1' | '2x2' | '1+2';
+
+export interface ChartPaneConfig {
+  id: string;
+  symbol: string;
+  timeframe: TimeframeId;
+  chartStyle: ChartStyleType;
+  scaleMode: ScaleMode;
+  indicators: IndicatorConfig[];
+}
+
+export interface ReplayState {
+  enabled: boolean;
+  isSelectingStart: boolean;
+  isPlaying: boolean;
+  speed: 0.5 | 1 | 2 | 5 | 10;
+  currentIndex: number;
+  totalBars: number;
+  currentTimestamp: number | null;
+  paneId: string | null;
+}
+
+export type AlertCondition = 'crossing_up' | 'crossing_down' | 'crossing';
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  price: number;
+  condition: AlertCondition;
+  note: string;
+  active: boolean;
+  triggeredAt?: number;
+  createdAt: number;
+}
+
+export type OrderSide = 'buy' | 'sell';
+
+export interface PaperPosition {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  quantity: number;
+  entryPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  openedAt: number;
+}
+
+export interface PendingOrder {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  type: 'limit';
+  quantity: number;
+  limitPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  createdAt: number;
+}
+
+export interface ClosedTrade {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  quantity: number;
+  entryPrice: number;
+  exitPrice: number;
+  pnl: number;
+  pnlPercent: number;
+  openedAt: number;
+  closedAt: number;
+  reason: 'manual' | 'sl' | 'tp';
+}
+
+export interface ToastMessage {
+  id: string;
+  title: string;
+  description?: string;
+  variant: 'info' | 'success' | 'warning' | 'danger';
+  createdAt: number;
+}
+
+export interface ChartContextMenuData {
+  x: number;
+  y: number;
+  price: number;
+  time: number | null;
+  barIndex: number | null;
+  drawingId: string | null;
+}
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/store/useTradingStore.ts ===>>>
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { INDICATOR_CATALOG, getSymbolInfo } from '@/data/symbols';
+import { generateId } from '@/lib/utils';
+import {
+  ChartPaneConfig,
+  ChartSettings,
+  ChartStyleType,
+  ClosedTrade,
+  DrawingObject,
+  DrawingToolType,
+  IndicatorConfig,
+  IndicatorType,
+  LayoutType,
+  LiveQuote,
+  OrderSide,
+  PaperPosition,
+  PendingOrder,
+  PriceAlert,
+  ReplayState,
+  ScaleMode,
+  TimeframeId,
+  ToastMessage,
+} from '@/types/trading';
+
+export type RightSidebarTab = 'watchlist' | 'orderbook' | 'alerts' | null;
+export type BottomPanelTab = 'positions' | 'orders' | 'history' | 'trade';
+
+export const DEFAULT_CHART_SETTINGS: ChartSettings = {
+  upColor: '#089981',
+  downColor: '#F23645',
+  wickUpColor: '#089981',
+  wickDownColor: '#F23645',
+  borderUpColor: '#089981',
+  borderDownColor: '#F23645',
+  showGrid: true,
+  gridStyle: 'both',
+  crosshairStyle: 'dashed',
+  showWatermark: true,
+  showCountdown: true,
+  showQuickTrade: true,
+  bgType: 'solid',
+  bgColorDark: '#131722',
+  bgColorLight: '#FFFFFF',
+  invertScale: false,
+  timezone: 'local',
+};
+
+function createIndicatorInstance(
+  type: IndicatorType,
+  overrideParams?: Record<string, number>,
+  overrideColor?: string
+): IndicatorConfig {
+  const meta = INDICATOR_CATALOG.find((i) => i.type === type) ?? INDICATOR_CATALOG[0];
+  return {
+    id: generateId('ind'),
+    type: meta.type,
+    name: meta.shortName,
+    placement: meta.placement,
+    visible: true,
+    color: overrideColor ?? meta.defaultColor,
+    secondaryColor: meta.secondaryColor,
+    tertiaryColor: meta.tertiaryColor,
+    params: { ...meta.defaultParams, ...(overrideParams ?? {}) },
+  };
+}
+
+const DEFAULT_PANES: ChartPaneConfig[] = [
+  {
+    id: 'pane-1',
+    symbol: 'BTCUSDT',
+    timeframe: '15m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    indicators: [
+      createIndicatorInstance('EMA', { period: 21 }, '#2962FF'),
+      createIndicatorInstance('EMA', { period: 55 }, '#F59E0B'),
+      createIndicatorInstance('VOLUME'),
+      createIndicatorInstance('RSI', { period: 14 }, '#A855F7'),
+    ],
+  },
+  {
+    id: 'pane-2',
+    symbol: 'ETHUSDT',
+    timeframe: '1h',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    indicators: [
+      createIndicatorInstance('EMA', { period: 21 }, '#06B6D4'),
+      createIndicatorInstance('VOLUME'),
+    ],
+  },
+  {
+    id: 'pane-3',
+    symbol: 'SOLUSDT',
+    timeframe: '5m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    indicators: [
+      createIndicatorInstance('VWAP'),
+      createIndicatorInstance('VOLUME'),
+    ],
+  },
+  {
+    id: 'pane-4',
+    symbol: 'XAUUSD',
+    timeframe: '15m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    indicators: [
+      createIndicatorInstance('BB', { period: 20, stdDev: 2 }),
+      createIndicatorInstance('VOLUME'),
+    ],
+  },
+];
+
+const DEFAULT_REPLAY: ReplayState = {
+  enabled: false,
+  isSelectingStart: false,
+  isPlaying: false,
+  speed: 1,
+  currentIndex: 0,
+  totalBars: 0,
+  currentTimestamp: null,
+  paneId: null,
+};
+
+interface TradingStore {
+  // Appearance & Layout UI
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
+  chartSettings: ChartSettings;
+  updateChartSettings: (patch: Partial<ChartSettings>) => void;
+  resetChartSettings: () => void;
+  rightSidebarTab: RightSidebarTab;
+  setRightSidebarTab: (tab: RightSidebarTab) => void;
+  bottomPanelOpen: boolean;
+  setBottomPanelOpen: (open: boolean) => void;
+  bottomPanelTab: BottomPanelTab;
+  setBottomPanelTab: (tab: BottomPanelTab) => void;
+
+  // Modals & Commands
+  searchModalOpen: boolean;
+  setSearchModalOpen: (open: boolean) => void;
+  indicatorsModalOpen: boolean;
+  setIndicatorsModalOpen: (open: boolean) => void;
+  shortcutsModalOpen: boolean;
+  setShortcutsModalOpen: (open: boolean) => void;
+  chartSettingsModalOpen: boolean;
+  setChartSettingsModalOpen: (open: boolean) => void;
+  snapshotRequestCounter: number;
+  triggerSnapshot: () => void;
+
+  // Multi-Chart Workspace
+  layout: LayoutType;
+  setLayout: (layout: LayoutType) => void;
+  panes: ChartPaneConfig[];
+  activePaneId: string;
+  setActivePaneId: (paneId: string) => void;
+  favoriteTimeframes: TimeframeId[];
+  toggleFavoriteTimeframe: (tf: TimeframeId) => void;
+  syncCrosshair: boolean;
+  setSyncCrosshair: (sync: boolean) => void;
+  syncSymbol: boolean;
+  setSyncSymbol: (sync: boolean) => void;
+  syncTimeframe: boolean;
+  setSyncTimeframe: (sync: boolean) => void;
+  syncedCrosshairTime: number | null;
+  setSyncedCrosshairTime: (time: number | null) => void;
+
+  updatePaneSymbol: (paneId: string, symbol: string) => void;
+  updatePaneTimeframe: (paneId: string, timeframe: TimeframeId) => void;
+  updatePaneChartStyle: (paneId: string, chartStyle: ChartStyleType) => void;
+  updatePaneScaleMode: (paneId: string, scaleMode: ScaleMode) => void;
+
+  // Unlimited Indicators
+  addIndicator: (paneId: string, type: IndicatorType) => void;
+  removeIndicator: (paneId: string, indicatorId: string) => void;
+  toggleIndicatorVisibility: (paneId: string, indicatorId: string) => void;
+  updateIndicator: (paneId: string, indicatorId: string, patch: Partial<IndicatorConfig>) => void;
+
+  // Drawings
+  activeDrawingTool: DrawingToolType;
+  setActiveDrawingTool: (tool: DrawingToolType) => void;
+  drawingColor: string;
+  setDrawingColor: (color: string) => void;
+  drawingLineWidth: number;
+  setDrawingLineWidth: (width: number) => void;
+  drawingLineStyle: 'solid' | 'dashed' | 'dotted';
+  setDrawingLineStyle: (style: 'solid' | 'dashed' | 'dotted') => void;
+  stayInDrawingMode: boolean;
+  toggleStayInDrawingMode: () => void;
+  magnetMode: boolean;
+  toggleMagnetMode: () => void;
+  drawingsLocked: boolean;
+  toggleDrawingsLocked: () => void;
+  drawingsVisible: boolean;
+  toggleDrawingsVisible: () => void;
+  selectedDrawingId: string | null;
+  setSelectedDrawingId: (id: string | null) => void;
+  drawingsBySymbol: Record<string, DrawingObject[]>;
+  addDrawing: (drawing: DrawingObject) => void;
+  updateDrawing: (symbol: string, id: string, patch: Partial<DrawingObject>) => void;
+  duplicateDrawing: (symbol: string, id: string) => void;
+  removeDrawing: (symbol: string, id: string) => void;
+  clearDrawingsForSymbol: (symbol: string) => void;
+  undoDrawing: (symbol: string) => void;
+
+  // Bar Replay
+  replay: ReplayState;
+  enterReplayMode: (paneId: string) => void;
+  startReplayAt: (paneId: string, index: number, totalBars: number, timestamp: number | null) => void;
+  setReplaySelectMode: (selecting: boolean) => void;
+  toggleReplayPlay: () => void;
+  stepReplayForward: () => void;
+  stepReplayBackward: () => void;
+  setReplaySpeed: (speed: 0.5 | 1 | 2 | 5 | 10) => void;
+  setReplayIndex: (index: number, timestamp?: number | null) => void;
+  setReplayTotalBars: (totalBars: number) => void;
+  exitReplayMode: () => void;
+
+  // Watchlist & Live Quotes
+  watchlist: string[];
+  toggleWatchlistSymbol: (symbol: string) => void;
+  quotes: Record<string, LiveQuote>;
+  updateQuote: (
+    symbol: string,
+    price: number,
+    source?: 'binance' | 'simulated',
+    volume?: number
+  ) => void;
+
+  // Alerts
+  alerts: PriceAlert[];
+  addAlert: (alert: Omit<PriceAlert, 'id' | 'active' | 'createdAt'>) => void;
+  toggleAlert: (id: string) => void;
+  removeAlert: (id: string) => void;
+  markAlertTriggered: (id: string) => void;
+
+  // Paper Trading
+  paperBalance: number;
+  positions: PaperPosition[];
+  pendingOrders: PendingOrder[];
+  closedTrades: ClosedTrade[];
+  placeMarketOrder: (params: {
+    symbol: string;
+    side: OrderSide;
+    quantity: number;
+    price: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => void;
+  placeLimitOrder: (params: {
+    symbol: string;
+    side: OrderSide;
+    quantity: number;
+    limitPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => void;
+  cancelPendingOrder: (id: string) => void;
+  closePosition: (id: string, exitPrice: number, reason?: 'manual' | 'sl' | 'tp') => void;
+  updatePositionTPSL: (id: string, stopLoss?: number, takeProfit?: number) => void;
+  processMarketPriceForPaperTrading: (
+    symbol: string,
+    high: number,
+    low: number,
+    close: number
+  ) => void;
+  resetPaperAccount: () => void;
+
+  // Notifications
+  toasts: ToastMessage[];
+  addToast: (toast: Omit<ToastMessage, 'id' | 'createdAt'>) => void;
+  removeToast: (id: string) => void;
+}
+
+export const useTradingStore = create<TradingStore>()(
+  persist(
+    (set, get) => ({
+      theme: 'dark',
+      toggleTheme: () =>
+        set((state) => {
+          const next = state.theme === 'dark' ? 'light' : 'dark';
+          if (typeof document !== 'undefined') {
+            document.documentElement.classList.toggle('dark', next === 'dark');
+          }
+          return { theme: next };
+        }),
+
+      chartSettings: DEFAULT_CHART_SETTINGS,
+      updateChartSettings: (patch) =>
+        set((state) => ({
+          chartSettings: { ...state.chartSettings, ...patch },
+        })),
+      resetChartSettings: () => set({ chartSettings: DEFAULT_CHART_SETTINGS }),
+
+      rightSidebarTab: 'watchlist',
+      setRightSidebarTab: (tab) => set({ rightSidebarTab: tab }),
+      bottomPanelOpen: false,
+      setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
+      bottomPanelTab: 'positions',
+      setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+
+      searchModalOpen: false,
+      setSearchModalOpen: (open) => set({ searchModalOpen: open }),
+      indicatorsModalOpen: false,
+      setIndicatorsModalOpen: (open) => set({ indicatorsModalOpen: open }),
+      shortcutsModalOpen: false,
+      setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+      chartSettingsModalOpen: false,
+      setChartSettingsModalOpen: (open) => set({ chartSettingsModalOpen: open }),
+      snapshotRequestCounter: 0,
+      triggerSnapshot: () =>
+        set((s) => ({ snapshotRequestCounter: s.snapshotRequestCounter + 1 })),
+
+      layout: '1x1',
+      setLayout: (layout) => set({ layout }),
+      panes: DEFAULT_PANES,
+      activePaneId: 'pane-1',
+      setActivePaneId: (paneId) => set({ activePaneId: paneId }),
+
+      favoriteTimeframes: ['1s', '5s', '1m', '5m', '15m', '1h', '4h', '1D'],
+      toggleFavoriteTimeframe: (tf) =>
+        set((state) => {
+          const exists = state.favoriteTimeframes.includes(tf);
+          if (exists && state.favoriteTimeframes.length <= 2) return state;
+          const next = exists
+            ? state.favoriteTimeframes.filter((t) => t !== tf)
+            : [...state.favoriteTimeframes, tf];
+          return { favoriteTimeframes: next };
+        }),
+
+      syncCrosshair: true,
+      setSyncCrosshair: (syncCrosshair) => set({ syncCrosshair }),
+      syncSymbol: false,
+      setSyncSymbol: (syncSymbol) => set({ syncSymbol }),
+      syncTimeframe: false,
+      setSyncTimeframe: (syncTimeframe) => set({ syncTimeframe }),
+      syncedCrosshairTime: null,
+      setSyncedCrosshairTime: (syncedCrosshairTime) => set({ syncedCrosshairTime }),
+
+      updatePaneSymbol: (paneId, symbol) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            state.syncSymbol || p.id === paneId ? { ...p, symbol } : p
+          ),
+        })),
+
+      updatePaneTimeframe: (paneId, timeframe) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            state.syncTimeframe || p.id === paneId ? { ...p, timeframe } : p
+          ),
+        })),
+
+      updatePaneChartStyle: (paneId, chartStyle) =>
+        set((state) => ({
+          panes: state.panes.map((p) => (p.id === paneId ? { ...p, chartStyle } : p)),
+        })),
+
+      updatePaneScaleMode: (paneId, scaleMode) =>
+        set((state) => ({
+          panes: state.panes.map((p) => (p.id === paneId ? { ...p, scaleMode } : p)),
+        })),
+
+      addIndicator: (paneId, type) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? { ...p, indicators: [...p.indicators, createIndicatorInstance(type)] }
+              : p
+          ),
+        })),
+
+      removeIndicator: (paneId, indicatorId) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? { ...p, indicators: p.indicators.filter((ind) => ind.id !== indicatorId) }
+              : p
+          ),
+        })),
+
+      toggleIndicatorVisibility: (paneId, indicatorId) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  indicators: p.indicators.map((ind) =>
+                    ind.id === indicatorId ? { ...ind, visible: !ind.visible } : ind
+                  ),
+                }
+              : p
+          ),
+        })),
+
+      updateIndicator: (paneId, indicatorId, patch) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  indicators: p.indicators.map((ind) =>
+                    ind.id === indicatorId ? { ...ind, ...patch } : ind
+                  ),
+                }
+              : p
+          ),
+        })),
+
+      activeDrawingTool: 'cursor',
+      setActiveDrawingTool: (activeDrawingTool) => set({ activeDrawingTool }),
+      drawingColor: '#2962FF',
+      setDrawingColor: (drawingColor) => set({ drawingColor }),
+      drawingLineWidth: 2,
+      setDrawingLineWidth: (drawingLineWidth) => set({ drawingLineWidth }),
+      drawingLineStyle: 'solid',
+      setDrawingLineStyle: (drawingLineStyle) => set({ drawingLineStyle }),
+      stayInDrawingMode: false,
+      toggleStayInDrawingMode: () => set((s) => ({ stayInDrawingMode: !s.stayInDrawingMode })),
+      magnetMode: false,
+      toggleMagnetMode: () => set((s) => ({ magnetMode: !s.magnetMode })),
+      drawingsLocked: false,
+      toggleDrawingsLocked: () => set((s) => ({ drawingsLocked: !s.drawingsLocked })),
+      drawingsVisible: true,
+      toggleDrawingsVisible: () => set((s) => ({ drawingsVisible: !s.drawingsVisible })),
+      selectedDrawingId: null,
+      setSelectedDrawingId: (selectedDrawingId) => set({ selectedDrawingId }),
+      drawingsBySymbol: {},
+
+      addDrawing: (drawing) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[drawing.symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [drawing.symbol]: [...list, drawing],
+            },
+            selectedDrawingId: drawing.id,
+          };
+        }),
+
+      updateDrawing: (symbol, id, patch) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+            },
+          };
+        }),
+
+      duplicateDrawing: (symbol, id) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          const src = list.find((d) => d.id === id);
+          if (!src) return state;
+          const clone: DrawingObject = {
+            ...src,
+            id: generateId('drw'),
+            locked: false,
+            points: src.points.map((pt) => ({
+              time: pt.time,
+              price: pt.price * 1.003,
+            })),
+            createdAt: Date.now(),
+          };
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: [...list, clone],
+            },
+            selectedDrawingId: clone.id,
+          };
+        }),
+
+      removeDrawing: (symbol, id) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.filter((d) => d.id !== id),
+            },
+            selectedDrawingId: state.selectedDrawingId === id ? null : state.selectedDrawingId,
+          };
+        }),
+
+      clearDrawingsForSymbol: (symbol) =>
+        set((state) => ({
+          drawingsBySymbol: { ...state.drawingsBySymbol, [symbol]: [] },
+          selectedDrawingId: null,
+        })),
+
+      undoDrawing: (symbol) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          if (list.length === 0) return state;
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.slice(0, -1),
+            },
+            selectedDrawingId: null,
+          };
+        }),
+
+      // Replay Mode
+      replay: DEFAULT_REPLAY,
+      enterReplayMode: (paneId) =>
+        set({
+          replay: {
+            enabled: true,
+            isSelectingStart: true,
+            isPlaying: false,
+            speed: 1,
+            currentIndex: 0,
+            totalBars: 0,
+            currentTimestamp: null,
+            paneId,
+          },
+        }),
+
+      startReplayAt: (paneId, index, totalBars, timestamp) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            enabled: true,
+            isSelectingStart: false,
+            isPlaying: false,
+            paneId,
+            totalBars,
+            currentIndex: Math.max(5, Math.min(index, Math.max(5, totalBars - 2))),
+            currentTimestamp: timestamp,
+          },
+        })),
+
+      setReplaySelectMode: (isSelectingStart) =>
+        set((state) => ({
+          replay: { ...state.replay, isSelectingStart, isPlaying: false },
+        })),
+
+      toggleReplayPlay: () =>
+        set((state) => {
+          if (!state.replay.enabled) return state;
+          if (state.replay.isSelectingStart) {
+            const fallbackIdx = Math.max(10, Math.floor(state.replay.totalBars * 0.6));
+            return {
+              replay: {
+                ...state.replay,
+                isSelectingStart: false,
+                currentIndex: state.replay.currentIndex || fallbackIdx,
+                isPlaying: true,
+              },
+            };
+          }
+          if (state.replay.currentIndex >= state.replay.totalBars - 1) {
+            return { replay: { ...state.replay, isPlaying: false } };
+          }
+          return {
+            replay: { ...state.replay, isPlaying: !state.replay.isPlaying },
+          };
+        }),
+
+      stepReplayForward: () =>
+        set((state) => {
+          if (!state.replay.enabled || state.replay.totalBars === 0) return state;
+          const next = Math.min(state.replay.totalBars - 1, state.replay.currentIndex + 1);
+          return {
+            replay: {
+              ...state.replay,
+              isSelectingStart: false,
+              currentIndex: next,
+              isPlaying: next >= state.replay.totalBars - 1 ? false : state.replay.isPlaying,
+            },
+          };
+        }),
+
+      stepReplayBackward: () =>
+        set((state) => {
+          if (!state.replay.enabled || state.replay.totalBars === 0) return state;
+          const prev = Math.max(5, state.replay.currentIndex - 1);
+          return {
+            replay: { ...state.replay, isSelectingStart: false, isPlaying: false, currentIndex: prev },
+          };
+        }),
+
+      setReplaySpeed: (speed) =>
+        set((state) => ({ replay: { ...state.replay, speed } })),
+
+      setReplayIndex: (index, timestamp) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            currentIndex: Math.max(5, Math.min(index, Math.max(5, state.replay.totalBars - 1))),
+            currentTimestamp: timestamp !== undefined ? timestamp : state.replay.currentTimestamp,
+          },
+        })),
+
+      setReplayTotalBars: (totalBars) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            totalBars,
+            currentIndex:
+              state.replay.currentIndex > 0
+                ? Math.min(state.replay.currentIndex, Math.max(5, totalBars - 1))
+                : Math.max(10, Math.floor(totalBars * 0.6)),
+          },
+        })),
+
+      exitReplayMode: () => set({ replay: DEFAULT_REPLAY }),
+
+      // Watchlist & Quotes
+      watchlist: [
+        'BTCUSDT',
+        'ETHUSDT',
+        'SOLUSDT',
+        'BNBUSDT',
+        'XRPUSDT',
+        'EURUSD',
+        'XAUUSD',
+        'NVDA',
+        'TSLA',
+        'BBCA.JK',
+        'BBRI.JK',
+        'TLKM.JK',
+      ],
+
+      toggleWatchlistSymbol: (symbol) =>
+        set((state) => {
+          const exists = state.watchlist.includes(symbol);
+          return {
+            watchlist: exists
+              ? state.watchlist.filter((s) => s !== symbol)
+              : [...state.watchlist, symbol],
+          };
+        }),
+
+      quotes: {},
+      updateQuote: (symbol, price, source = 'simulated', volume = 0) =>
+        set((state) => {
+          const prev = state.quotes[symbol];
+          const info = getSymbolInfo(symbol);
+          const prevClose = prev?.prevClose ?? info.basePrice;
+          const change = price - prevClose;
+          const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+          const spark = prev?.sparkline ? [...prev.sparkline, price].slice(-24) : [price];
+
+          return {
+            quotes: {
+              ...state.quotes,
+              [symbol]: {
+                symbol,
+                price,
+                prevClose,
+                change,
+                changePercent,
+                high24h: prev ? Math.max(prev.high24h, price) : price * 1.012,
+                low24h: prev ? Math.min(prev.low24h, price) : price * 0.988,
+                volume24h: (prev?.volume24h ?? info.basePrice * 120) + volume,
+                sparkline: spark,
+                source,
+              },
+            },
+          };
+        }),
+
+      // Alerts
+      alerts: [],
+      addAlert: (alert) =>
+        set((state) => ({
+          alerts: [
+            {
+              ...alert,
+              id: generateId('alert'),
+              active: true,
+              createdAt: Date.now(),
+            },
+            ...state.alerts,
+          ],
+        })),
+
+      toggleAlert: (id) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, active: !a.active, triggeredAt: undefined } : a
+          ),
+        })),
+
+      removeAlert: (id) =>
+        set((state) => ({
+          alerts: state.alerts.filter((a) => a.id !== id),
+        })),
+
+      markAlertTriggered: (id) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, active: false, triggeredAt: Date.now() } : a
+          ),
+        })),
+
+      // Paper Trading
+      paperBalance: 100000,
+      positions: [],
+      pendingOrders: [],
+      closedTrades: [],
+
+      placeMarketOrder: ({ symbol, side, quantity, price, stopLoss, takeProfit }) => {
+        if (quantity <= 0 || price <= 0) return;
+        const pos: PaperPosition = {
+          id: generateId('pos'),
+          symbol,
+          side,
+          quantity,
+          entryPrice: price,
+          stopLoss: stopLoss && stopLoss > 0 ? stopLoss : undefined,
+          takeProfit: takeProfit && takeProfit > 0 ? takeProfit : undefined,
+          openedAt: Date.now(),
+        };
+        set((state) => ({
+          positions: [pos, ...state.positions],
+        }));
+        get().addToast({
+          title: `${side === 'buy' ? 'Long' : 'Short'} Executed: ${symbol}`,
+          description: `Qty ${quantity} @ ${price}`,
+          variant: 'success',
+        });
+      },
+
+      placeLimitOrder: ({ symbol, side, quantity, limitPrice, stopLoss, takeProfit }) => {
+        if (quantity <= 0 || limitPrice <= 0) return;
+        const order: PendingOrder = {
+          id: generateId('ord'),
+          symbol,
+          side,
+          type: 'limit',
+          quantity,
+          limitPrice,
+          stopLoss: stopLoss && stopLoss > 0 ? stopLoss : undefined,
+          takeProfit: takeProfit && takeProfit > 0 ? takeProfit : undefined,
+          createdAt: Date.now(),
+        };
+        set((state) => ({
+          pendingOrders: [order, ...state.pendingOrders],
+        }));
+        get().addToast({
+          title: `Limit ${side.toUpperCase()} Placed: ${symbol}`,
+          description: `Qty ${quantity} @ ${limitPrice}`,
+          variant: 'info',
+        });
+      },
+
+      cancelPendingOrder: (id) =>
+        set((state) => ({
+          pendingOrders: state.pendingOrders.filter((o) => o.id !== id),
+        })),
+
+      closePosition: (id, exitPrice, reason = 'manual') => {
+        const state = get();
+        const pos = state.positions.find((p) => p.id === id);
+        if (!pos) return;
+
+        const priceDiff = pos.side === 'buy' ? exitPrice - pos.entryPrice : pos.entryPrice - exitPrice;
+        const pnl = priceDiff * pos.quantity;
+        const notional = pos.entryPrice * pos.quantity;
+        const pnlPercent = notional > 0 ? (pnl / notional) * 100 : 0;
+
+        const closed: ClosedTrade = {
+          id: generateId('trd'),
+          symbol: pos.symbol,
+          side: pos.side,
+          quantity: pos.quantity,
+          entryPrice: pos.entryPrice,
+          exitPrice,
+          pnl,
+          pnlPercent,
+          openedAt: pos.openedAt,
+          closedAt: Date.now(),
+          reason,
+        };
+
+        set({
+          positions: state.positions.filter((p) => p.id !== id),
+          closedTrades: [closed, ...state.closedTrades].slice(0, 100),
+          paperBalance: state.paperBalance + pnl,
+        });
+
+        get().addToast({
+          title: `${reason === 'sl' ? 'Stop Loss Hit' : reason === 'tp' ? 'Take Profit Hit' : 'Position Closed'}: ${pos.symbol}`,
+          description: `PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%)`,
+          variant: pnl >= 0 ? 'success' : 'danger',
+        });
+      },
+
+      updatePositionTPSL: (id, stopLoss, takeProfit) =>
+        set((state) => ({
+          positions: state.positions.map((p) =>
+            p.id === id ? { ...p, stopLoss, takeProfit } : p
+          ),
+        })),
+
+      processMarketPriceForPaperTrading: (symbol, high, low, close) => {
+        const state = get();
+        const ordersForSymbol = state.pendingOrders.filter((o) => o.symbol === symbol);
+        for (const ord of ordersForSymbol) {
+          const hit = ord.side === 'buy' ? low <= ord.limitPrice : high >= ord.limitPrice;
+          if (hit) {
+            set((s) => ({
+              pendingOrders: s.pendingOrders.filter((o) => o.id !== ord.id),
+              positions: [
+                {
+                  id: generateId('pos'),
+                  symbol: ord.symbol,
+                  side: ord.side,
+                  quantity: ord.quantity,
+                  entryPrice: ord.limitPrice,
+                  stopLoss: ord.stopLoss,
+                  takeProfit: ord.takeProfit,
+                  openedAt: Date.now(),
+                },
+                ...s.positions,
+              ],
+            }));
+            get().addToast({
+              title: `Limit Order Filled: ${ord.symbol}`,
+              description: `${ord.side.toUpperCase()} ${ord.quantity} @ ${ord.limitPrice}`,
+              variant: 'success',
+            });
+          }
+        }
+
+        const currentPositions = get().positions.filter((p) => p.symbol === symbol);
+        for (const pos of currentPositions) {
+          if (pos.side === 'buy') {
+            if (pos.stopLoss && low <= pos.stopLoss) {
+              get().closePosition(pos.id, pos.stopLoss, 'sl');
+            } else if (pos.takeProfit && high >= pos.takeProfit) {
+              get().closePosition(pos.id, pos.takeProfit, 'tp');
+            }
+          } else {
+            if (pos.stopLoss && high >= pos.stopLoss) {
+              get().closePosition(pos.id, pos.stopLoss, 'sl');
+            } else if (pos.takeProfit && low <= pos.takeProfit) {
+              get().closePosition(pos.id, pos.takeProfit, 'tp');
+            }
+          }
+        }
+      },
+
+      resetPaperAccount: () =>
+        set({
+          paperBalance: 100000,
+          positions: [],
+          pendingOrders: [],
+          closedTrades: [],
+        }),
+
+      toasts: [],
+      addToast: (toast) => {
+        const id = generateId('toast');
+        set((state) => ({
+          toasts: [{ ...toast, id, createdAt: Date.now() }, ...state.toasts].slice(0, 5),
+        }));
+        window.setTimeout(() => {
+          get().removeToast(id);
+        }, 4500);
+      },
+
+      removeToast: (id) =>
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        })),
+    }),
+    {
+      name: 'apexchart-pro-storage-v2',
+      partialize: (state) => ({
+        theme: state.theme,
+        chartSettings: state.chartSettings,
+        layout: state.layout,
+        panes: state.panes,
+        activePaneId: state.activePaneId,
+        favoriteTimeframes: state.favoriteTimeframes,
+        syncCrosshair: state.syncCrosshair,
+        syncSymbol: state.syncSymbol,
+        syncTimeframe: state.syncTimeframe,
+        watchlist: state.watchlist,
+        drawingsBySymbol: state.drawingsBySymbol,
+        alerts: state.alerts,
+        paperBalance: state.paperBalance,
+        positions: state.positions,
+        pendingOrders: state.pendingOrders,
+        closedTrades: state.closedTrades,
+      }),
+    }
+  )
+);
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/ChartContextMenu.tsx ===>>>
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ArrowUpDown,
+  Bell,
+  CandlestickChart,
+  Check,
+  ChevronRight,
+  Copy,
+  Eye,
+  EyeOff,
+  Lock,
+  Minus,
+  RotateCcw,
+  Scissors,
+  Settings2,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Unlock,
+} from 'lucide-react';
+import { getSymbolInfo } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { ChartContextMenuData, ChartStyleType, ScaleMode } from '@/types/trading';
+
+interface ChartContextMenuProps {
+  menu: ChartContextMenuData | null;
+  paneId: string;
+  symbol: string;
+  currentStyle: ChartStyleType;
+  currentScale: ScaleMode;
+  onClose: () => void;
+  onResetView: () => void;
+  onFitContent: () => void;
+  onDrawHLineAtPrice: (price: number) => void;
+  onStartReplayHere: (barIndex: number, time: number) => void;
+}
+
+const STYLES: { id: ChartStyleType; label: string }[] = [
+  { id: 'candles', label: 'Candles' },
+  { id: 'hollow', label: 'Hollow Candles' },
+  { id: 'heikin_ashi', label: 'Heikin Ashi' },
+  { id: 'bars', label: 'OHLC Bars' },
+  { id: 'line', label: 'Line' },
+  { id: 'area', label: 'Area' },
+];
+
+export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
+  menu,
+  paneId,
+  symbol,
+  currentStyle,
+  currentScale,
+  onClose,
+  onResetView,
+  onFitContent,
+  onDrawHLineAtPrice,
+  onStartReplayHere,
+}) => {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [subMenu, setSubMenu] = useState<'style' | 'scale' | null>(null);
+
+  const info = getSymbolInfo(symbol);
+  const quotes = useTradingStore((s) => s.quotes);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+  const updateChartSettings = useTradingStore((s) => s.updateChartSettings);
+  const updatePaneChartStyle = useTradingStore((s) => s.updatePaneChartStyle);
+  const updatePaneScaleMode = useTradingStore((s) => s.updatePaneScaleMode);
+  const addAlert = useTradingStore((s) => s.addAlert);
+  const addToast = useTradingStore((s) => s.addToast);
+  const placeLimitOrder = useTradingStore((s) => s.placeLimitOrder);
+  const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
+  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+
+  const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
+  const toggleDrawingsVisible = useTradingStore((s) => s.toggleDrawingsVisible);
+  const drawingsLocked = useTradingStore((s) => s.drawingsLocked);
+  const toggleDrawingsLocked = useTradingStore((s) => s.toggleDrawingsLocked);
+  const clearDrawings = useTradingStore((s) => s.clearDrawingsForSymbol);
+  const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
+  const updateDrawing = useTradingStore((s) => s.updateDrawing);
+  const duplicateDrawing = useTradingStore((s) => s.duplicateDrawing);
+  const removeDrawing = useTradingStore((s) => s.removeDrawing);
+
+  useEffect(() => {
+    setSubMenu(null);
+  }, [menu]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  const formattedPrice = formatPrice(menu.price, info.precision);
+  const livePrice = quotes[symbol]?.price ?? info.basePrice;
+  const defaultQty = info.category === 'Crypto' ? 0.25 : info.category === 'IDX' ? 1000 : 10;
+
+  // Clamp context menu nicely inside viewport
+  const menuW = 248;
+  const menuH = 420;
+  const left = Math.min(menu.x, window.innerWidth - menuW - 12);
+  const top = Math.min(menu.y, window.innerHeight - menuH - 12);
+
+  const targetDrawing = menu.drawingId
+    ? (drawingsBySymbol[symbol] ?? []).find((d) => d.id === menu.drawingId)
+    : null;
+
+  const copyPrice = () => {
+    navigator.clipboard?.writeText(String(Number(menu.price.toFixed(info.precision)))).catch(() => {});
+    addToast({ title: `Copied ${formattedPrice}`, variant: 'info' });
+    onClose();
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      style={{ left: Math.max(8, left), top: Math.max(8, top) }}
+      onContextMenu={(e) => e.preventDefault()}
+      className="fixed z-50 w-[248px] rounded-lg border border-slate-200 bg-white py-1.5 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+    >
+      {/* Drawing-specific quick menu if right-clicked on a drawing */}
+      {targetDrawing && (
+        <>
+          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400">
+            Drawing: {targetDrawing.type.replace('_', ' ')}
+          </div>
+          <button
+            onClick={() => {
+              updateDrawing(symbol, targetDrawing.id, { locked: !targetDrawing.locked });
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+          >
+            {targetDrawing.locked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+            <span>{targetDrawing.locked ? 'Unlock Drawing' : 'Lock Drawing'}</span>
+          </button>
+          <button
+            onClick={() => {
+              duplicateDrawing(symbol, targetDrawing.id);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            <span>Clone Drawing</span>
+          </button>
+          <button
+            onClick={() => {
+              removeDrawing(symbol, targetDrawing.id);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete Drawing</span>
+          </button>
+          <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+        </>
+      )}
+
+      {/* Primary Chart Reset & Navigation */}
+      <button
+        onClick={() => {
+          onResetView();
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5 font-medium">
+          <RotateCcw className="h-3.5 w-3.5 text-blue-400" />
+          Reset Chart View
+        </span>
+        <span className="font-mono text-[10px] text-[#787B86]">Alt+R</span>
+      </button>
+
+      <button
+        onClick={() => {
+          onFitContent();
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+          Fit All Data to Screen
+        </span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      {/* Price Level Actions at exact Cursor Y */}
+      <button
+        onClick={() => {
+          const rounded = Number(menu.price.toFixed(info.precision));
+          addAlert({
+            symbol,
+            price: rounded,
+            condition: rounded >= livePrice ? 'crossing_up' : 'crossing_down',
+            note: `Chart right-click alert`,
+          });
+          addToast({
+            title: `Alert Added: ${info.displaySymbol}`,
+            description: `Target @ ${formattedPrice}`,
+            variant: 'warning',
+          });
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Bell className="h-3.5 w-3.5 text-amber-400" />
+          <span>Add Alert at {formattedPrice}</span>
+        </span>
+      </button>
+
+      <button
+        onClick={() => {
+          onDrawHLineAtPrice(Number(menu.price.toFixed(info.precision)));
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <Minus className="h-3.5 w-3.5 text-cyan-400" />
+        <span>Draw Horizontal Line at {formattedPrice}</span>
+      </button>
+
+      <button
+        onClick={copyPrice}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Copy className="h-3.5 w-3.5 text-slate-400" />
+          Copy Price ({formattedPrice})
+        </span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      {/* Instant Trading Actions */}
+      <button
+        onClick={() => {
+          const px = Number(menu.price.toFixed(info.precision));
+          if (px >= livePrice) {
+            placeMarketOrder({ symbol, side: 'buy', quantity: defaultQty, price: livePrice });
+          } else {
+            placeLimitOrder({ symbol, side: 'buy', quantity: defaultQty, limitPrice: px });
+          }
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-emerald-400 hover:bg-emerald-500/10"
+      >
+        <TrendingUp className="h-3.5 w-3.5" />
+        <span>
+          {menu.price < livePrice ? `Buy Limit @ ${formattedPrice}` : `Buy Market (${defaultQty})`}
+        </span>
+      </button>
+
+      <button
+        onClick={() => {
+          const px = Number(menu.price.toFixed(info.precision));
+          if (px <= livePrice) {
+            placeMarketOrder({ symbol, side: 'sell', quantity: defaultQty, price: livePrice });
+          } else {
+            placeLimitOrder({ symbol, side: 'sell', quantity: defaultQty, limitPrice: px });
+          }
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+      >
+        <TrendingDown className="h-3.5 w-3.5" />
+        <span>
+          {menu.price > livePrice ? `Sell Limit @ ${formattedPrice}` : `Sell Market (${defaultQty})`}
+        </span>
+      </button>
+
+      {menu.barIndex !== null && menu.time !== null && (
+        <>
+          <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+          <button
+            onClick={() => {
+              onStartReplayHere(menu.barIndex!, menu.time!);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-amber-400 hover:bg-amber-500/10"
+          >
+            <Scissors className="h-3.5 w-3.5" />
+            <span>Start Bar Replay from This Bar</span>
+          </button>
+        </>
+      )}
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      {/* Submenus: Chart Style & Price Scale */}
+      <div
+        className="relative"
+        onMouseEnter={() => setSubMenu('style')}
+        onMouseLeave={() => setSubMenu(null)}
+      >
+        <button className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+          <span className="flex items-center gap-2.5">
+            <CandlestickChart className="h-3.5 w-3.5 text-slate-400" />
+            Chart Type
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+        </button>
+
+        {subMenu === 'style' && (
+          <div className="absolute left-full top-0 ml-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            {STYLES.map((st) => (
+              <button
+                key={st.id}
+                onClick={() => {
+                  updatePaneChartStyle(paneId, st.id);
+                  onClose();
+                }}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+              >
+                <span>{st.label}</span>
+                {currentStyle === st.id && <Check className="h-3.5 w-3.5 text-blue-500" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div
+        className="relative"
+        onMouseEnter={() => setSubMenu('scale')}
+        onMouseLeave={() => setSubMenu(null)}
+      >
+        <button className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+          <span className="flex items-center gap-2.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+            Price Scale
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+        </button>
+
+        {subMenu === 'scale' && (
+          <div className="absolute left-full top-0 ml-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            {(
+              [
+                { id: 'normal', label: 'Regular' },
+                { id: 'logarithmic', label: 'Logarithmic' },
+                { id: 'percentage', label: 'Percentage (%)' },
+              ] as { id: ScaleMode; label: string }[]
+            ).map((sc) => (
+              <button
+                key={sc.id}
+                onClick={() => {
+                  updatePaneScaleMode(paneId, sc.id);
+                  onClose();
+                }}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+              >
+                <span>{sc.label}</span>
+                {currentScale === sc.id && <Check className="h-3.5 w-3.5 text-blue-500" />}
+              </button>
+            ))}
+            <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+            <button
+              onClick={() => {
+                updateChartSettings({ invertScale: !chartSettings.invertScale });
+                onClose();
+              }}
+              className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+            >
+              <span>Invert Price Scale</span>
+              {chartSettings.invertScale && <Check className="h-3.5 w-3.5 text-blue-500" />}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Drawings Visibility / Lock / Clear */}
+      <button
+        onClick={() => {
+          toggleDrawingsVisible();
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        {drawingsVisible ? <EyeOff className="h-3.5 w-3.5 text-slate-400" /> : <Eye className="h-3.5 w-3.5 text-slate-400" />}
+        <span>{drawingsVisible ? 'Hide All Drawings' : 'Show All Drawings'}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          toggleDrawingsLocked();
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        {drawingsLocked ? <Unlock className="h-3.5 w-3.5 text-slate-400" /> : <Lock className="h-3.5 w-3.5 text-slate-400" />}
+        <span>{drawingsLocked ? 'Unlock All Drawings' : 'Lock All Drawings'}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          clearDrawings(symbol);
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        <span>Remove Drawings on {info.displaySymbol}</span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      {/* Chart Appearance Settings Modal */}
+      <button
+        onClick={() => {
+          setChartSettingsModalOpen(true);
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 font-medium hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <Settings2 className="h-3.5 w-3.5 text-slate-400" />
+        <span>Chart Settings...</span>
+      </button>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/modals/ChartSettingsModal.tsx ===>>>
+import React, { useState } from 'react';
+import { CandlestickChart, LayoutTemplate, RotateCcw, Settings2, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+
+export const ChartSettingsModal: React.FC = () => {
+  const open = useTradingStore((s) => s.chartSettingsModalOpen);
+  const setOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+  const settings = useTradingStore((s) => s.chartSettings);
+  const update = useTradingStore((s) => s.updateChartSettings);
+  const reset = useTradingStore((s) => s.resetChartSettings);
+
+  const [tab, setTab] = useState<'symbol' | 'canvas' | 'trading'>('symbol');
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={() => setOpen(false)}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-[#2A2E39]">
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4 text-blue-500" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
+              Chart Settings
+            </h2>
+          </div>
+          <button
+            onClick={() => setOpen(false)}
+            className="rounded p-1 text-slate-400 hover:bg-white/5 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="grid min-h-[320px] grid-cols-1 sm:grid-cols-12">
+          {/* Left Tabs */}
+          <div className="border-b border-slate-200 p-2 sm:col-span-4 sm:border-b-0 sm:border-r dark:border-[#2A2E39] dark:bg-[#131722]/50">
+            <button
+              onClick={() => setTab('symbol')}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition',
+                tab === 'symbol'
+                  ? 'bg-blue-600/15 text-blue-400'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              <CandlestickChart className="h-3.5 w-3.5" />
+              Symbol & Candles
+            </button>
+            <button
+              onClick={() => setTab('canvas')}
+              className={cn(
+                'mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition',
+                tab === 'canvas'
+                  ? 'bg-blue-600/15 text-blue-400'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              <LayoutTemplate className="h-3.5 w-3.5" />
+              Canvas & Scales
+            </button>
+            <button
+              onClick={() => setTab('trading')}
+              className={cn(
+                'mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition',
+                tab === 'trading'
+                  ? 'bg-blue-600/15 text-blue-400'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              Trading & Overlays
+            </button>
+          </div>
+
+          {/* Right Form */}
+          <div className="space-y-4 p-4 sm:col-span-8 text-xs">
+            {tab === 'symbol' && (
+              <>
+                <div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Candle Body Colors
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-[#2A2E39]">
+                      <span>Bullish Body</span>
+                      <input
+                        type="color"
+                        value={settings.upColor}
+                        onChange={(e) =>
+                          update({
+                            upColor: e.target.value,
+                            wickUpColor: e.target.value,
+                            borderUpColor: e.target.value,
+                          })
+                        }
+                        className="h-6 w-6 cursor-pointer rounded border-0 bg-transparent"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-[#2A2E39]">
+                      <span>Bearish Body</span>
+                      <input
+                        type="color"
+                        value={settings.downColor}
+                        onChange={(e) =>
+                          update({
+                            downColor: e.target.value,
+                            wickDownColor: e.target.value,
+                            borderDownColor: e.target.value,
+                          })
+                        }
+                        className="h-6 w-6 cursor-pointer rounded border-0 bg-transparent"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Quick Color Presets
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { name: 'TradingView', up: '#089981', down: '#F23645' },
+                      { name: 'Cyber Mint', up: '#00D4AA', down: '#FF3B6B' },
+                      { name: 'Classic Mono', up: '#FFFFFF', down: '#64748B' },
+                      { name: 'Ocean Blue', up: '#2962FF', down: '#F59E0B' },
+                    ].map((p) => (
+                      <button
+                        key={p.name}
+                        onClick={() =>
+                          update({
+                            upColor: p.up,
+                            wickUpColor: p.up,
+                            borderUpColor: p.up,
+                            downColor: p.down,
+                            wickDownColor: p.down,
+                            borderDownColor: p.down,
+                          })
+                        }
+                        className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium hover:border-blue-500 dark:border-[#2A2E39] dark:hover:bg-[#2A2E39]"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-center justify-between pt-1">
+                  <span>Show Candle Close Countdown</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.showCountdown}
+                    onChange={(e) => update({ showCountdown: e.target.checked })}
+                    className="accent-blue-600"
+                  />
+                </label>
+              </>
+            )}
+
+            {tab === 'canvas' && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span>Background Style</span>
+                  <select
+                    value={settings.bgType}
+                    onChange={(e) => update({ bgType: e.target.value as 'solid' | 'gradient' })}
+                    className="rounded border border-slate-200 bg-transparent px-2 py-1 dark:border-[#2A2E39] dark:bg-[#131722]"
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="gradient">Vertical Gradient</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span>Dark Background Color</span>
+                  <input
+                    type="color"
+                    value={settings.bgColorDark}
+                    onChange={(e) => update({ bgColorDark: e.target.value })}
+                    className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span>Grid Lines</span>
+                  <select
+                    value={settings.gridStyle}
+                    onChange={(e) =>
+                      update({
+                        gridStyle: e.target.value as 'both' | 'vert' | 'horz' | 'none',
+                        showGrid: e.target.value !== 'none',
+                      })
+                    }
+                    className="rounded border border-slate-200 bg-transparent px-2 py-1 dark:border-[#2A2E39] dark:bg-[#131722]"
+                  >
+                    <option value="both">Vertical & Horizontal</option>
+                    <option value="vert">Vertical Only</option>
+                    <option value="horz">Horizontal Only</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span>Crosshair Style</span>
+                  <select
+                    value={settings.crosshairStyle}
+                    onChange={(e) =>
+                      update({ crosshairStyle: e.target.value as 'dashed' | 'dotted' | 'solid' })
+                    }
+                    className="rounded border border-slate-200 bg-transparent px-2 py-1 dark:border-[#2A2E39] dark:bg-[#131722]"
+                  >
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                    <option value="solid">Solid</option>
+                  </select>
+                </div>
+
+                <label className="flex cursor-pointer items-center justify-between">
+                  <span>Symbol Watermark</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.showWatermark}
+                    onChange={(e) => update({ showWatermark: e.target.checked })}
+                    className="accent-blue-600"
+                  />
+                </label>
+
+                <label className="flex cursor-pointer items-center justify-between">
+                  <span>Invert Price Scale</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.invertScale}
+                    onChange={(e) => update({ invertScale: e.target.checked })}
+                    className="accent-blue-600"
+                  />
+                </label>
+              </>
+            )}
+
+            {tab === 'trading' && (
+              <>
+                <label className="flex cursor-pointer items-center justify-between">
+                  <span>Show One-Click Buy / Sell Buttons on Chart</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.showQuickTrade}
+                    onChange={(e) => update({ showQuickTrade: e.target.checked })}
+                    className="accent-blue-600"
+                  />
+                </label>
+
+                <div className="flex items-center justify-between">
+                  <span>Clock Timezone</span>
+                  <select
+                    value={settings.timezone}
+                    onChange={(e) => update({ timezone: e.target.value as 'local' | 'UTC' })}
+                    className="rounded border border-slate-200 bg-transparent px-2 py-1 dark:border-[#2A2E39] dark:bg-[#131722]"
+                  >
+                    <option value="local">Local Time</option>
+                    <option value="UTC">UTC</option>
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 dark:border-[#2A2E39]">
+          <button
+            onClick={reset}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/5 hover:text-white"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Defaults
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-500"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>

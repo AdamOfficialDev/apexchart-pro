@@ -1,0 +1,2991 @@
+<<<=== FILE: src/components/chart/ChartGrid.tsx ===>>>
+import React from 'react';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { ChartPane } from './ChartPane';
+import { ReplayControls } from './ReplayControls';
+
+export const ChartGrid: React.FC = () => {
+  const layout = useTradingStore((s) => s.layout);
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+
+  const visibleCount =
+    layout === '1x1' ? 1 : layout === '1x2' || layout === '2x1' ? 2 : layout === '1+2' ? 3 : 4;
+
+  const visiblePanes = panes.slice(0, visibleCount);
+  const isMultiPane = visibleCount > 1;
+
+  const gridClass =
+    layout === '1x1'
+      ? 'grid-cols-1 grid-rows-1'
+      : layout === '1x2'
+      ? 'grid-cols-2 grid-rows-1'
+      : layout === '2x1'
+      ? 'grid-cols-1 grid-rows-2'
+      : 'grid-cols-2 grid-rows-2';
+
+  return (
+    <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden bg-slate-200 dark:bg-[#0C0F17]">
+      <div className={cn('grid h-full w-full gap-[3px]', gridClass)}>
+        {visiblePanes.map((pane, idx) => (
+          <div
+            key={pane.id}
+            className={cn(
+              'min-h-0 min-w-0 h-full w-full',
+              layout === '1+2' && idx === 0 && 'row-span-2'
+            )}
+          >
+            <ChartPane
+              pane={pane}
+              isActive={pane.id === activePaneId}
+              isMultiPane={isMultiPane}
+            />
+          </div>
+        ))}
+      </div>
+
+      <ReplayControls />
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/ReplayControls.tsx ===>>>
+import React, { useEffect } from 'react';
+import { Pause, Play, Scissors, SkipBack, SkipForward, X } from 'lucide-react';
+import { cn, formatTimestamp } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+
+const SPEEDS: Array<0.5 | 1 | 2 | 5 | 10> = [0.5, 1, 2, 5, 10];
+
+export const ReplayControls: React.FC = () => {
+  const replay = useTradingStore((s) => s.replay);
+  const toggleReplayPlay = useTradingStore((s) => s.toggleReplayPlay);
+  const stepForward = useTradingStore((s) => s.stepReplayForward);
+  const stepBackward = useTradingStore((s) => s.stepReplayBackward);
+  const setSpeed = useTradingStore((s) => s.setReplaySpeed);
+  const setSelectMode = useTradingStore((s) => s.setReplaySelectMode);
+  const setReplayIndex = useTradingStore((s) => s.setReplayIndex);
+  const exitReplayMode = useTradingStore((s) => s.exitReplayMode);
+
+  useEffect(() => {
+    if (!replay.enabled || !replay.isPlaying || replay.isSelectingStart) return;
+    const intervalMs = Math.max(90, Math.round(1000 / replay.speed));
+    const id = window.setInterval(() => {
+      useTradingStore.getState().stepReplayForward();
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [replay.enabled, replay.isPlaying, replay.isSelectingStart, replay.speed]);
+
+  if (!replay.enabled) return null;
+
+  const maxIdx = Math.max(5, replay.totalBars - 1);
+
+  return (
+    <div className="pointer-events-auto absolute bottom-10 left-1/2 z-30 -translate-x-1/2">
+      <div className="glass-panel flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-white/95 px-3 py-1.5 shadow-2xl dark:bg-[#1E222D]/95">
+        <div className="flex items-center gap-1.5 pr-1">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+          <span className="text-[11px] font-bold tracking-wider text-amber-400 uppercase">
+            Replay
+          </span>
+        </div>
+
+        <button
+          onClick={() => setSelectMode(!replay.isSelectingStart)}
+          title="Select starting bar on chart"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition',
+            replay.isSelectingStart
+              ? 'bg-amber-500 text-slate-950'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-[#2A2E39] dark:text-[#D1D4DC] dark:hover:bg-[#363A45]'
+          )}
+        >
+          <Scissors className="h-3.5 w-3.5" />
+          <span>Jump to Bar</span>
+        </button>
+
+        <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={stepBackward}
+            title="Step Backward (Left Arrow)"
+            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <SkipBack className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={toggleReplayPlay}
+            title="Play / Pause (Space)"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#2962FF] text-white shadow-sm hover:bg-blue-500"
+          >
+            {replay.isPlaying ? (
+              <Pause className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5 translate-x-[1px]" />
+            )}
+          </button>
+
+          <button
+            onClick={stepForward}
+            title="Step Forward (Right Arrow)"
+            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <SkipForward className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-[#131722]">
+          {SPEEDS.map((sp) => (
+            <button
+              key={sp}
+              onClick={() => setSpeed(sp)}
+              className={cn(
+                'rounded px-2 py-0.5 font-mono text-[11px] font-semibold transition',
+                replay.speed === sp
+                  ? 'bg-[#2962FF] text-white shadow'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              {sp}x
+            </button>
+          ))}
+        </div>
+
+        {replay.totalBars > 0 && (
+          <div className="hidden md:flex items-center gap-2 pl-1">
+            <input
+              type="range"
+              min={5}
+              max={maxIdx}
+              value={Math.min(maxIdx, Math.max(5, replay.currentIndex))}
+              onChange={(e) => setReplayIndex(Number(e.target.value))}
+              className="h-1.5 w-28 cursor-pointer accent-amber-500"
+            />
+            <span className="font-mono text-[11px] tabular-nums text-slate-500 dark:text-[#787B86]">
+              {replay.currentIndex + 1}/{replay.totalBars}
+            </span>
+            {replay.currentTimestamp && (
+              <span className="hidden lg:inline font-mono text-[11px] text-[#787B86]">
+                {formatTimestamp(replay.currentTimestamp, true)}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+        <button
+          onClick={exitReplayMode}
+          title="Exit Replay Mode"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-rose-400 hover:bg-rose-500/10"
+        >
+          <X className="h-3.5 w-3.5" />
+          <span>Exit</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/layout/TopToolbar.tsx ===>>>
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity,
+  Camera,
+  CandlestickChart,
+  Check,
+  ChevronDown,
+  Columns2,
+  Grid2X2,
+  Keyboard,
+  LayoutGrid,
+  Maximize2,
+  Moon,
+  PlayCircle,
+  Rows2,
+  Search,
+  Settings2,
+  Sparkles,
+  Star,
+  Sun,
+  Unlock,
+  Zap,
+} from 'lucide-react';
+import { getSymbolInfo, TIMEFRAMES } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { ChartStyleType, LayoutType, TimeframeGroup } from '@/types/trading';
+
+const CHART_STYLES: { id: ChartStyleType; label: string }[] = [
+  { id: 'candles', label: 'Candles' },
+  { id: 'hollow', label: 'Hollow Candles' },
+  { id: 'heikin_ashi', label: 'Heikin Ashi' },
+  { id: 'bars', label: 'OHLC Bars' },
+  { id: 'line', label: 'Line' },
+  { id: 'area', label: 'Area' },
+];
+
+const LAYOUTS: { id: LayoutType; label: string; icon: React.ReactNode }[] = [
+  { id: '1x1', label: 'Single (1x1)', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
+  { id: '1x2', label: '2 Columns (1x2)', icon: <Columns2 className="h-3.5 w-3.5" /> },
+  { id: '2x1', label: '2 Rows (2x1)', icon: <Rows2 className="h-3.5 w-3.5" /> },
+  { id: '1+2', label: '1 Left + 2 Right', icon: <Columns2 className="h-3.5 w-3.5" /> },
+  { id: '2x2', label: 'Quad Grid (2x2)', icon: <Grid2X2 className="h-3.5 w-3.5" /> },
+];
+
+const TF_GROUPS: TimeframeGroup[] = ['Seconds', 'Minutes', 'Hours', 'Days & Above'];
+
+export const TopToolbar: React.FC = () => {
+  const theme = useTradingStore((s) => s.theme);
+  const toggleTheme = useTradingStore((s) => s.toggleTheme);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+  const updateChartSettings = useTradingStore((s) => s.updateChartSettings);
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const layout = useTradingStore((s) => s.layout);
+  const setLayout = useTradingStore((s) => s.setLayout);
+  const favoriteTimeframes = useTradingStore((s) => s.favoriteTimeframes);
+  const toggleFavoriteTimeframe = useTradingStore((s) => s.toggleFavoriteTimeframe);
+  const updatePaneTimeframe = useTradingStore((s) => s.updatePaneTimeframe);
+  const updatePaneChartStyle = useTradingStore((s) => s.updatePaneChartStyle);
+
+  const syncCrosshair = useTradingStore((s) => s.syncCrosshair);
+  const setSyncCrosshair = useTradingStore((s) => s.setSyncCrosshair);
+  const syncSymbol = useTradingStore((s) => s.syncSymbol);
+  const setSyncSymbol = useTradingStore((s) => s.setSyncSymbol);
+  const syncTimeframe = useTradingStore((s) => s.syncTimeframe);
+  const setSyncTimeframe = useTradingStore((s) => s.setSyncTimeframe);
+
+  const replay = useTradingStore((s) => s.replay);
+  const enterReplayMode = useTradingStore((s) => s.enterReplayMode);
+  const exitReplayMode = useTradingStore((s) => s.exitReplayMode);
+
+  const quotes = useTradingStore((s) => s.quotes);
+  const setSearchModalOpen = useTradingStore((s) => s.setSearchModalOpen);
+  const setIndicatorsModalOpen = useTradingStore((s) => s.setIndicatorsModalOpen);
+  const setShortcutsModalOpen = useTradingStore((s) => s.setShortcutsModalOpen);
+  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+  const triggerSnapshot = useTradingStore((s) => s.triggerSnapshot);
+
+  const activePane = useMemo(
+    () => panes.find((p) => p.id === activePaneId) ?? panes[0],
+    [panes, activePaneId]
+  );
+  const symbolInfo = useMemo(() => getSymbolInfo(activePane.symbol), [activePane.symbol]);
+  const liveQuote = quotes[activePane.symbol];
+
+  const [openMenu, setOpenMenu] = useState<'tf' | 'style' | 'layout' | null>(null);
+  const navRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const orderedFavorites = useMemo(() => {
+    const set = new Set(favoriteTimeframes);
+    return TIMEFRAMES.filter((t) => set.has(t.id));
+  }, [favoriteTimeframes]);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  return (
+    <header
+      ref={navRef}
+      className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
+    >
+      {/* Left Cluster */}
+      <div className="flex min-w-0 items-center gap-1">
+        {/* Brand Badge */}
+        <div className="hidden xl:flex items-center gap-1.5 pr-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#2962FF] to-[#00D4AA] text-white">
+            <Sparkles className="h-3.5 w-3.5" />
+          </div>
+          <span className="text-xs font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
+            ApexChart
+          </span>
+          <span className="inline-flex items-center gap-0.5 rounded bg-[#089981]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
+            <Unlock className="h-2.5 w-2.5" />
+            PRO
+          </span>
+        </div>
+
+        {/* Symbol Search Trigger */}
+        <button
+          onClick={() => setSearchModalOpen(true)}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
+        >
+          <Search className="h-3.5 w-3.5 text-[#787B86]" />
+          <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+            {symbolInfo.displaySymbol}
+          </span>
+          {liveQuote && (
+            <span
+              className={cn(
+                'hidden sm:inline font-mono text-[11px] font-semibold tabular-nums',
+                liveQuote.changePercent >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+              )}
+            >
+              {formatPrice(liveQuote.price, symbolInfo.precision)}
+            </span>
+          )}
+          <kbd className="hidden md:inline rounded border border-slate-200 px-1 py-[1px] font-mono text-[9px] text-[#787B86] dark:border-[#2A2E39]">
+            ⌘K
+          </kbd>
+        </button>
+
+        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+        {/* Timeframes Bar + Dropdown */}
+        <div className="relative flex items-center gap-0.5">
+          <div className="hidden lg:flex items-center gap-0.5">
+            {orderedFavorites.map((tf) => (
+              <button
+                key={tf.id}
+                onClick={() => updatePaneTimeframe(activePane.id, tf.id)}
+                className={cn(
+                  'rounded px-1.5 py-1 font-mono text-[11px] font-medium transition',
+                  activePane.timeframe === tf.id
+                    ? 'bg-[#2962FF]/15 text-[#2962FF] font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                )}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setOpenMenu(openMenu === 'tf' ? null : 'tf')}
+            title="All Timeframes (Seconds to Monthly)"
+            className={cn(
+              'flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium transition',
+              openMenu === 'tf'
+                ? 'bg-[#2962FF]/15 text-[#2962FF]'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+            )}
+          >
+            <span className="lg:hidden font-mono font-semibold">{activePane.timeframe}</span>
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+
+          {openMenu === 'tf' && (
+            <div className="absolute left-0 top-9 z-50 w-72 rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+                  All Timeframes Unlocked
+                </span>
+                <span className="rounded bg-[#089981]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
+                  Seconds Ready
+                </span>
+              </div>
+              <div className="space-y-2.5">
+                {TF_GROUPS.map((group) => {
+                  const items = TIMEFRAMES.filter((t) => t.group === group);
+                  return (
+                    <div key={group}>
+                      <div className="mb-1 px-1 text-[10px] font-semibold text-[#787B86]">
+                        {group}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {items.map((tf) => {
+                          const isFav = favoriteTimeframes.includes(tf.id);
+                          const isSel = activePane.timeframe === tf.id;
+                          return (
+                            <div
+                              key={tf.id}
+                              className={cn(
+                                'group flex items-center justify-between rounded px-2 py-1 text-xs transition',
+                                isSel
+                                  ? 'bg-[#2962FF]/20 text-[#2962FF] font-bold'
+                                  : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-[#131722] dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                              )}
+                            >
+                              <button
+                                onClick={() => {
+                                  updatePaneTimeframe(activePane.id, tf.id);
+                                  setOpenMenu(null);
+                                }}
+                                className="flex-1 text-left font-mono"
+                              >
+                                {tf.label}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavoriteTimeframe(tf.id);
+                                }}
+                                title="Pin to top bar"
+                                className={cn(
+                                  'ml-1 transition',
+                                  isFav
+                                    ? 'text-amber-400'
+                                    : 'text-slate-400 opacity-30 group-hover:opacity-100'
+                                )}
+                              >
+                                <Star className={cn('h-3 w-3', isFav && 'fill-amber-400')} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+        {/* Chart Type */}
+        <div className="relative">
+          <button
+            onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
+            title="Chart Style"
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+          >
+            <CandlestickChart className="h-4 w-4 text-[#2962FF]" />
+            <span className="hidden md:inline">
+              {CHART_STYLES.find((c) => c.id === activePane.chartStyle)?.label}
+            </span>
+            <ChevronDown className="h-3 w-3 text-[#787B86]" />
+          </button>
+
+          {openMenu === 'style' && (
+            <div className="absolute left-0 top-9 z-50 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+              {CHART_STYLES.map((cs) => (
+                <button
+                  key={cs.id}
+                  onClick={() => {
+                    updatePaneChartStyle(activePane.id, cs.id);
+                    setOpenMenu(null);
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs transition',
+                    activePane.chartStyle === cs.id
+                      ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                  )}
+                >
+                  <span>{cs.label}</span>
+                  {activePane.chartStyle === cs.id && <Check className="h-3.5 w-3.5" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+        {/* Unlimited Indicators */}
+        <button
+          onClick={() => setIndicatorsModalOpen(true)}
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+        >
+          <Activity className="h-3.5 w-3.5 text-[#00D4AA]" />
+          <span className="hidden sm:inline">Indicators</span>
+          <span className="rounded bg-[#2962FF]/15 px-1 font-mono text-[10px] font-bold text-[#2962FF]">
+            {activePane.indicators.length}
+          </span>
+        </button>
+
+        {/* Bar Replay */}
+        <button
+          onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
+          className={cn(
+            'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-semibold transition',
+            replay.enabled
+              ? 'bg-amber-500 text-slate-950'
+              : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+          )}
+        >
+          <PlayCircle className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Replay</span>
+        </button>
+      </div>
+
+      {/* Right Cluster */}
+      <div className="flex items-center gap-1">
+        {/* Quick Buy/Sell Buttons Toggle */}
+        <button
+          onClick={() => updateChartSettings({ showQuickTrade: !chartSettings.showQuickTrade })}
+          title="Toggle One-Click Buy/Sell Buttons on Chart"
+          className={cn(
+            'hidden md:inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition',
+            chartSettings.showQuickTrade
+              ? 'bg-[#2962FF]/15 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]'
+          )}
+        >
+          <Zap className="h-3.5 w-3.5" />
+          <span>1-Click</span>
+        </button>
+
+        {/* Multi-Chart Layout & Sync */}
+        <div className="relative">
+          <button
+            onClick={() => setOpenMenu(openMenu === 'layout' ? null : 'layout')}
+            title="Multi-Chart Layouts & Sync"
+            className={cn(
+              'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition',
+              layout !== '1x1'
+                ? 'bg-[#2962FF]/15 text-[#2962FF]'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+            )}
+          >
+            <Grid2X2 className="h-3.5 w-3.5" />
+            <span className="hidden md:inline font-mono text-[11px]">{layout}</span>
+            <ChevronDown className="h-3 w-3 text-[#787B86]" />
+          </button>
+
+          {openMenu === 'layout' && (
+            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+              <div className="mb-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+                Multi-Chart Grid
+              </div>
+              <div className="space-y-0.5">
+                {LAYOUTS.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={() => {
+                      setLayout(l.id);
+                      setOpenMenu(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs transition',
+                      layout === l.id
+                        ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
+                        : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      {l.icon}
+                      {l.label}
+                    </span>
+                    {layout === l.id && <Check className="h-3.5 w-3.5" />}
+                  </button>
+                ))}
+              </div>
+
+              <div className="my-2 border-t border-slate-200 dark:border-[#2A2E39]" />
+              <div className="mb-1 px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+                Sync Across Charts
+              </div>
+              <div className="space-y-0.5 text-xs dark:text-[#D1D4DC]">
+                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+                  <span>Sync Crosshair</span>
+                  <input
+                    type="checkbox"
+                    checked={syncCrosshair}
+                    onChange={(e) => setSyncCrosshair(e.target.checked)}
+                    className="accent-[#2962FF]"
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+                  <span>Sync Symbol</span>
+                  <input
+                    type="checkbox"
+                    checked={syncSymbol}
+                    onChange={(e) => setSyncSymbol(e.target.checked)}
+                    className="accent-[#2962FF]"
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+                  <span>Sync Timeframe</span>
+                  <input
+                    type="checkbox"
+                    checked={syncTimeframe}
+                    onChange={(e) => setSyncTimeframe(e.target.checked)}
+                    className="accent-[#2962FF]"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => setChartSettingsModalOpen(true)}
+          title="Chart Settings"
+          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={triggerSnapshot}
+          title="Export PNG Snapshot"
+          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          <Camera className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={toggleTheme}
+          title="Toggle Dark / Light Theme"
+          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+
+        <button
+          onClick={() => setShortcutsModalOpen(true)}
+          title="Keyboard Shortcuts (?)"
+          className="hidden sm:inline-flex rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          <Keyboard className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={toggleFullscreen}
+          title="Fullscreen (Shift+F)"
+          className="hidden sm:inline-flex rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+      </div>
+    </header>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/layout/DrawingToolbar.tsx ===>>>
+import React, { useMemo, useState } from 'react';
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Eye,
+  EyeOff,
+  Lock,
+  Magnet,
+  Minus,
+  MousePointer2,
+  MoveUpRight,
+  Palette,
+  Pencil,
+  Pin,
+  Ruler,
+  SlidersHorizontal,
+  Square,
+  Trash2,
+  TrendingUp,
+  Type,
+  Undo2,
+  Unlock,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { DrawingToolType } from '@/types/trading';
+
+const PALETTE_COLORS = ['#2962FF', '#00D4AA', '#F59E0B', '#F23645', '#A855F7', '#38BDF8', '#D1D4DC'];
+
+const TOOLS: { id: DrawingToolType; label: string; shortcut?: string; icon: React.ReactNode }[] = [
+  { id: 'cursor', label: 'Crosshair / Select', icon: <MousePointer2 className="h-4 w-4" /> },
+  { id: 'trendline', label: 'Trend Line', shortcut: 'Alt+T', icon: <TrendingUp className="h-4 w-4" /> },
+  { id: 'ray', label: 'Trend Ray', icon: <MoveUpRight className="h-4 w-4" /> },
+  { id: 'hline', label: 'Horizontal Line', shortcut: 'Alt+H', icon: <Minus className="h-4 w-4" /> },
+  {
+    id: 'vline',
+    label: 'Vertical Line',
+    shortcut: 'Alt+V',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 2" />
+        <circle cx="12" cy="12" r="2" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    id: 'channel',
+    label: 'Parallel Channel (3 pts)',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <line x1="4" y1="15" x2="18" y2="5" />
+        <line x1="6" y1="19" x2="20" y2="9" />
+      </svg>
+    ),
+  },
+  { id: 'fib', label: 'Fib Retracement', shortcut: 'Alt+F', icon: <SlidersHorizontal className="h-4 w-4" /> },
+  { id: 'rect', label: 'Rectangle Zone', shortcut: 'Alt+R', icon: <Square className="h-4 w-4" /> },
+  {
+    id: 'long_pos',
+    label: 'Long Position (R:R)',
+    shortcut: 'Alt+L',
+    icon: <ArrowUpCircle className="h-4 w-4 text-[#089981]" />,
+  },
+  {
+    id: 'short_pos',
+    label: 'Short Position (R:R)',
+    shortcut: 'Alt+S',
+    icon: <ArrowDownCircle className="h-4 w-4 text-[#F23645]" />,
+  },
+  { id: 'brush', label: 'Freehand Brush', icon: <Pencil className="h-4 w-4" /> },
+  { id: 'text', label: 'Text Annotation', icon: <Type className="h-4 w-4" /> },
+  { id: 'ruler', label: 'Price & Bar Measure', icon: <Ruler className="h-4 w-4" /> },
+];
+
+export const DrawingToolbar: React.FC = () => {
+  const activeTool = useTradingStore((s) => s.activeDrawingTool);
+  const setActiveTool = useTradingStore((s) => s.setActiveDrawingTool);
+  const drawingColor = useTradingStore((s) => s.drawingColor);
+  const setDrawingColor = useTradingStore((s) => s.setDrawingColor);
+  const stayInDrawingMode = useTradingStore((s) => s.stayInDrawingMode);
+  const toggleStayInDrawingMode = useTradingStore((s) => s.toggleStayInDrawingMode);
+  const magnetMode = useTradingStore((s) => s.magnetMode);
+  const toggleMagnetMode = useTradingStore((s) => s.toggleMagnetMode);
+  const drawingsLocked = useTradingStore((s) => s.drawingsLocked);
+  const toggleDrawingsLocked = useTradingStore((s) => s.toggleDrawingsLocked);
+  const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
+  const toggleDrawingsVisible = useTradingStore((s) => s.toggleDrawingsVisible);
+  const undoDrawing = useTradingStore((s) => s.undoDrawing);
+  const clearDrawings = useTradingStore((s) => s.clearDrawingsForSymbol);
+
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const activeSymbol = useMemo(
+    () => (panes.find((p) => p.id === activePaneId) ?? panes[0]).symbol,
+    [panes, activePaneId]
+  );
+
+  const [colorOpen, setColorOpen] = useState(false);
+
+  return (
+    <aside className="relative z-30 flex w-[42px] shrink-0 flex-col items-center justify-between border-r border-slate-200 bg-white py-1.5 dark:border-[#2A2E39] dark:bg-[#131722]">
+      <div className="flex flex-col items-center gap-0.5 overflow-y-auto px-1">
+        {TOOLS.map((tool) => {
+          const isActive = activeTool === tool.id;
+          return (
+            <button
+              key={tool.id}
+              onClick={() => setActiveTool(tool.id)}
+              title={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
+              className={cn(
+                'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+                isActive
+                  ? 'bg-[#2962FF]/20 text-[#2962FF]'
+                  : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              {tool.icon}
+              {isActive && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-[#2962FF]" />
+              )}
+            </button>
+          );
+        })}
+
+        <div className="my-1 h-px w-6 bg-slate-200 dark:bg-[#2A2E39]" />
+
+        {/* Drawing Color */}
+        <div className="relative">
+          <button
+            onClick={() => setColorOpen(!colorOpen)}
+            title="Default Drawing Color"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]"
+          >
+            <Palette className="h-4 w-4" style={{ color: drawingColor }} />
+          </button>
+          {colorOpen && (
+            <div className="absolute left-11 top-0 z-50 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+              {PALETTE_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => {
+                    setDrawingColor(c);
+                    setColorOpen(false);
+                  }}
+                  style={{ backgroundColor: c }}
+                  className={cn(
+                    'h-4 w-4 rounded-full transition hover:scale-110',
+                    drawingColor === c && 'ring-2 ring-white ring-offset-2 ring-offset-[#1E222D]'
+                  )}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Magnet Mode */}
+        <button
+          onClick={toggleMagnetMode}
+          title="Magnet OHLC Snap (Alt+M)"
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md transition',
+            magnetMode
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <Magnet className="h-4 w-4" />
+        </button>
+
+        {/* Stay in Drawing Mode */}
+        <button
+          onClick={toggleStayInDrawingMode}
+          title="Stay in Drawing Mode (Keep Tool Active)"
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md transition',
+            stayInDrawingMode
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <Pin className="h-4 w-4" />
+        </button>
+
+        {/* Lock Drawings */}
+        <button
+          onClick={toggleDrawingsLocked}
+          title={drawingsLocked ? 'Unlock All Drawings' : 'Lock All Drawings'}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md transition',
+            drawingsLocked
+              ? 'bg-amber-500/20 text-amber-400'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          {drawingsLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+        </button>
+
+        {/* Hide/Show Drawings */}
+        <button
+          onClick={toggleDrawingsVisible}
+          title={drawingsVisible ? 'Hide All Drawings' : 'Show All Drawings'}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md transition',
+            !drawingsVisible
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          {drawingsVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {/* Bottom Actions */}
+      <div className="flex flex-col items-center gap-0.5 pt-1">
+        <button
+          onClick={() => undoDrawing(activeSymbol)}
+          title="Undo Last Drawing"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+        >
+          <Undo2 className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => clearDrawings(activeSymbol)}
+          title="Remove Drawings on Symbol"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-[#787B86] transition hover:bg-rose-500/15 hover:text-rose-400"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </aside>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/panels/WatchlistPanel.tsx ===>>>
+import React, { useMemo, useState } from 'react';
+import { Search, Star, TrendingDown, TrendingUp } from 'lucide-react';
+import { getSymbolInfo, SYMBOLS } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { MarketCategory } from '@/types/trading';
+
+const CATEGORIES: Array<'All' | MarketCategory> = ['All', 'Crypto', 'Forex', 'Stocks', 'IDX', 'Commodities'];
+
+const MiniSparkline: React.FC<{ values: number[]; positive: boolean }> = ({ values, positive }) => {
+  if (values.length < 2) return <div className="h-4 w-11" />;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const pts = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * 42;
+      const y = 14 - ((v - min) / span) * 12;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg width="44" height="16" className="shrink-0 overflow-visible">
+      <polyline
+        fill="none"
+        stroke={positive ? '#089981' : '#F23645'}
+        strokeWidth="1.4"
+        points={pts}
+      />
+    </svg>
+  );
+};
+
+export const WatchlistPanel: React.FC = () => {
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const updatePaneSymbol = useTradingStore((s) => s.updatePaneSymbol);
+  const watchlist = useTradingStore((s) => s.watchlist);
+  const toggleWatchlistSymbol = useTradingStore((s) => s.toggleWatchlistSymbol);
+  const quotes = useTradingStore((s) => s.quotes);
+  const setBottomPanelOpen = useTradingStore((s) => s.setBottomPanelOpen);
+  const setBottomPanelTab = useTradingStore((s) => s.setBottomPanelTab);
+
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<'All' | MarketCategory>('All');
+  const [starredOnly, setStarredOnly] = useState(false);
+
+  const activePane = panes.find((p) => p.id === activePaneId) ?? panes[0];
+  const activeInfo = getSymbolInfo(activePane.symbol);
+  const activeQuote = quotes[activePane.symbol];
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return SYMBOLS.filter((s) => {
+      if (category !== 'All' && s.category !== category) return false;
+      if (starredOnly && !watchlist.includes(s.symbol)) return false;
+      if (!q) return true;
+      return (
+        s.symbol.toLowerCase().includes(q) ||
+        s.displaySymbol.toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q)
+      );
+    });
+  }, [query, category, starredOnly, watchlist]);
+
+  return (
+    <div className="flex h-full flex-col bg-white dark:bg-[#131722]">
+      {/* Header */}
+      <div className="border-b border-slate-200 p-2.5 dark:border-[#2A2E39]">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
+            Watchlist
+          </span>
+          <button
+            onClick={() => setStarredOnly(!starredOnly)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold transition',
+              starredOnly
+                ? 'bg-amber-500/15 text-amber-400'
+                : 'text-[#787B86] hover:text-[#D1D4DC]'
+            )}
+          >
+            <Star className={cn('h-3 w-3', starredOnly && 'fill-amber-400')} />
+            Starred
+          </button>
+        </div>
+
+        <div className="relative mb-2">
+          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-[#787B86]" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter symbols..."
+            className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-900 outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-1">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setCategory(cat)}
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px] font-semibold transition',
+                category === cat
+                  ? 'bg-[#2962FF] text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#1E222D] dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Column Headers */}
+      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1 text-[10px] font-semibold text-[#787B86] dark:border-[#2A2E39]/70">
+        <span>Symbol</span>
+        <span>Last / Chg%</span>
+      </div>
+
+      {/* Symbol Rows */}
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/40">
+        {filtered.map((sym) => {
+          const quote = quotes[sym.symbol];
+          const price = quote?.price ?? sym.basePrice;
+          const pct = quote?.changePercent ?? 0;
+          const isUp = pct >= 0;
+          const isSelected = activePane.symbol === sym.symbol;
+          const isStarred = watchlist.includes(sym.symbol);
+
+          return (
+            <div
+              key={sym.symbol}
+              onClick={() => updatePaneSymbol(activePane.id, sym.symbol)}
+              className={cn(
+                'group flex cursor-pointer items-center justify-between gap-2 px-2.5 py-1.5 transition',
+                isSelected
+                  ? 'bg-[#2962FF]/12 border-l-2 border-l-[#2962FF]'
+                  : 'hover:bg-slate-50 dark:hover:bg-[#1E222D]'
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleWatchlistSymbol(sym.symbol);
+                  }}
+                  className={cn(
+                    'shrink-0 transition',
+                    isStarred ? 'text-amber-400' : 'text-[#787B86] opacity-25 group-hover:opacity-100'
+                  )}
+                >
+                  <Star className={cn('h-3 w-3', isStarred && 'fill-amber-400')} />
+                </button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className="truncate text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+                      {sym.displaySymbol}
+                    </span>
+                    <span className="text-[9px] font-medium text-[#787B86]">{sym.exchange}</span>
+                  </div>
+                  <div className="truncate text-[10px] text-[#787B86]">{sym.name}</div>
+                </div>
+              </div>
+
+              <MiniSparkline values={quote?.sparkline ?? [price, price]} positive={isUp} />
+
+              <div className="shrink-0 text-right font-mono tabular-nums">
+                <div className="text-xs font-semibold text-slate-900 dark:text-[#D1D4DC]">
+                  {formatPrice(price, sym.precision)}
+                </div>
+                <div
+                  className={cn(
+                    'text-[10px] font-semibold',
+                    isUp ? 'text-[#089981]' : 'text-[#F23645]'
+                  )}
+                >
+                  {isUp ? '+' : ''}
+                  {pct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected Instrument Quick Summary */}
+      <div className="border-t border-slate-200 bg-slate-50/70 p-2.5 dark:border-[#2A2E39] dark:bg-[#0C0F17]/50">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+            {activeInfo.displaySymbol}
+          </span>
+          <span className="text-[10px] font-semibold text-[#2962FF]">{activeInfo.category}</span>
+        </div>
+        <p className="mb-2 line-clamp-2 text-[10px] text-[#787B86]">{activeInfo.description}</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            onClick={() => {
+              setBottomPanelTab('trade');
+              setBottomPanelOpen(true);
+            }}
+            className="flex items-center justify-center gap-1 rounded bg-[#089981] py-1.5 text-[11px] font-bold text-white transition hover:brightness-110"
+          >
+            <TrendingUp className="h-3.5 w-3.5" />
+            Buy {activeQuote ? formatPrice(activeQuote.price, activeInfo.precision) : ''}
+          </button>
+          <button
+            onClick={() => {
+              setBottomPanelTab('trade');
+              setBottomPanelOpen(true);
+            }}
+            className="flex items-center justify-center gap-1 rounded bg-[#F23645] py-1.5 text-[11px] font-bold text-white transition hover:brightness-110"
+          >
+            <TrendingDown className="h-3.5 w-3.5" />
+            Sell {activeQuote ? formatPrice(activeQuote.price, activeInfo.precision) : ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/panels/OrderBookPanel.tsx ===>>>
+import React, { useEffect, useMemo, useState } from 'react';
+import { getSymbolInfo } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { generateOrderBookSnapshot, OrderBookLevel, TradePrint } from '@/services/marketData';
+import { useTradingStore } from '@/store/useTradingStore';
+
+export const OrderBookPanel: React.FC = () => {
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const quotes = useTradingStore((s) => s.quotes);
+
+  const activePane = panes.find((p) => p.id === activePaneId) ?? panes[0];
+  const info = useMemo(() => getSymbolInfo(activePane.symbol), [activePane.symbol]);
+  const midPrice = quotes[activePane.symbol]?.price ?? info.basePrice;
+
+  const [book, setBook] = useState<{
+    asks: OrderBookLevel[];
+    bids: OrderBookLevel[];
+    spread: number;
+    spreadPct: number;
+  }>(() => generateOrderBookSnapshot(activePane.symbol, midPrice, 10));
+
+  const [trades, setTrades] = useState<TradePrint[]>([]);
+
+  useEffect(() => {
+    const update = () => {
+      const snap = generateOrderBookSnapshot(activePane.symbol, midPrice, 10);
+      setBook(snap);
+      const isBuy = Math.random() >= 0.48;
+      const now = new Date();
+      const timeStr = now.toTimeString().slice(0, 8);
+      const printPrice = Number(
+        (midPrice + (Math.random() - 0.5) * info.minMove * 4).toFixed(info.precision)
+      );
+      const size = Number(
+        ((info.category === 'Crypto' ? 1.4 : info.category === 'IDX' ? 1200 : 80) *
+          (0.1 + Math.random() * 1.9)).toFixed(info.category === 'Crypto' ? 3 : 0)
+      );
+      setTrades((prev) =>
+        [
+          {
+            id: `${Date.now()}-${Math.random()}`,
+            price: printPrice,
+            size,
+            side: isBuy ? ('buy' as const) : ('sell' as const),
+            time: timeStr,
+          },
+          ...prev,
+        ].slice(0, 22)
+      );
+    };
+
+    update();
+    const id = window.setInterval(update, 650);
+    return () => window.clearInterval(id);
+  }, [activePane.symbol, midPrice, info.minMove, info.precision, info.category]);
+
+  return (
+    <div className="flex h-full flex-col bg-white dark:bg-[#131722]">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-[#2A2E39]">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
+          Order Book • {info.displaySymbol}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 px-3 py-1.5 text-[10px] font-semibold text-[#787B86]">
+        <span>Price</span>
+        <span className="text-right">Size</span>
+        <span className="text-right">Total</span>
+      </div>
+
+      <div className="space-y-[1px] px-1">
+        {book.asks.map((lvl, idx) => (
+          <div
+            key={`ask-${idx}`}
+            className="relative grid grid-cols-3 items-center px-2 py-0.5 font-mono text-[11px] tabular-nums"
+          >
+            <div
+              style={{ width: `${lvl.pct}%` }}
+              className="pointer-events-none absolute inset-y-0 right-0 bg-[#F23645]/15"
+            />
+            <span className="relative z-10 text-[#F23645]">{formatPrice(lvl.price, info.precision)}</span>
+            <span className="relative z-10 text-right text-slate-700 dark:text-[#D1D4DC]">
+              {lvl.size}
+            </span>
+            <span className="relative z-10 text-right text-[#787B86]">{lvl.total}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="my-1 flex items-center justify-between border-y border-slate-200 bg-slate-50 px-3 py-1 font-mono text-[11px] dark:border-[#2A2E39] dark:bg-[#1E222D]">
+        <span className="font-bold text-slate-900 dark:text-white">
+          {formatPrice(midPrice, info.precision)}
+        </span>
+        <span className="text-[10px] text-[#787B86]">
+          Spread {formatPrice(book.spread, info.precision)} ({book.spreadPct.toFixed(3)}%)
+        </span>
+      </div>
+
+      <div className="space-y-[1px] px-1">
+        {book.bids.map((lvl, idx) => (
+          <div
+            key={`bid-${idx}`}
+            className="relative grid grid-cols-3 items-center px-2 py-0.5 font-mono text-[11px] tabular-nums"
+          >
+            <div
+              style={{ width: `${lvl.pct}%` }}
+              className="pointer-events-none absolute inset-y-0 right-0 bg-[#089981]/15"
+            />
+            <span className="relative z-10 text-[#089981]">
+              {formatPrice(lvl.price, info.precision)}
+            </span>
+            <span className="relative z-10 text-right text-slate-700 dark:text-[#D1D4DC]">
+              {lvl.size}
+            </span>
+            <span className="relative z-10 text-right text-[#787B86]">{lvl.total}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex flex-1 min-h-0 flex-col border-t border-slate-200 dark:border-[#2A2E39]">
+        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+          Recent Trades Tape
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-0.5 font-mono text-[11px] tabular-nums">
+          {trades.map((tr) => (
+            <div key={tr.id} className="grid grid-cols-3 items-center">
+              <span className={cn(tr.side === 'buy' ? 'text-[#089981]' : 'text-[#F23645]')}>
+                {formatPrice(tr.price, info.precision)}
+              </span>
+              <span className="text-right text-slate-700 dark:text-[#D1D4DC]">{tr.size}</span>
+              <span className="text-right text-[10px] text-[#787B86]">{tr.time}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/panels/AlertsPanel.tsx ===>>>
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bell, BellRing, Plus, Trash2 } from 'lucide-react';
+import { getSymbolInfo } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { AlertCondition } from '@/types/trading';
+
+export const AlertsPanel: React.FC = () => {
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const quotes = useTradingStore((s) => s.quotes);
+  const alerts = useTradingStore((s) => s.alerts);
+  const addAlert = useTradingStore((s) => s.addAlert);
+  const toggleAlert = useTradingStore((s) => s.toggleAlert);
+  const removeAlert = useTradingStore((s) => s.removeAlert);
+
+  const activePane = panes.find((p) => p.id === activePaneId) ?? panes[0];
+  const info = useMemo(() => getSymbolInfo(activePane.symbol), [activePane.symbol]);
+  const currentPrice = quotes[activePane.symbol]?.price ?? info.basePrice;
+
+  const [priceInput, setPriceInput] = useState(String(currentPrice));
+  const [condition, setCondition] = useState<AlertCondition>('crossing');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    setPriceInput(String(currentPrice));
+  }, [activePane.symbol]);
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    const num = Number(priceInput);
+    if (!Number.isFinite(num) || num <= 0) return;
+    addAlert({
+      symbol: activePane.symbol,
+      price: num,
+      condition,
+      note: note.trim(),
+    });
+    setNote('');
+  };
+
+  return (
+    <div className="flex h-full flex-col bg-white dark:bg-[#131722]">
+      <div className="border-b border-slate-200 px-3 py-2 dark:border-[#2A2E39]">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
+          Price Alerts ({alerts.filter((a) => a.active).length} active)
+        </span>
+      </div>
+
+      <form
+        onSubmit={handleCreate}
+        className="space-y-2 border-b border-slate-200 p-3 dark:border-[#2A2E39]"
+      >
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-bold text-slate-900 dark:text-[#D1D4DC]">{info.displaySymbol}</span>
+          <span className="font-mono text-[11px] text-[#787B86]">
+            Last: {formatPrice(currentPrice, info.precision)}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <select
+            value={condition}
+            onChange={(e) => setCondition(e.target.value as AlertCondition)}
+            className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-800 outline-none dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+          >
+            <option value="crossing">Crossing</option>
+            <option value="crossing_up">Crossing Up</option>
+            <option value="crossing_down">Crossing Down</option>
+          </select>
+
+          <input
+            type="number"
+            step="any"
+            value={priceInput}
+            onChange={(e) => setPriceInput(e.target.value)}
+            placeholder="Target Price"
+            className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-xs text-slate-800 outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+          />
+        </div>
+
+        <div className="flex gap-1">
+          {[-2, -1, 1, 2].map((pct) => (
+            <button
+              key={pct}
+              type="button"
+              onClick={() =>
+                setPriceInput((currentPrice * (1 + pct / 100)).toFixed(info.precision))
+              }
+              className="flex-1 rounded bg-slate-100 py-0.5 font-mono text-[10px] font-semibold text-slate-600 hover:bg-slate-200 dark:bg-[#1E222D] dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+            >
+              {pct > 0 ? `+${pct}%` : `${pct}%`}
+            </button>
+          ))}
+        </div>
+
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Alert message (optional)..."
+          className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+        />
+
+        <button
+          type="submit"
+          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-amber-500 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-amber-400"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Create Alert
+        </button>
+      </form>
+
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/50">
+        {alerts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-8 text-center text-xs text-[#787B86]">
+            <Bell className="mb-2 h-6 w-6 opacity-40" />
+            Right-click anywhere on the chart or use this form to add a price alert.
+          </div>
+        ) : (
+          alerts.map((alert) => {
+            const sym = getSymbolInfo(alert.symbol);
+            return (
+              <div key={alert.id} className="flex items-start justify-between gap-2 p-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {alert.active ? (
+                      <BellRing className="h-3.5 w-3.5 text-amber-400" />
+                    ) : (
+                      <Bell className="h-3.5 w-3.5 text-[#787B86]" />
+                    )}
+                    <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+                      {sym.displaySymbol}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded px-1 text-[9px] font-bold uppercase',
+                        alert.active
+                          ? 'bg-[#089981]/15 text-[#089981]'
+                          : 'bg-slate-500/20 text-[#787B86]'
+                      )}
+                    >
+                      {alert.active ? 'Active' : 'Triggered'}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 font-mono text-[11px] text-slate-600 dark:text-[#D1D4DC]">
+                    {alert.condition.replace('_', ' ')} @ {formatPrice(alert.price, sym.precision)}
+                  </div>
+                  {alert.note && (
+                    <div className="mt-0.5 truncate text-[10px] text-[#787B86]">{alert.note}</div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => toggleAlert(alert.id)}
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[#2962FF] hover:bg-[#2962FF]/10"
+                  >
+                    {alert.active ? 'Pause' : 'Rearm'}
+                  </button>
+                  <button
+                    onClick={() => removeAlert(alert.id)}
+                    className="rounded p-1 text-[#787B86] hover:bg-rose-500/15 hover:text-rose-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/panels/RightSidebar.tsx ===>>>
+import React from 'react';
+import { Bell, BookOpen, ListFilter } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { RightSidebarTab, useTradingStore } from '@/store/useTradingStore';
+import { AlertsPanel } from './AlertsPanel';
+import { OrderBookPanel } from './OrderBookPanel';
+import { WatchlistPanel } from './WatchlistPanel';
+
+export const RightSidebar: React.FC = () => {
+  const rightTab = useTradingStore((s) => s.rightSidebarTab);
+  const setRightTab = useTradingStore((s) => s.setRightSidebarTab);
+  const activeAlertsCount = useTradingStore((s) => s.alerts.filter((a) => a.active).length);
+
+  const toggle = (tab: Exclude<RightSidebarTab, null>) => {
+    setRightTab(rightTab === tab ? null : tab);
+  };
+
+  return (
+    <div className="flex h-full shrink-0">
+      {rightTab !== null && (
+        <div className="h-full w-72 overflow-hidden border-l border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]">
+          {rightTab === 'watchlist' && <WatchlistPanel />}
+          {rightTab === 'orderbook' && <OrderBookPanel />}
+          {rightTab === 'alerts' && <AlertsPanel />}
+        </div>
+      )}
+
+      <div className="flex w-[42px] shrink-0 flex-col items-center gap-1.5 border-l border-slate-200 bg-white py-2 dark:border-[#2A2E39] dark:bg-[#131722]">
+        <button
+          onClick={() => toggle('watchlist')}
+          title="Watchlist & Markets"
+          className={cn(
+            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            rightTab === 'watchlist'
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <ListFilter className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={() => toggle('orderbook')}
+          title="Order Book & Trades Tape"
+          className={cn(
+            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            rightTab === 'orderbook'
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <BookOpen className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={() => toggle('alerts')}
+          title="Price Alerts"
+          className={cn(
+            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            rightTab === 'alerts'
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <Bell className="h-4 w-4" />
+          {activeAlertsCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-slate-950">
+              {activeAlertsCount}
+            </span>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/panels/TradingTerminal.tsx ===>>>
+import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, RotateCcw, Terminal, X } from 'lucide-react';
+import { getSymbolInfo } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { BottomPanelTab, useTradingStore } from '@/store/useTradingStore';
+
+export const TradingTerminal: React.FC = () => {
+  const open = useTradingStore((s) => s.bottomPanelOpen);
+  const setOpen = useTradingStore((s) => s.setBottomPanelOpen);
+  const tab = useTradingStore((s) => s.bottomPanelTab);
+  const setTab = useTradingStore((s) => s.setBottomPanelTab);
+
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const quotes = useTradingStore((s) => s.quotes);
+
+  const paperBalance = useTradingStore((s) => s.paperBalance);
+  const positions = useTradingStore((s) => s.positions);
+  const pendingOrders = useTradingStore((s) => s.pendingOrders);
+  const closedTrades = useTradingStore((s) => s.closedTrades);
+
+  const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
+  const placeLimitOrder = useTradingStore((s) => s.placeLimitOrder);
+  const cancelPendingOrder = useTradingStore((s) => s.cancelPendingOrder);
+  const closePosition = useTradingStore((s) => s.closePosition);
+  const resetPaperAccount = useTradingStore((s) => s.resetPaperAccount);
+
+  const activePane = panes.find((p) => p.id === activePaneId) ?? panes[0];
+  const info = useMemo(() => getSymbolInfo(activePane.symbol), [activePane.symbol]);
+  const markPrice = quotes[activePane.symbol]?.price ?? info.basePrice;
+
+  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [qtyInput, setQtyInput] = useState('0.5');
+  const [limitInput, setLimitInput] = useState(String(markPrice));
+  const [slInput, setSlInput] = useState('');
+  const [tpInput, setTpInput] = useState('');
+
+  useEffect(() => {
+    setLimitInput(String(markPrice));
+    setSlInput('');
+    setTpInput('');
+  }, [activePane.symbol]);
+
+  const totalUnrealizedPnl = useMemo(() => {
+    return positions.reduce((sum, pos) => {
+      const pInfo = getSymbolInfo(pos.symbol);
+      const curr = quotes[pos.symbol]?.price ?? pInfo.basePrice;
+      const diff = pos.side === 'buy' ? curr - pos.entryPrice : pos.entryPrice - curr;
+      return sum + diff * pos.quantity;
+    }, 0);
+  }, [positions, quotes]);
+
+  const equity = paperBalance + totalUnrealizedPnl;
+
+  const submitOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = Number(qtyInput);
+    if (!Number.isFinite(qty) || qty <= 0) return;
+
+    const sl = slInput ? Number(slInput) : undefined;
+    const tp = tpInput ? Number(tpInput) : undefined;
+
+    if (orderType === 'market') {
+      placeMarketOrder({
+        symbol: activePane.symbol,
+        side,
+        quantity: qty,
+        price: markPrice,
+        stopLoss: sl,
+        takeProfit: tp,
+      });
+    } else {
+      const lim = Number(limitInput);
+      if (!Number.isFinite(lim) || lim <= 0) return;
+      placeLimitOrder({
+        symbol: activePane.symbol,
+        side,
+        quantity: qty,
+        limitPrice: lim,
+        stopLoss: sl,
+        takeProfit: tp,
+      });
+    }
+  };
+
+  const setNotionalSize = (usd: number) => {
+    if (markPrice <= 0) return;
+    const qty = usd / markPrice;
+    setQtyInput(qty >= 10 ? qty.toFixed(1) : qty.toFixed(4));
+  };
+
+  return (
+    <div className="relative z-30 shrink-0 border-t border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]">
+      {/* Compact Bottom Terminal Header */}
+      <div className="flex h-8 items-center justify-between px-3">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-[#2962FF] dark:text-[#D1D4DC]"
+          >
+            <Terminal className="h-3.5 w-3.5 text-[#2962FF]" />
+            <span>Trading Panel</span>
+            {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+          </button>
+
+          <div className="hidden sm:flex items-center gap-4 font-mono text-[11px] tabular-nums">
+            <span className="text-[#787B86]">
+              Balance:{' '}
+              <span className="font-semibold text-slate-800 dark:text-[#D1D4DC]">
+                ${paperBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </span>
+            <span className="text-[#787B86]">
+              Equity:{' '}
+              <span className="font-semibold text-slate-800 dark:text-white">
+                ${equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </span>
+            <span className="text-[#787B86]">
+              Open PnL:{' '}
+              <span
+                className={cn(
+                  'font-semibold',
+                  totalUnrealizedPnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                )}
+              >
+                {totalUnrealizedPnl >= 0 ? '+' : ''}${totalUnrealizedPnl.toFixed(2)}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              setSide('buy');
+              setTab('trade');
+              setOpen(true);
+            }}
+            className="rounded bg-[#089981]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#089981] hover:bg-[#089981] hover:text-white transition"
+          >
+            Buy {info.displaySymbol}
+          </button>
+          <button
+            onClick={() => {
+              setSide('sell');
+              setTab('trade');
+              setOpen(true);
+            }}
+            className="rounded bg-[#F23645]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#F23645] hover:bg-[#F23645] hover:text-white transition"
+          >
+            Sell {info.displaySymbol}
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded Workspace */}
+      {open && (
+        <div className="grid h-60 grid-cols-1 border-t border-slate-200 dark:border-[#2A2E39] md:grid-cols-12">
+          {/* Order Ticket */}
+          <form
+            onSubmit={submitOrder}
+            className="flex flex-col justify-between border-b border-slate-200 p-3 dark:border-[#2A2E39] md:col-span-4 md:border-b-0 md:border-r overflow-y-auto"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+                  Order Ticket • {info.displaySymbol}
+                </span>
+                <div className="flex rounded bg-slate-100 p-0.5 text-[10px] font-semibold dark:bg-[#1E222D]">
+                  {(['market', 'limit'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setOrderType(t)}
+                      className={cn(
+                        'rounded px-2 py-0.5 uppercase',
+                        orderType === t
+                          ? 'bg-[#2962FF] text-white'
+                          : 'text-[#787B86]'
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSide('buy')}
+                  className={cn(
+                    'rounded py-1.5 text-xs font-bold transition',
+                    side === 'buy'
+                      ? 'bg-[#089981] text-white'
+                      : 'bg-slate-100 text-[#787B86] dark:bg-[#1E222D]'
+                  )}
+                >
+                  Long / Buy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSide('sell')}
+                  className={cn(
+                    'rounded py-1.5 text-xs font-bold transition',
+                    side === 'sell'
+                      ? 'bg-[#F23645] text-white'
+                      : 'bg-slate-100 text-[#787B86] dark:bg-[#1E222D]'
+                  )}
+                >
+                  Short / Sell
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-0.5 block text-[10px] text-[#787B86]">Quantity</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-900 outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[10px] text-[#787B86]">
+                    {orderType === 'market' ? 'Market Price' : 'Limit Price'}
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    disabled={orderType === 'market'}
+                    value={orderType === 'market' ? markPrice : limitInput}
+                    onChange={(e) => setLimitInput(e.target.value)}
+                    className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-900 outline-none disabled:opacity-60 dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-1">
+                {[1000, 5000, 10000, 25000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setNotionalSize(amt)}
+                    className="flex-1 rounded bg-slate-100 py-0.5 font-mono text-[10px] font-medium text-slate-600 hover:bg-slate-200 dark:bg-[#1E222D] dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+                  >
+                    ${amt / 1000}k
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  step="any"
+                  value={slInput}
+                  onChange={(e) => setSlInput(e.target.value)}
+                  placeholder="Stop Loss (opt)"
+                  className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-[#F23645] outline-none focus:border-[#F23645] dark:border-[#2A2E39] dark:bg-[#1E222D]"
+                />
+                <input
+                  type="number"
+                  step="any"
+                  value={tpInput}
+                  onChange={(e) => setTpInput(e.target.value)}
+                  placeholder="Take Profit (opt)"
+                  className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-[#089981] outline-none focus:border-[#089981] dark:border-[#2A2E39] dark:bg-[#1E222D]"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className={cn(
+                'mt-2 w-full rounded py-1.5 text-xs font-bold text-white shadow transition',
+                side === 'buy'
+                  ? 'bg-[#089981] hover:brightness-110'
+                  : 'bg-[#F23645] hover:brightness-110'
+              )}
+            >
+              {orderType === 'market' ? 'Execute' : 'Place Limit'}{' '}
+              {side === 'buy' ? 'Buy' : 'Sell'} Order
+            </button>
+          </form>
+
+          {/* Positions / Orders / History */}
+          <div className="flex flex-col md:col-span-8 min-h-0">
+            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 dark:border-[#2A2E39]">
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { id: 'positions', label: `Positions (${positions.length})` },
+                    { id: 'orders', label: `Pending Orders (${pendingOrders.length})` },
+                    { id: 'history', label: `History (${closedTrades.length})` },
+                  ] as { id: BottomPanelTab; label: string }[]
+                ).map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      'rounded px-2.5 py-1 text-xs font-semibold transition',
+                      tab === t.id || (tab === 'trade' && t.id === 'positions')
+                        ? 'bg-[#2962FF]/15 text-[#2962FF]'
+                        : 'text-[#787B86] hover:text-slate-900 dark:hover:text-[#D1D4DC]'
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={resetPaperAccount}
+                title="Reset Virtual Balance to $100,000"
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[#787B86] hover:bg-[#1E222D] hover:text-[#D1D4DC]"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset $100k
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {(tab === 'positions' || tab === 'trade') && (
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-[#787B86] dark:bg-[#0C0F17]">
+                    <tr>
+                      <th className="px-3 py-1.5">Symbol</th>
+                      <th className="px-3 py-1.5">Side</th>
+                      <th className="px-3 py-1.5">Qty</th>
+                      <th className="px-3 py-1.5">Entry</th>
+                      <th className="px-3 py-1.5">Mark</th>
+                      <th className="px-3 py-1.5">SL / TP</th>
+                      <th className="px-3 py-1.5 text-right">Unrealized PnL</th>
+                      <th className="px-3 py-1.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono text-[11px] tabular-nums dark:divide-[#2A2E39]/50">
+                    {positions.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-8 text-center font-sans text-[#787B86]">
+                          No open positions. Use right-click on chart, 1-Click buttons, or Order Ticket!
+                        </td>
+                      </tr>
+                    ) : (
+                      positions.map((pos) => {
+                        const pInfo = getSymbolInfo(pos.symbol);
+                        const curr = quotes[pos.symbol]?.price ?? pos.entryPrice;
+                        const pnl =
+                          (pos.side === 'buy' ? curr - pos.entryPrice : pos.entryPrice - curr) *
+                          pos.quantity;
+                        const pnlPct =
+                          ((pos.side === 'buy' ? curr - pos.entryPrice : pos.entryPrice - curr) /
+                            Math.max(pos.entryPrice, 1e-9)) *
+                          100;
+
+                        return (
+                          <tr key={pos.id} className="hover:bg-slate-50 dark:hover:bg-[#1E222D]">
+                            <td className="px-3 py-1.5 font-sans font-bold text-slate-900 dark:text-[#D1D4DC]">
+                              {pInfo.displaySymbol}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <span
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 text-[10px] font-bold uppercase',
+                                  pos.side === 'buy'
+                                    ? 'bg-[#089981]/15 text-[#089981]'
+                                    : 'bg-[#F23645]/15 text-[#F23645]'
+                                )}
+                              >
+                                {pos.side === 'buy' ? 'LONG' : 'SHORT'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5">{pos.quantity}</td>
+                            <td className="px-3 py-1.5">
+                              {formatPrice(pos.entryPrice, pInfo.precision)}
+                            </td>
+                            <td className="px-3 py-1.5">{formatPrice(curr, pInfo.precision)}</td>
+                            <td className="px-3 py-1.5 text-[10px] text-[#787B86]">
+                              {pos.stopLoss ? formatPrice(pos.stopLoss, pInfo.precision) : '—'} /{' '}
+                              {pos.takeProfit ? formatPrice(pos.takeProfit, pInfo.precision) : '—'}
+                            </td>
+                            <td
+                              className={cn(
+                                'px-3 py-1.5 text-right font-bold',
+                                pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                              )}
+                            >
+                              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}
+                              {pnlPct.toFixed(2)}%)
+                            </td>
+                            <td className="px-3 py-1.5 text-right">
+                              <button
+                                onClick={() => closePosition(pos.id, curr, 'manual')}
+                                className="rounded bg-[#F23645]/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-[#F23645] hover:bg-[#F23645] hover:text-white"
+                              >
+                                Close
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {tab === 'orders' && (
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-[#787B86] dark:bg-[#0C0F17]">
+                    <tr>
+                      <th className="px-3 py-1.5">Symbol</th>
+                      <th className="px-3 py-1.5">Side</th>
+                      <th className="px-3 py-1.5">Qty</th>
+                      <th className="px-3 py-1.5">Limit Price</th>
+                      <th className="px-3 py-1.5">SL / TP</th>
+                      <th className="px-3 py-1.5 text-right">Cancel</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono text-[11px] dark:divide-[#2A2E39]/50">
+                    {pendingOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center font-sans text-[#787B86]">
+                          No pending limit orders.
+                        </td>
+                      </tr>
+                    ) : (
+                      pendingOrders.map((ord) => {
+                        const oInfo = getSymbolInfo(ord.symbol);
+                        return (
+                          <tr key={ord.id}>
+                            <td className="px-3 py-1.5 font-sans font-bold">{oInfo.displaySymbol}</td>
+                            <td className="px-3 py-1.5 uppercase">{ord.side}</td>
+                            <td className="px-3 py-1.5">{ord.quantity}</td>
+                            <td className="px-3 py-1.5">
+                              {formatPrice(ord.limitPrice, oInfo.precision)}
+                            </td>
+                            <td className="px-3 py-1.5 text-[#787B86]">
+                              {ord.stopLoss ?? '—'} / {ord.takeProfit ?? '—'}
+                            </td>
+                            <td className="px-3 py-1.5 text-right">
+                              <button
+                                onClick={() => cancelPendingOrder(ord.id)}
+                                className="rounded p-1 text-[#787B86] hover:text-rose-400"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {tab === 'history' && (
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase text-[#787B86] dark:bg-[#0C0F17]">
+                    <tr>
+                      <th className="px-3 py-1.5">Symbol</th>
+                      <th className="px-3 py-1.5">Side</th>
+                      <th className="px-3 py-1.5">Entry</th>
+                      <th className="px-3 py-1.5">Exit</th>
+                      <th className="px-3 py-1.5">Reason</th>
+                      <th className="px-3 py-1.5 text-right">Realized PnL</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono text-[11px] dark:divide-[#2A2E39]/50">
+                    {closedTrades.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center font-sans text-[#787B86]">
+                          No closed trades yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      closedTrades.map((t) => {
+                        const tInfo = getSymbolInfo(t.symbol);
+                        return (
+                          <tr key={t.id}>
+                            <td className="px-3 py-1.5 font-sans font-bold">{tInfo.displaySymbol}</td>
+                            <td className="px-3 py-1.5 uppercase">{t.side}</td>
+                            <td className="px-3 py-1.5">
+                              {formatPrice(t.entryPrice, tInfo.precision)}
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {formatPrice(t.exitPrice, tInfo.precision)}
+                            </td>
+                            <td className="px-3 py-1.5 uppercase text-[#787B86]">{t.reason}</td>
+                            <td
+                              className={cn(
+                                'px-3 py-1.5 text-right font-bold',
+                                t.pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                              )}
+                            >
+                              {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} ({t.pnlPercent.toFixed(2)}%)
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/modals/SymbolSearchModal.tsx ===>>>
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, X } from 'lucide-react';
+import { SYMBOLS } from '@/data/symbols';
+import { cn, formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { MarketCategory } from '@/types/trading';
+
+const CATS: Array<'All' | MarketCategory> = ['All', 'Crypto', 'Forex', 'Stocks', 'IDX', 'Commodities'];
+
+export const SymbolSearchModal: React.FC = () => {
+  const open = useTradingStore((s) => s.searchModalOpen);
+  const setOpen = useTradingStore((s) => s.setSearchModalOpen);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const updatePaneSymbol = useTradingStore((s) => s.updatePaneSymbol);
+  const quotes = useTradingStore((s) => s.quotes);
+
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState<'All' | MarketCategory>('All');
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return SYMBOLS.filter((s) => {
+      if (cat !== 'All' && s.category !== cat) return false;
+      if (!q) return true;
+      return (
+        s.symbol.toLowerCase().includes(q) ||
+        s.displaySymbol.toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q) ||
+        s.exchange.toLowerCase().includes(q)
+      );
+    });
+  }, [query, cat]);
+
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [query, cat, open]);
+
+  if (!open) return null;
+
+  const choose = (symbol: string) => {
+    updatePaneSymbol(activePaneId, symbol);
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <div
+      onClick={() => setOpen(false)}
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-16 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+      >
+        <div className="flex items-center gap-2.5 border-b border-slate-200 px-4 py-3 dark:border-[#2A2E39]">
+          <Search className="h-4 w-4 text-[#2962FF]" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedIdx((i) => Math.min(results.length - 1, i + 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedIdx((i) => Math.max(0, i - 1));
+              } else if (e.key === 'Enter' && results[selectedIdx]) {
+                choose(results[selectedIdx].symbol);
+              }
+            }}
+            placeholder="Search Crypto, Forex, US Stocks, IDX, Gold..."
+            className="flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-[#787B86] dark:text-[#D1D4DC]"
+          />
+          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 border-b border-slate-200 px-4 py-2 dark:border-[#2A2E39]">
+          {CATS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCat(c)}
+              className={cn(
+                'rounded px-2.5 py-1 text-xs font-semibold transition',
+                cat === c
+                  ? 'bg-[#2962FF] text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#131722] dark:text-[#D1D4DC]'
+              )}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+
+        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/60">
+          {results.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[#787B86]">No matching instruments found.</div>
+          ) : (
+            results.map((s, idx) => {
+              const q = quotes[s.symbol];
+              return (
+                <button
+                  key={s.symbol}
+                  onClick={() => choose(s.symbol)}
+                  className={cn(
+                    'flex w-full items-center justify-between px-4 py-2.5 text-left transition',
+                    idx === selectedIdx
+                      ? 'bg-[#2962FF]/15'
+                      : 'hover:bg-slate-50 dark:hover:bg-[#2A2E39]/60'
+                  )}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
+                        {s.displaySymbol}
+                      </span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-[#131722] dark:text-[#787B86]">
+                        {s.category}
+                      </span>
+                    </div>
+                    <div className="text-xs text-[#787B86]">{s.name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-semibold text-slate-800 dark:text-[#D1D4DC]">
+                      {formatPrice(q?.price ?? s.basePrice, s.precision)}
+                    </div>
+                    <div className="text-[10px] text-[#787B86]">{s.exchange}</div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/modals/IndicatorsModal.tsx ===>>>
+import React, { useMemo, useState } from 'react';
+import { Activity, Plus, Search, Trash2, Unlock, X } from 'lucide-react';
+import { INDICATOR_CATALOG } from '@/data/symbols';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+
+const IND_CATS = ['All', 'Trend', 'Momentum', 'Volatility', 'Volume'] as const;
+
+export const IndicatorsModal: React.FC = () => {
+  const open = useTradingStore((s) => s.indicatorsModalOpen);
+  const setOpen = useTradingStore((s) => s.setIndicatorsModalOpen);
+  const panes = useTradingStore((s) => s.panes);
+  const activePaneId = useTradingStore((s) => s.activePaneId);
+  const addIndicator = useTradingStore((s) => s.addIndicator);
+  const removeIndicator = useTradingStore((s) => s.removeIndicator);
+  const updateIndicator = useTradingStore((s) => s.updateIndicator);
+
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState<(typeof IND_CATS)[number]>('All');
+
+  const activePane = useMemo(
+    () => panes.find((p) => p.id === activePaneId) ?? panes[0],
+    [panes, activePaneId]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return INDICATOR_CATALOG.filter((item) => {
+      if (cat !== 'All' && item.category !== cat) return false;
+      if (!q) return true;
+      return (
+        item.name.toLowerCase().includes(q) ||
+        item.shortName.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
+      );
+    });
+  }, [query, cat]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={() => setOpen(false)}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-[540px] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-[#2A2E39]">
+          <div className="flex items-center gap-2.5">
+            <Activity className="h-5 w-5 text-[#00D4AA]" />
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
+                Indicators, Metrics & Strategies
+              </h2>
+              <p className="flex items-center gap-1 text-[11px] text-[#089981]">
+                <Unlock className="h-3 w-3" />
+                Unlimited simultaneous indicators unlocked
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-12">
+          <div className="flex flex-col border-b border-slate-200 md:col-span-7 md:border-b-0 md:border-r dark:border-[#2A2E39] min-h-0">
+            <div className="space-y-2 border-b border-slate-200 p-3 dark:border-[#2A2E39]">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#787B86]" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search SMA, EMA, Supertrend, RSI, MACD..."
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-xs outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#131722] dark:text-[#D1D4DC]"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {IND_CATS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCat(c)}
+                    className={cn(
+                      'rounded px-2.5 py-1 text-[11px] font-semibold transition',
+                      cat === c
+                        ? 'bg-[#2962FF] text-white'
+                        : 'bg-slate-100 text-slate-600 dark:bg-[#131722] dark:text-[#D1D4DC]'
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/60">
+              {filtered.map((item) => (
+                <div
+                  key={item.type}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-[#2A2E39]/40"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+                        {item.name}
+                      </span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-[#787B86] dark:bg-[#131722]">
+                        {item.placement === 'overlay' ? 'Overlay' : 'Sub-Pane'}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-[#787B86]">{item.description}</p>
+                  </div>
+                  <button
+                    onClick={() => addIndicator(activePane.id, item.type)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded bg-[#2962FF] px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-500"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col md:col-span-5 min-h-0 bg-slate-50/50 dark:bg-[#131722]/60">
+            <div className="border-b border-slate-200 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#787B86] dark:border-[#2A2E39]">
+              Active on Chart ({activePane.indicators.length})
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+              {activePane.indicators.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[#787B86]">
+                  No indicators applied to this pane.
+                </div>
+              ) : (
+                activePane.indicators.map((ind) => (
+                  <div
+                    key={ind.id}
+                    className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-[#2A2E39] dark:bg-[#1E222D]"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={ind.color}
+                          onChange={(e) =>
+                            updateIndicator(activePane.id, ind.id, { color: e.target.value })
+                          }
+                          className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0"
+                        />
+                        <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+                          {ind.name}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => removeIndicator(activePane.id, ind.id)}
+                        className="rounded p-1 text-[#787B86] hover:bg-rose-500/15 hover:text-rose-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {Object.keys(ind.params).length > 0 && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {Object.entries(ind.params).map(([key, val]) => (
+                          <div key={key}>
+                            <label className="mb-0.5 block text-[10px] capitalize text-[#787B86]">
+                              {key}
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={500}
+                              step="any"
+                              value={val}
+                              onChange={(e) => {
+                                const nextVal = Math.max(1, Number(e.target.value) || 1);
+                                updateIndicator(activePane.id, ind.id, {
+                                  params: { ...ind.params, [key]: nextVal },
+                                });
+                              }}
+                              className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#131722] dark:text-[#D1D4DC]"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/modals/ShortcutsModal.tsx ===>>>
+import React from 'react';
+import { Keyboard, X } from 'lucide-react';
+import { useTradingStore } from '@/store/useTradingStore';
+
+const SHORTCUTS = [
+  { keys: 'Right-Click Chart', desc: 'Context Menu (Reset, Alert, Order, Replay)' },
+  { keys: 'Double-Click Axis', desc: 'Auto-fit Price Scale or Reset Time Scale' },
+  { keys: 'Double-Click Chart', desc: 'Open Chart Appearance Settings' },
+  { keys: 'Alt + Shift + R', desc: 'Reset Chart View to Latest' },
+  { keys: 'Ctrl + K / ⌘K', desc: 'Open Symbol Search Command Palette' },
+  { keys: 'Alt + T', desc: 'Trend Line Tool' },
+  { keys: 'Alt + H / V', desc: 'Horizontal / Vertical Line Tool' },
+  { keys: 'Alt + F', desc: 'Fibonacci Retracement Tool' },
+  { keys: 'Alt + R', desc: 'Rectangle Zone Tool' },
+  { keys: 'Alt + L / S', desc: 'Long / Short Position R:R Box' },
+  { keys: 'Alt + M', desc: 'Toggle OHLC Magnet Snap' },
+  { keys: 'Space', desc: 'Play / Pause Bar Replay' },
+  { keys: '← / →', desc: 'Step Backward / Forward in Replay' },
+  { keys: 'Delete', desc: 'Remove Selected Drawing' },
+  { keys: 'Shift + F', desc: 'Toggle Fullscreen' },
+  { keys: 'Esc', desc: 'Cancel Draft / Reset Tool to Cursor' },
+];
+
+export const ShortcutsModal: React.FC = () => {
+  const open = useTradingStore((s) => s.shortcutsModalOpen);
+  const setOpen = useTradingStore((s) => s.setShortcutsModalOpen);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={() => setOpen(false)}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-[#2A2E39]">
+          <div className="flex items-center gap-2">
+            <Keyboard className="h-4 w-4 text-[#2962FF]" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
+              Keyboard & Mouse Shortcuts
+            </h3>
+          </div>
+          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto divide-y divide-slate-100 p-2 dark:divide-[#2A2E39]/60">
+          {SHORTCUTS.map((s) => (
+            <div key={s.keys} className="flex items-center justify-between px-2 py-2 text-xs">
+              <span className="text-slate-600 dark:text-[#D1D4DC]">{s.desc}</span>
+              <kbd className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-800 dark:bg-[#131722] dark:text-[#D1D4DC]">
+                {s.keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/ChartContextMenu.tsx ===>>>
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ArrowUpDown,
+  Bell,
+  CandlestickChart,
+  Check,
+  ChevronRight,
+  Copy,
+  Eye,
+  EyeOff,
+  Lock,
+  Minus,
+  RotateCcw,
+  Scissors,
+  Settings2,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Unlock,
+} from 'lucide-react';
+import { getSymbolInfo } from '@/data/symbols';
+import { formatPrice } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { ChartContextMenuData, ChartStyleType, ScaleMode } from '@/types/trading';
+
+interface ChartContextMenuProps {
+  menu: ChartContextMenuData | null;
+  paneId: string;
+  symbol: string;
+  currentStyle: ChartStyleType;
+  currentScale: ScaleMode;
+  onClose: () => void;
+  onResetView: () => void;
+  onFitContent: () => void;
+  onDrawHLineAtPrice: (price: number) => void;
+  onStartReplayHere: (barIndex: number, time: number) => void;
+}
+
+const STYLES: { id: ChartStyleType; label: string }[] = [
+  { id: 'candles', label: 'Candles' },
+  { id: 'hollow', label: 'Hollow Candles' },
+  { id: 'heikin_ashi', label: 'Heikin Ashi' },
+  { id: 'bars', label: 'OHLC Bars' },
+  { id: 'line', label: 'Line' },
+  { id: 'area', label: 'Area' },
+];
+
+export const ChartContextMenu: React.FC<ChartContextMenuProps> = ({
+  menu,
+  paneId,
+  symbol,
+  currentStyle,
+  currentScale,
+  onClose,
+  onResetView,
+  onFitContent,
+  onDrawHLineAtPrice,
+  onStartReplayHere,
+}) => {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [subMenu, setSubMenu] = useState<'style' | 'scale' | null>(null);
+
+  const info = getSymbolInfo(symbol);
+  const quotes = useTradingStore((s) => s.quotes);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+  const updateChartSettings = useTradingStore((s) => s.updateChartSettings);
+  const updatePaneChartStyle = useTradingStore((s) => s.updatePaneChartStyle);
+  const updatePaneScaleMode = useTradingStore((s) => s.updatePaneScaleMode);
+  const addAlert = useTradingStore((s) => s.addAlert);
+  const addToast = useTradingStore((s) => s.addToast);
+  const placeLimitOrder = useTradingStore((s) => s.placeLimitOrder);
+  const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
+  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+
+  const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
+  const toggleDrawingsVisible = useTradingStore((s) => s.toggleDrawingsVisible);
+  const drawingsLocked = useTradingStore((s) => s.drawingsLocked);
+  const toggleDrawingsLocked = useTradingStore((s) => s.toggleDrawingsLocked);
+  const clearDrawings = useTradingStore((s) => s.clearDrawingsForSymbol);
+  const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
+  const updateDrawing = useTradingStore((s) => s.updateDrawing);
+  const duplicateDrawing = useTradingStore((s) => s.duplicateDrawing);
+  const removeDrawing = useTradingStore((s) => s.removeDrawing);
+
+  useEffect(() => {
+    setSubMenu(null);
+  }, [menu]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  const formattedPrice = formatPrice(menu.price, info.precision);
+  const livePrice = quotes[symbol]?.price ?? info.basePrice;
+  const defaultQty = info.category === 'Crypto' ? 0.25 : info.category === 'IDX' ? 1000 : 10;
+
+  const menuW = 248;
+  const menuH = 420;
+  const left = Math.min(menu.x, window.innerWidth - menuW - 12);
+  const top = Math.min(menu.y, window.innerHeight - menuH - 12);
+
+  const targetDrawing = menu.drawingId
+    ? (drawingsBySymbol[symbol] ?? []).find((d) => d.id === menu.drawingId)
+    : null;
+
+  const copyPrice = () => {
+    navigator.clipboard?.writeText(String(Number(menu.price.toFixed(info.precision)))).catch(() => {});
+    addToast({ title: `Copied ${formattedPrice}`, variant: 'info' });
+    onClose();
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      style={{ left: Math.max(8, left), top: Math.max(8, top) }}
+      onContextMenu={(e) => e.preventDefault()}
+      className="fixed z-50 w-[248px] rounded-lg border border-slate-200 bg-white py-1.5 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+    >
+      {targetDrawing && (
+        <>
+          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400">
+            Drawing: {targetDrawing.type.replace('_', ' ')}
+          </div>
+          <button
+            onClick={() => {
+              updateDrawing(symbol, targetDrawing.id, { locked: !targetDrawing.locked });
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+          >
+            {targetDrawing.locked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+            <span>{targetDrawing.locked ? 'Unlock Drawing' : 'Lock Drawing'}</span>
+          </button>
+          <button
+            onClick={() => {
+              duplicateDrawing(symbol, targetDrawing.id);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            <span>Clone Drawing</span>
+          </button>
+          <button
+            onClick={() => {
+              removeDrawing(symbol, targetDrawing.id);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete Drawing</span>
+          </button>
+          <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+        </>
+      )}
+
+      <button
+        onClick={() => {
+          onResetView();
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5 font-medium">
+          <RotateCcw className="h-3.5 w-3.5 text-blue-400" />
+          Reset Chart View
+        </span>
+        <span className="font-mono text-[10px] text-[#787B86]">Alt+Shift+R</span>
+      </button>
+
+      <button
+        onClick={() => {
+          onFitContent();
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+          Fit All Data to Screen
+        </span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      <button
+        onClick={() => {
+          const rounded = Number(menu.price.toFixed(info.precision));
+          addAlert({
+            symbol,
+            price: rounded,
+            condition: rounded >= livePrice ? 'crossing_up' : 'crossing_down',
+            note: `Chart right-click alert`,
+          });
+          addToast({
+            title: `Alert Added: ${info.displaySymbol}`,
+            description: `Target @ ${formattedPrice}`,
+            variant: 'warning',
+          });
+          onClose();
+        }}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Bell className="h-3.5 w-3.5 text-amber-400" />
+          <span>Add Alert at {formattedPrice}</span>
+        </span>
+      </button>
+
+      <button
+        onClick={() => {
+          onDrawHLineAtPrice(Number(menu.price.toFixed(info.precision)));
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <Minus className="h-3.5 w-3.5 text-cyan-400" />
+        <span>Draw Horizontal Line at {formattedPrice}</span>
+      </button>
+
+      <button
+        onClick={copyPrice}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Copy className="h-3.5 w-3.5 text-slate-400" />
+          Copy Price ({formattedPrice})
+        </span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      <button
+        onClick={() => {
+          const px = Number(menu.price.toFixed(info.precision));
+          if (px >= livePrice) {
+            placeMarketOrder({ symbol, side: 'buy', quantity: defaultQty, price: livePrice });
+          } else {
+            placeLimitOrder({ symbol, side: 'buy', quantity: defaultQty, limitPrice: px });
+          }
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-emerald-400 hover:bg-emerald-500/10"
+      >
+        <TrendingUp className="h-3.5 w-3.5" />
+        <span>
+          {menu.price < livePrice ? `Buy Limit @ ${formattedPrice}` : `Buy Market (${defaultQty})`}
+        </span>
+      </button>
+
+      <button
+        onClick={() => {
+          const px = Number(menu.price.toFixed(info.precision));
+          if (px <= livePrice) {
+            placeMarketOrder({ symbol, side: 'sell', quantity: defaultQty, price: livePrice });
+          } else {
+            placeLimitOrder({ symbol, side: 'sell', quantity: defaultQty, limitPrice: px });
+          }
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+      >
+        <TrendingDown className="h-3.5 w-3.5" />
+        <span>
+          {menu.price > livePrice ? `Sell Limit @ ${formattedPrice}` : `Sell Market (${defaultQty})`}
+        </span>
+      </button>
+
+      {menu.barIndex !== null && menu.time !== null && (
+        <>
+          <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+          <button
+            onClick={() => {
+              onStartReplayHere(menu.barIndex!, menu.time!);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-amber-400 hover:bg-amber-500/10"
+          >
+            <Scissors className="h-3.5 w-3.5" />
+            <span>Start Bar Replay from This Bar</span>
+          </button>
+        </>
+      )}
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      <div
+        className="relative"
+        onMouseEnter={() => setSubMenu('style')}
+        onMouseLeave={() => setSubMenu(null)}
+      >
+        <button className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+          <span className="flex items-center gap-2.5">
+            <CandlestickChart className="h-3.5 w-3.5 text-slate-400" />
+            Chart Type
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+        </button>
+
+        {subMenu === 'style' && (
+          <div className="absolute left-full top-0 ml-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            {STYLES.map((st) => (
+              <button
+                key={st.id}
+                onClick={() => {
+                  updatePaneChartStyle(paneId, st.id);
+                  onClose();
+                }}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+              >
+                <span>{st.label}</span>
+                {currentStyle === st.id && <Check className="h-3.5 w-3.5 text-blue-500" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div
+        className="relative"
+        onMouseEnter={() => setSubMenu('scale')}
+        onMouseLeave={() => setSubMenu(null)}
+      >
+        <button className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
+          <span className="flex items-center gap-2.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+            Price Scale
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+        </button>
+
+        {subMenu === 'scale' && (
+          <div className="absolute left-full top-0 ml-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            {(
+              [
+                { id: 'normal', label: 'Regular' },
+                { id: 'logarithmic', label: 'Logarithmic' },
+                { id: 'percentage', label: 'Percentage (%)' },
+              ] as { id: ScaleMode; label: string }[]
+            ).map((sc) => (
+              <button
+                key={sc.id}
+                onClick={() => {
+                  updatePaneScaleMode(paneId, sc.id);
+                  onClose();
+                }}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+              >
+                <span>{sc.label}</span>
+                {currentScale === sc.id && <Check className="h-3.5 w-3.5 text-blue-500" />}
+              </button>
+            ))}
+            <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+            <button
+              onClick={() => {
+                updateChartSettings({ invertScale: !chartSettings.invertScale });
+                onClose();
+              }}
+              className="flex w-full items-center justify-between px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+            >
+              <span>Invert Price Scale</span>
+              {chartSettings.invertScale && <Check className="h-3.5 w-3.5 text-blue-500" />}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={() => {
+          toggleDrawingsVisible();
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        {drawingsVisible ? <EyeOff className="h-3.5 w-3.5 text-slate-400" /> : <Eye className="h-3.5 w-3.5 text-slate-400" />}
+        <span>{drawingsVisible ? 'Hide All Drawings' : 'Show All Drawings'}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          toggleDrawingsLocked();
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        {drawingsLocked ? <Unlock className="h-3.5 w-3.5 text-slate-400" /> : <Lock className="h-3.5 w-3.5 text-slate-400" />}
+        <span>{drawingsLocked ? 'Unlock All Drawings' : 'Lock All Drawings'}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          clearDrawings(symbol);
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-rose-400 hover:bg-rose-500/10"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        <span>Remove Drawings on {info.displaySymbol}</span>
+      </button>
+
+      <div className="my-1 border-t border-slate-200 dark:border-[#2A2E39]" />
+
+      <button
+        onClick={() => {
+          setChartSettingsModalOpen(true);
+          onClose();
+        }}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 font-medium hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+      >
+        <Settings2 className="h-3.5 w-3.5 text-slate-400" />
+        <span>Chart Settings...</span>
+      </button>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/common/ToastContainer.tsx ===>>>
+import React from 'react';
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+
+export const ToastContainer: React.FC = () => {
+  const toasts = useTradingStore((s) => s.toasts);
+  const removeToast = useTradingStore((s) => s.removeToast);
+
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none fixed right-14 top-12 z-50 flex w-80 flex-col gap-2">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={cn(
+            'pointer-events-auto flex items-start gap-2.5 rounded-lg border p-3 shadow-2xl backdrop-blur-md',
+            t.variant === 'success' && 'border-[#089981]/50 bg-[#1E222D]/95 text-[#D1D4DC]',
+            t.variant === 'warning' && 'border-amber-500/50 bg-[#1E222D]/95 text-[#D1D4DC]',
+            t.variant === 'danger' && 'border-[#F23645]/50 bg-[#1E222D]/95 text-[#D1D4DC]',
+            t.variant === 'info' && 'border-[#2962FF]/50 bg-[#1E222D]/95 text-[#D1D4DC]'
+          )}
+        >
+          <div className="mt-0.5 shrink-0">
+            {t.variant === 'success' && <CheckCircle2 className="h-4 w-4 text-[#089981]" />}
+            {t.variant === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400" />}
+            {t.variant === 'danger' && <XCircle className="h-4 w-4 text-[#F23645]" />}
+            {t.variant === 'info' && <Info className="h-4 w-4 text-[#2962FF]" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold">{t.title}</div>
+            {t.description && (
+              <div className="mt-0.5 text-[11px] text-[#787B86]">{t.description}</div>
+            )}
+          </div>
+          <button
+            onClick={() => removeToast(t.id)}
+            className="text-[#787B86] hover:text-white"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/App.tsx ===>>>
+import React, { useEffect } from 'react';
+import { ChartGrid } from '@/components/chart/ChartGrid';
+import { ToastContainer } from '@/components/common/ToastContainer';
+import { DrawingToolbar } from '@/components/layout/DrawingToolbar';
+import { TopToolbar } from '@/components/layout/TopToolbar';
+import { ChartSettingsModal } from '@/components/modals/ChartSettingsModal';
+import { IndicatorsModal } from '@/components/modals/IndicatorsModal';
+import { ShortcutsModal } from '@/components/modals/ShortcutsModal';
+import { SymbolSearchModal } from '@/components/modals/SymbolSearchModal';
+import { RightSidebar } from '@/components/panels/RightSidebar';
+import { TradingTerminal } from '@/components/panels/TradingTerminal';
+import { useAlertMonitor } from '@/hooks/useAlertMonitor';
+import { useHotkeys } from '@/hooks/useHotkeys';
+import { useTradingStore } from '@/store/useTradingStore';
+
+export const App: React.FC = () => {
+  const theme = useTradingStore((s) => s.theme);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
+  useHotkeys();
+  useAlertMonitor();
+
+  return (
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#F0F3FA] text-[#131722] dark:bg-[#0C0F17] dark:text-[#D1D4DC]">
+      <TopToolbar />
+
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <DrawingToolbar />
+        <ChartGrid />
+        <RightSidebar />
+      </div>
+
+      <TradingTerminal />
+
+      {/* Modals & Notifications */}
+      <SymbolSearchModal />
+      <IndicatorsModal />
+      <ChartSettingsModal />
+      <ShortcutsModal />
+      <ToastContainer />
+    </div>
+  );
+};
+
+export default App;
+<<<=== END FILE ===>>>

@@ -1,0 +1,3116 @@
+<<<=== FILE: src/components/chart/FloatingDrawingToolbar.tsx ===>>>
+import React, { useState } from 'react';
+import { Copy, Lock, Trash2, Unlock } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+
+const SWATCHES = ['#2962FF', '#00D4AA', '#089981', '#F23645', '#F59E0B', '#A855F7', '#E2E8F0'];
+const WIDTHS = [1, 2, 3, 4];
+const LINE_STYLES: Array<{ id: 'solid' | 'dashed' | 'dotted'; label: string }> = [
+  { id: 'solid', label: 'Solid' },
+  { id: 'dashed', label: 'Dashed' },
+  { id: 'dotted', label: 'Dotted' },
+];
+
+interface FloatingDrawingToolbarProps {
+  symbol: string;
+}
+
+export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ symbol }) => {
+  const selectedId = useTradingStore((s) => s.selectedDrawingId);
+  const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
+  const updateDrawing = useTradingStore((s) => s.updateDrawing);
+  const duplicateDrawing = useTradingStore((s) => s.duplicateDrawing);
+  const removeDrawing = useTradingStore((s) => s.removeDrawing);
+
+  const [colorMenu, setColorMenu] = useState(false);
+
+  if (!selectedId) return null;
+  const drawing = (drawingsBySymbol[symbol] ?? []).find((d) => d.id === selectedId);
+  if (!drawing) return null;
+
+  return (
+    <div
+      onMouseDown={(e) => e.stopPropagation()}
+      className="pointer-events-auto absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-xl backdrop-blur dark:border-[#2A2E39] dark:bg-[#1E222D]/95"
+    >
+      <span className="px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+        {drawing.type.replace('_', ' ')}
+      </span>
+
+      <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+      {/* Color Swatch Popover */}
+      <div className="relative">
+        <button
+          onClick={() => setColorMenu(!colorMenu)}
+          title="Line Color"
+          className="flex h-6 w-6 items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+        >
+          <span
+            className="h-3.5 w-3.5 rounded-sm border border-white/25"
+            style={{ backgroundColor: drawing.color }}
+          />
+        </button>
+        {colorMenu && (
+          <div className="absolute left-0 top-8 z-50 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            {SWATCHES.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  updateDrawing(symbol, drawing.id, { color: c });
+                  setColorMenu(false);
+                }}
+                style={{ backgroundColor: c }}
+                className={cn(
+                  'h-4 w-4 rounded-full transition hover:scale-110',
+                  drawing.color === c && 'ring-2 ring-white ring-offset-1 ring-offset-[#1E222D]'
+                )}
+              />
+            ))}
+            <input
+              type="color"
+              value={drawing.color}
+              onChange={(e) => updateDrawing(symbol, drawing.id, { color: e.target.value })}
+              className="h-5 w-5 cursor-pointer border-0 bg-transparent p-0"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Line Widths */}
+      <div className="flex items-center gap-0.5 px-0.5">
+        {WIDTHS.map((w) => (
+          <button
+            key={w}
+            onClick={() => updateDrawing(symbol, drawing.id, { lineWidth: w })}
+            title={`${w}px width`}
+            className={cn(
+              'flex h-6 w-6 items-center justify-center rounded font-mono text-[10px] font-semibold transition',
+              drawing.lineWidth === w
+                ? 'bg-blue-600/20 text-blue-400'
+                : 'text-slate-500 hover:bg-slate-100 dark:text-[#787B86] dark:hover:bg-[#2A2E39] dark:hover:text-[#D1D4DC]'
+            )}
+          >
+            {w}px
+          </button>
+        ))}
+      </div>
+
+      <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+      {/* Line Style */}
+      <div className="flex items-center gap-0.5">
+        {LINE_STYLES.map((st) => (
+          <button
+            key={st.id}
+            onClick={() => updateDrawing(symbol, drawing.id, { lineStyle: st.id })}
+            title={st.label}
+            className={cn(
+              'flex h-6 items-center justify-center rounded px-1.5 text-[10px] font-medium transition',
+              (drawing.lineStyle ?? 'solid') === st.id
+                ? 'bg-blue-600/20 text-blue-400'
+                : 'text-slate-500 hover:bg-slate-100 dark:text-[#787B86] dark:hover:bg-[#2A2E39] dark:hover:text-[#D1D4DC]'
+            )}
+          >
+            {st.id === 'solid' ? '—' : st.id === 'dashed' ? '- -' : '···'}
+          </button>
+        ))}
+      </div>
+
+      <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+      {/* Lock / Duplicate / Delete */}
+      <button
+        onClick={() => updateDrawing(symbol, drawing.id, { locked: !drawing.locked })}
+        title={drawing.locked ? 'Unlock' : 'Lock'}
+        className={cn(
+          'flex h-6 w-6 items-center justify-center rounded transition',
+          drawing.locked
+            ? 'bg-amber-500/20 text-amber-400'
+            : 'text-slate-500 hover:bg-slate-100 dark:text-[#787B86] dark:hover:bg-[#2A2E39] dark:hover:text-[#D1D4DC]'
+        )}
+      >
+        {drawing.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+      </button>
+
+      <button
+        onClick={() => duplicateDrawing(symbol, drawing.id)}
+        title="Clone Drawing"
+        className="flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:text-[#787B86] dark:hover:bg-[#2A2E39] dark:hover:text-[#D1D4DC]"
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+
+      <button
+        onClick={() => removeDrawing(symbol, drawing.id)}
+        title="Delete Drawing (Del)"
+        className="flex h-6 w-6 items-center justify-center rounded text-rose-400 hover:bg-rose-500/15"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/DrawingOverlay.tsx ===>>>
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { IChartApi, ISeriesApi, Logical } from 'lightweight-charts';
+import { TIMEFRAME_MAP } from '@/data/symbols';
+import { formatPrice, generateId } from '@/lib/utils';
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, DrawingObject, DrawingPoint, DrawingToolType, TimeframeId } from '@/types/trading';
+
+interface DrawingOverlayProps {
+  chart: IChartApi | null;
+  series: ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null;
+  candles: Candle[];
+  symbol: string;
+  timeframe: TimeframeId;
+  precision: number;
+  width: number;
+  height: number;
+  theme: 'dark' | 'light';
+  onCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+  onHitTestExpose?: (fn: (x: number, y: number) => string | null) => void;
+  onRequestContextMenu?: (
+    clientX: number,
+    clientY: number,
+    localX: number,
+    localY: number,
+    drawingId: string | null
+  ) => void;
+}
+
+interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+const FIB_LEVELS = [
+  { level: 0, color: '#787B86', fill: 'rgba(120,123,134,0.06)' },
+  { level: 0.236, color: '#F23645', fill: 'rgba(242,54,69,0.07)' },
+  { level: 0.382, color: '#F59E0B', fill: 'rgba(245,158,11,0.07)' },
+  { level: 0.5, color: '#089981', fill: 'rgba(8,153,129,0.08)' },
+  { level: 0.618, color: '#00D4AA', fill: 'rgba(0,212,170,0.09)' },
+  { level: 0.786, color: '#2962FF', fill: 'rgba(41,98,255,0.07)' },
+  { level: 1, color: '#8B5CF6', fill: 'rgba(139,92,246,0.06)' },
+];
+
+function distToSegment(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
+  chart,
+  series,
+  candles,
+  symbol,
+  timeframe,
+  precision,
+  width,
+  height,
+  theme,
+  onCanvasReady,
+  onHitTestExpose,
+  onRequestContextMenu,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeTool = useTradingStore((s) => s.activeDrawingTool);
+  const setActiveTool = useTradingStore((s) => s.setActiveDrawingTool);
+  const drawingColor = useTradingStore((s) => s.drawingColor);
+  const drawingLineWidth = useTradingStore((s) => s.drawingLineWidth);
+  const drawingLineStyle = useTradingStore((s) => s.drawingLineStyle);
+  const stayInDrawingMode = useTradingStore((s) => s.stayInDrawingMode);
+  const magnetMode = useTradingStore((s) => s.magnetMode);
+  const drawingsLocked = useTradingStore((s) => s.drawingsLocked);
+  const drawingsVisible = useTradingStore((s) => s.drawingsVisible);
+  const selectedDrawingId = useTradingStore((s) => s.selectedDrawingId);
+  const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
+  const drawingsBySymbol = useTradingStore((s) => s.drawingsBySymbol);
+  const addDrawing = useTradingStore((s) => s.addDrawing);
+  const updateDrawing = useTradingStore((s) => s.updateDrawing);
+
+  const symbolDrawings = drawingsBySymbol[symbol] ?? [];
+
+  const [draftPoints, setDraftPoints] = useState<DrawingPoint[]>([]);
+  const [cursorPoint, setCursorPoint] = useState<DrawingPoint | null>(null);
+  const [rulerStart, setRulerStart] = useState<DrawingPoint | null>(null);
+  const [rulerEnd, setRulerEnd] = useState<DrawingPoint | null>(null);
+  const [textDraft, setTextDraft] = useState<{
+    x: number;
+    y: number;
+    point: DrawingPoint;
+    editingId?: string;
+  } | null>(null);
+  const [textValue, setTextValue] = useState('');
+  const [isBrushing, setIsBrushing] = useState(false);
+  const brushPointsRef = useRef<DrawingPoint[]>([]);
+
+  const [hoverInteractive, setHoverInteractive] = useState(false);
+  const dragStateRef = useRef<{
+    drawingId: string;
+    mode: 'point' | 'move';
+    pointIndex: number;
+    startPointer: DrawingPoint;
+    originalPoints: DrawingPoint[];
+  } | null>(null);
+
+  useEffect(() => {
+    onCanvasReady?.(canvasRef.current);
+  }, [onCanvasReady]);
+
+  useEffect(() => {
+    setDraftPoints([]);
+    setCursorPoint(null);
+    setRulerStart(null);
+    setRulerEnd(null);
+    setIsBrushing(false);
+    brushPointsRef.current = [];
+  }, [activeTool, symbol]);
+
+  const tfSec = TIMEFRAME_MAP[timeframe].seconds;
+
+  const timeToX = useCallback(
+    (time: number): number | null => {
+      if (!chart || candles.length === 0) return null;
+      const first = candles[0].time;
+      const last = candles[candles.length - 1].time;
+
+      let logical: number;
+      if (time <= first) {
+        logical = (time - first) / tfSec;
+      } else if (time >= last) {
+        logical = candles.length - 1 + (time - last) / tfSec;
+      } else {
+        let lo = 0;
+        let hi = candles.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (candles[mid].time === time) {
+            const coord = chart.timeScale().logicalToCoordinate(mid as Logical);
+            return coord !== null ? Number(coord) : null;
+          }
+          if (candles[mid].time < time) lo = mid + 1;
+          else hi = mid - 1;
+        }
+        const i0 = Math.max(0, hi);
+        const i1 = Math.min(candles.length - 1, lo);
+        const span = candles[i1].time - candles[i0].time;
+        logical = span > 0 ? i0 + (time - candles[i0].time) / span : i0;
+      }
+
+      const coord = chart.timeScale().logicalToCoordinate(logical as Logical);
+      return coord !== null ? Number(coord) : null;
+    },
+    [chart, candles, tfSec]
+  );
+
+  const priceToY = useCallback(
+    (price: number): number | null => {
+      if (!series) return null;
+      const coord = series.priceToCoordinate(price);
+      return coord !== null ? Number(coord) : null;
+    },
+    [series]
+  );
+
+  const screenToData = useCallback(
+    (x: number, y: number, applyMagnet = true): DrawingPoint | null => {
+      if (!chart || !series || candles.length === 0) return null;
+      const logical = chart.timeScale().coordinateToLogical(x);
+      const price = series.coordinateToPrice(y);
+      if (logical === null || price === null) return null;
+
+      const idx = Number(logical);
+      let time: number;
+      if (idx <= 0) {
+        time = candles[0].time + Math.round(idx) * tfSec;
+      } else if (idx >= candles.length - 1) {
+        time = candles[candles.length - 1].time + Math.round(idx - (candles.length - 1)) * tfSec;
+      } else {
+        const i0 = Math.floor(idx);
+        const i1 = Math.min(candles.length - 1, i0 + 1);
+        const frac = idx - i0;
+        time = Math.round(candles[i0].time + frac * (candles[i1].time - candles[i0].time));
+      }
+
+      let snappedPrice = Number(price);
+      if (applyMagnet && magnetMode) {
+        const nearestIdx = Math.max(0, Math.min(candles.length - 1, Math.round(idx)));
+        const c = candles[nearestIdx];
+        if (c) {
+          time = c.time;
+          const ohlc = [c.open, c.high, c.low, c.close];
+          let bestDist = Infinity;
+          for (const candidate of ohlc) {
+            const cy = series.priceToCoordinate(candidate);
+            if (cy !== null) {
+              const d = Math.abs(Number(cy) - y);
+              if (d < bestDist && d < 36) {
+                bestDist = d;
+                snappedPrice = candidate;
+              }
+            }
+          }
+        }
+      }
+
+      return { time, price: snappedPrice };
+    },
+    [chart, series, candles, tfSec, magnetMode]
+  );
+
+  const toScreen = useCallback(
+    (pt: DrawingPoint): ScreenPoint | null => {
+      const x = timeToX(pt.time);
+      const y = priceToY(pt.price);
+      if (x === null || y === null) return null;
+      return { x, y };
+    },
+    [timeToX, priceToY]
+  );
+
+  const hitTestDrawings = useCallback(
+    (
+      sx: number,
+      sy: number,
+      ignoreGlobalLock = false
+    ): { id: string; mode: 'point' | 'move'; pointIndex: number } | null => {
+      if (!drawingsVisible || (!ignoreGlobalLock && drawingsLocked)) return null;
+      const p = { x: sx, y: sy };
+
+      for (let i = symbolDrawings.length - 1; i >= 0; i--) {
+        const d = symbolDrawings[i];
+        if (d.visible === false) continue;
+        if (!ignoreGlobalLock && d.locked) continue;
+
+        const screenPts = d.points.map(toScreen);
+        if (screenPts.some((sp) => sp === null)) continue;
+        const pts = screenPts as ScreenPoint[];
+
+        for (let pi = 0; pi < pts.length; pi++) {
+          if (Math.hypot(p.x - pts[pi].x, p.y - pts[pi].y) <= 9) {
+            return { id: d.id, mode: 'point', pointIndex: pi };
+          }
+        }
+
+        if (d.type === 'hline' && pts[0]) {
+          if (Math.abs(p.y - pts[0].y) <= 7) return { id: d.id, mode: 'move', pointIndex: 0 };
+        } else if (d.type === 'vline' && pts[0]) {
+          if (Math.abs(p.x - pts[0].x) <= 7) return { id: d.id, mode: 'move', pointIndex: 0 };
+        } else if (d.type === 'trendline' && pts.length >= 2) {
+          if (distToSegment(p, pts[0], pts[1]) <= 7) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        } else if (d.type === 'ray' && pts.length >= 2) {
+          const dx = pts[1].x - pts[0].x;
+          const dy = pts[1].y - pts[0].y;
+          const scale = Math.max(width, height) * 2;
+          const len = Math.hypot(dx, dy) || 1;
+          const farPt = { x: pts[0].x + (dx / len) * scale, y: pts[0].y + (dy / len) * scale };
+          if (distToSegment(p, pts[0], farPt) <= 7) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        } else if ((d.type === 'rect' || d.type === 'fib') && pts.length >= 2) {
+          const minX = Math.min(pts[0].x, pts[1].x);
+          const maxX = Math.max(pts[0].x, pts[1].x);
+          const minY = Math.min(pts[0].y, pts[1].y);
+          const maxY = Math.max(pts[0].y, pts[1].y);
+          if (p.x >= minX - 6 && p.x <= maxX + 6 && p.y >= minY - 6 && p.y <= maxY + 6) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        } else if ((d.type === 'long_pos' || d.type === 'short_pos') && pts.length >= 3) {
+          const minX = Math.min(pts[0].x, pts[1].x);
+          const maxX = Math.max(pts[0].x, pts[1].x);
+          const minY = Math.min(pts[0].y, pts[1].y, pts[2].y);
+          const maxY = Math.max(pts[0].y, pts[1].y, pts[2].y);
+          if (p.x >= minX - 6 && p.x <= maxX + 6 && p.y >= minY - 6 && p.y <= maxY + 6) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        } else if (d.type === 'channel' && pts.length >= 3) {
+          const offsetX = pts[2].x - pts[0].x;
+          const offsetY = pts[2].y - pts[0].y;
+          const p3 = { x: pts[1].x + offsetX, y: pts[1].y + offsetY };
+          if (distToSegment(p, pts[0], pts[1]) <= 7 || distToSegment(p, pts[2], p3) <= 7) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        } else if (d.type === 'brush' && pts.length >= 2) {
+          for (let j = 0; j < pts.length - 1; j++) {
+            if (distToSegment(p, pts[j], pts[j + 1]) <= 7) {
+              return { id: d.id, mode: 'move', pointIndex: 0 };
+            }
+          }
+        } else if (d.type === 'text' && pts[0]) {
+          if (
+            p.x >= pts[0].x - 8 &&
+            p.x <= pts[0].x + 150 &&
+            p.y >= pts[0].y - 20 &&
+            p.y <= pts[0].y + 10
+          ) {
+            return { id: d.id, mode: 'move', pointIndex: 0 };
+          }
+        }
+      }
+      return null;
+    },
+    [drawingsVisible, drawingsLocked, symbolDrawings, toScreen, width, height]
+  );
+
+  useEffect(() => {
+    onHitTestExpose?.((x, y) => hitTestDrawings(x, y, true)?.id ?? null);
+  }, [onHitTestExpose, hitTestDrawings]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const parent = canvas?.parentElement;
+    if (!parent) return;
+
+    const onProbeMove = (ev: MouseEvent) => {
+      if (activeTool !== 'cursor' || dragStateRef.current) return;
+      const rect = parent.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const hit = hitTestDrawings(x, y);
+      setHoverInteractive(Boolean(hit));
+    };
+
+    parent.addEventListener('mousemove', onProbeMove);
+    return () => parent.removeEventListener('mousemove', onProbeMove);
+  }, [activeTool, hitTestDrawings]);
+
+  const finishToolUsage = useCallback(() => {
+    if (!stayInDrawingMode) {
+      setActiveTool('cursor');
+    }
+  }, [stayInDrawingMode, setActiveTool]);
+
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || width <= 0 || height <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    const drawSingle = (
+      type: Exclude<DrawingToolType, 'cursor'>,
+      ptsData: DrawingPoint[],
+      color: string,
+      lineWidth: number,
+      lineStyle: 'solid' | 'dashed' | 'dotted',
+      isSelected: boolean,
+      extraText?: string
+    ) => {
+      const screenPts = ptsData.map(toScreen);
+      if (screenPts.some((s) => s === null)) return;
+      const pts = screenPts as ScreenPoint[];
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (lineStyle === 'dashed') ctx.setLineDash([7, 5]);
+      else if (lineStyle === 'dotted') ctx.setLineDash([2, 4]);
+      else ctx.setLineDash([]);
+
+      if (type === 'trendline' && pts.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.stroke();
+
+        if (isSelected) {
+          ctx.setLineDash([]);
+          const pct =
+            ((ptsData[1].price - ptsData[0].price) / Math.max(ptsData[0].price, 1e-9)) * 100;
+          const label = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+          ctx.font = '600 10px "JetBrains Mono", monospace';
+          const tw = ctx.measureText(label).width + 10;
+          ctx.fillStyle = theme === 'dark' ? 'rgba(19,23,34,0.92)' : 'rgba(255,255,255,0.94)';
+          ctx.fillRect(pts[1].x + 8, pts[1].y - 10, tw, 18);
+          ctx.strokeRect(pts[1].x + 8, pts[1].y - 10, tw, 18);
+          ctx.fillStyle = color;
+          ctx.fillText(label, pts[1].x + 13, pts[1].y + 3);
+        }
+      } else if (type === 'ray' && pts.length >= 2) {
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        const len = Math.hypot(dx, dy) || 1;
+        const scale = Math.max(width, height) * 2.5;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[0].x + (dx / len) * scale, pts[0].y + (dy / len) * scale);
+        ctx.stroke();
+      } else if (type === 'hline' && pts.length >= 1) {
+        ctx.beginPath();
+        ctx.moveTo(0, pts[0].y);
+        ctx.lineTo(width, pts[0].y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const priceLabel = formatPrice(ptsData[0].price, precision);
+        ctx.font = '600 10px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(priceLabel).width + 12;
+        ctx.fillStyle = color;
+        ctx.fillRect(width - tw - 4, pts[0].y - 9, tw, 18);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(priceLabel, width - tw + 2, pts[0].y + 3.5);
+      } else if (type === 'vline' && pts.length >= 1) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, 0);
+        ctx.lineTo(pts[0].x, height);
+        ctx.stroke();
+      } else if (type === 'rect' && pts.length >= 2) {
+        const x = Math.min(pts[0].x, pts[1].x);
+        const y = Math.min(pts[0].y, pts[1].y);
+        const w = Math.abs(pts[1].x - pts[0].x);
+        const h = Math.abs(pts[1].y - pts[0].y);
+        ctx.fillStyle = `${color}22`;
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+      } else if (type === 'channel' && pts.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.stroke();
+
+        if (pts.length >= 3) {
+          const ox = pts[2].x - pts[0].x;
+          const oy = pts[2].y - pts[0].y;
+          const p3 = { x: pts[1].x + ox, y: pts[1].y + oy };
+          ctx.beginPath();
+          ctx.moveTo(pts[2].x, pts[2].y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.stroke();
+
+          ctx.fillStyle = `${color}1A`;
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          ctx.lineTo(pts[1].x, pts[1].y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.lineTo(pts[2].x, pts[2].y);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo((pts[0].x + pts[2].x) / 2, (pts[0].y + pts[2].y) / 2);
+          ctx.lineTo((pts[1].x + p3.x) / 2, (pts[1].y + p3.y) / 2);
+          ctx.stroke();
+        }
+      } else if (type === 'fib' && pts.length >= 2) {
+        const minX = Math.min(pts[0].x, pts[1].x);
+        const maxX = Math.max(pts[0].x, pts[1].x);
+        const spanW = Math.max(maxX - minX, 90);
+        const priceSpan = ptsData[1].price - ptsData[0].price;
+
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(120,123,134,0.6)';
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        for (let i = 0; i < FIB_LEVELS.length; i++) {
+          const lvl = FIB_LEVELS[i];
+          const lvlPrice = ptsData[1].price - priceSpan * lvl.level;
+          const yCoord = priceToY(lvlPrice);
+          if (yCoord === null) continue;
+
+          if (i < FIB_LEVELS.length - 1) {
+            const nextPrice = ptsData[1].price - priceSpan * FIB_LEVELS[i + 1].level;
+            const nextY = priceToY(nextPrice);
+            if (nextY !== null) {
+              ctx.fillStyle = lvl.fill;
+              ctx.fillRect(minX, Math.min(yCoord, nextY), spanW, Math.abs(nextY - yCoord));
+            }
+          }
+
+          ctx.strokeStyle = lvl.color;
+          ctx.lineWidth = Math.max(1, lineWidth * 0.8);
+          ctx.beginPath();
+          ctx.moveTo(minX, yCoord);
+          ctx.lineTo(minX + spanW, yCoord);
+          ctx.stroke();
+
+          ctx.fillStyle = lvl.color;
+          ctx.font = '600 10px "JetBrains Mono", monospace';
+          ctx.fillText(
+            `${lvl.level} (${formatPrice(lvlPrice, precision)})`,
+            minX + 6,
+            yCoord - 3
+          );
+        }
+      } else if ((type === 'long_pos' || type === 'short_pos') && pts.length >= 3) {
+        const entryPt = pts[0];
+        const tpPt = pts[1];
+        const slPt = pts[2];
+        const boxLeft = Math.min(entryPt.x, tpPt.x);
+        const boxW = Math.max(Math.abs(tpPt.x - entryPt.x), 95);
+
+        const tpTop = Math.min(entryPt.y, tpPt.y);
+        const tpH = Math.abs(tpPt.y - entryPt.y);
+        ctx.fillStyle = 'rgba(8, 153, 129, 0.22)';
+        ctx.fillRect(boxLeft, tpTop, boxW, tpH);
+        ctx.strokeStyle = '#089981';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(boxLeft, tpTop, boxW, tpH);
+
+        const slTop = Math.min(entryPt.y, slPt.y);
+        const slH = Math.abs(slPt.y - entryPt.y);
+        ctx.fillStyle = 'rgba(242, 54, 69, 0.22)';
+        ctx.fillRect(boxLeft, slTop, boxW, slH);
+        ctx.strokeStyle = '#F23645';
+        ctx.strokeRect(boxLeft, slTop, boxW, slH);
+
+        ctx.strokeStyle = '#94A3B8';
+        ctx.beginPath();
+        ctx.moveTo(boxLeft, entryPt.y);
+        ctx.lineTo(boxLeft + boxW, entryPt.y);
+        ctx.stroke();
+
+        const reward = Math.abs(ptsData[1].price - ptsData[0].price);
+        const risk = Math.max(Math.abs(ptsData[2].price - ptsData[0].price), 1e-9);
+        const rr = reward / risk;
+        const pctReward = (reward / Math.max(ptsData[0].price, 1e-9)) * 100;
+        const pctRisk = (risk / Math.max(ptsData[0].price, 1e-9)) * 100;
+
+        ctx.font = '600 10px "JetBrains Mono", monospace';
+        const rrText = `${type === 'long_pos' ? 'LONG' : 'SHORT'} R:R 1:${rr.toFixed(2)}`;
+        ctx.fillStyle = theme === 'dark' ? 'rgba(19,23,34,0.92)' : 'rgba(255,255,255,0.94)';
+        const bw = ctx.measureText(rrText).width + 12;
+        ctx.fillRect(boxLeft + 6, entryPt.y - 10, bw, 18);
+        ctx.fillStyle = rr >= 1.5 ? '#089981' : '#F59E0B';
+        ctx.fillText(rrText, boxLeft + 12, entryPt.y + 3);
+
+        ctx.fillStyle = '#089981';
+        ctx.fillText(
+          `TP +${pctReward.toFixed(2)}%`,
+          boxLeft + 6,
+          tpPt.y + (type === 'long_pos' ? 12 : -5)
+        );
+        ctx.fillStyle = '#F23645';
+        ctx.fillText(
+          `SL -${pctRisk.toFixed(2)}%`,
+          boxLeft + 6,
+          slPt.y + (type === 'long_pos' ? -5 : 12)
+        );
+      } else if (type === 'brush' && pts.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.stroke();
+      } else if (type === 'text' && pts[0]) {
+        ctx.setLineDash([]);
+        const label = extraText || 'Note';
+        ctx.font = '600 12px Inter, sans-serif';
+        const tw = ctx.measureText(label).width + 14;
+        ctx.fillStyle = theme === 'dark' ? 'rgba(19, 23, 34, 0.9)' : 'rgba(255, 255, 255, 0.94)';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(pts[0].x, pts[0].y - 16, tw, 24, 5);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.fillText(label, pts[0].x + 7, pts[0].y);
+      } else if (type === 'ruler' && pts.length >= 2) {
+        const x = Math.min(pts[0].x, pts[1].x);
+        const y = Math.min(pts[0].y, pts[1].y);
+        const w = Math.abs(pts[1].x - pts[0].x);
+        const h = Math.abs(pts[1].y - pts[0].y);
+        const isUp = ptsData[1].price >= ptsData[0].price;
+        const rc = isUp ? '#089981' : '#F23645';
+
+        ctx.fillStyle = isUp ? 'rgba(8,153,129,0.16)' : 'rgba(242,54,69,0.16)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = rc;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+
+        const diff = ptsData[1].price - ptsData[0].price;
+        const pct = (diff / Math.max(ptsData[0].price, 1e-9)) * 100;
+        const bars = Math.round(Math.abs(ptsData[1].time - ptsData[0].time) / tfSec);
+        const infoText = `${diff >= 0 ? '+' : ''}${formatPrice(diff, precision)} (${
+          pct >= 0 ? '+' : ''
+        }${pct.toFixed(2)}%) • ${bars} bars`;
+
+        ctx.font = '600 11px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(infoText).width + 16;
+        const bx = Math.min(Math.max(8, (pts[0].x + pts[1].x) / 2 - tw / 2), width - tw - 8);
+        const by = isUp ? Math.max(8, y - 28) : Math.min(height - 30, y + h + 8);
+        ctx.fillStyle = rc;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, tw, 22, 6);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(infoText, bx + 8, by + 14.5);
+      }
+
+      if (isSelected && type !== 'brush') {
+        ctx.setLineDash([]);
+        for (const hp of pts) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.strokeStyle = '#2962FF';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(hp.x, hp.y, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    };
+
+    if (drawingsVisible) {
+      for (const d of symbolDrawings) {
+        if (d.visible === false) continue;
+        drawSingle(
+          d.type,
+          d.points,
+          d.color,
+          d.lineWidth,
+          d.lineStyle ?? 'solid',
+          d.id === selectedDrawingId,
+          d.text
+        );
+      }
+    }
+
+    if (
+      draftPoints.length > 0 &&
+      cursorPoint &&
+      activeTool !== 'cursor' &&
+      activeTool !== 'brush' &&
+      activeTool !== 'text'
+    ) {
+      drawSingle(
+        activeTool,
+        [...draftPoints, cursorPoint],
+        drawingColor,
+        drawingLineWidth,
+        drawingLineStyle,
+        false
+      );
+    }
+
+    if (isBrushing && brushPointsRef.current.length > 1) {
+      drawSingle('brush', brushPointsRef.current, drawingColor, drawingLineWidth, drawingLineStyle, false);
+    }
+
+    if (rulerStart && rulerEnd) {
+      drawSingle('ruler', [rulerStart, rulerEnd], '#2962FF', 1.5, 'solid', false);
+    }
+
+    if (magnetMode && cursorPoint && activeTool !== 'cursor') {
+      const sp = toScreen(cursorPoint);
+      if (sp) {
+        ctx.fillStyle = '#00D4AA';
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }, [
+    width,
+    height,
+    drawingsVisible,
+    symbolDrawings,
+    selectedDrawingId,
+    draftPoints,
+    cursorPoint,
+    activeTool,
+    drawingColor,
+    drawingLineWidth,
+    drawingLineStyle,
+    isBrushing,
+    rulerStart,
+    rulerEnd,
+    magnetMode,
+    toScreen,
+    priceToY,
+    precision,
+    tfSec,
+    theme,
+  ]);
+
+  useEffect(() => {
+    render();
+  }, [render]);
+
+  useEffect(() => {
+    if (!chart) return;
+    const onRangeChange = () => render();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+    };
+  }, [chart, render]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button === 2) return; // handled by onContextMenu
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dataPt = screenToData(x, y, true);
+    if (!dataPt) return;
+
+    if (activeTool === 'cursor') {
+      const hit = hitTestDrawings(x, y);
+      if (hit) {
+        const target = symbolDrawings.find((d) => d.id === hit.id);
+        if (target) {
+          setSelectedDrawingId(target.id);
+          dragStateRef.current = {
+            drawingId: target.id,
+            mode: hit.mode,
+            pointIndex: hit.pointIndex,
+            startPointer: dataPt,
+            originalPoints: target.points.map((pt) => ({ ...pt })),
+          };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
+      } else {
+        setSelectedDrawingId(null);
+      }
+      return;
+    }
+
+    if (activeTool === 'ruler') {
+      if (!rulerStart || (rulerStart && rulerEnd && draftPoints.length === 0)) {
+        setRulerStart(dataPt);
+        setRulerEnd(dataPt);
+        setDraftPoints([dataPt]);
+      } else {
+        setRulerEnd(dataPt);
+        setDraftPoints([]);
+      }
+      return;
+    }
+
+    if (activeTool === 'brush') {
+      setIsBrushing(true);
+      brushPointsRef.current = [dataPt];
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (activeTool === 'text') {
+      setTextDraft({ x, y, point: dataPt });
+      setTextValue('');
+      return;
+    }
+
+    if (activeTool === 'hline' || activeTool === 'vline') {
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        type: activeTool,
+        points: [dataPt],
+        color: drawingColor,
+        lineWidth: drawingLineWidth,
+        lineStyle: drawingLineStyle,
+        createdAt: Date.now(),
+      });
+      finishToolUsage();
+      return;
+    }
+
+    if (activeTool === 'long_pos' || activeTool === 'short_pos') {
+      const topPrice = series?.coordinateToPrice(Math.max(10, y - height * 0.14));
+      const botPrice = series?.coordinateToPrice(Math.min(height - 10, y + height * 0.08));
+      const tpDelta = topPrice ? Math.abs(Number(topPrice) - dataPt.price) : dataPt.price * 0.02;
+      const slDelta = botPrice ? Math.abs(dataPt.price - Number(botPrice)) : dataPt.price * 0.01;
+      const isLong = activeTool === 'long_pos';
+
+      const tpPrice = isLong ? dataPt.price + tpDelta : Math.max(0.00001, dataPt.price - tpDelta);
+      const slPrice = isLong ? Math.max(0.00001, dataPt.price - slDelta) : dataPt.price + slDelta;
+
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        type: activeTool,
+        points: [
+          dataPt,
+          { time: dataPt.time + tfSec * 14, price: tpPrice },
+          { time: dataPt.time + tfSec * 14, price: slPrice },
+        ],
+        color: isLong ? '#089981' : '#F23645',
+        lineWidth: 1.5,
+        lineStyle: 'solid',
+        createdAt: Date.now(),
+      });
+      finishToolUsage();
+      return;
+    }
+
+    if (activeTool === 'channel') {
+      if (draftPoints.length < 2) {
+        setDraftPoints([...draftPoints, dataPt]);
+      } else {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          type: 'channel',
+          points: [draftPoints[0], draftPoints[1], dataPt],
+          color: drawingColor,
+          lineWidth: drawingLineWidth,
+          lineStyle: drawingLineStyle,
+          createdAt: Date.now(),
+        });
+        setDraftPoints([]);
+        finishToolUsage();
+      }
+      return;
+    }
+
+    if (draftPoints.length === 0) {
+      setDraftPoints([dataPt]);
+    } else {
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        type: activeTool,
+        points: [draftPoints[0], dataPt],
+        color: drawingColor,
+        lineWidth: drawingLineWidth,
+        lineStyle: drawingLineStyle,
+        createdAt: Date.now(),
+      });
+      setDraftPoints([]);
+      finishToolUsage();
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (dragStateRef.current) {
+      const pt = screenToData(x, y, true);
+      if (!pt) return;
+      const drag = dragStateRef.current;
+      const updatedPts = drag.originalPoints.map((op) => ({ ...op }));
+
+      if (drag.mode === 'point') {
+        updatedPts[drag.pointIndex] = pt;
+      } else {
+        const dt = pt.time - drag.startPointer.time;
+        const dp = pt.price - drag.startPointer.price;
+        for (let i = 0; i < updatedPts.length; i++) {
+          updatedPts[i] = {
+            time: updatedPts[i].time + dt,
+            price: Math.max(0.000001, updatedPts[i].price + dp),
+          };
+        }
+      }
+      updateDrawing(symbol, drag.drawingId, { points: updatedPts });
+      return;
+    }
+
+    const pt = screenToData(x, y, true);
+    if (!pt) return;
+    setCursorPoint(pt);
+
+    if (activeTool === 'ruler' && draftPoints.length === 1) {
+      setRulerEnd(pt);
+    }
+
+    if (isBrushing) {
+      const last = brushPointsRef.current[brushPointsRef.current.length - 1];
+      if (!last || last.time !== pt.time || Math.abs(last.price - pt.price) > 0) {
+        brushPointsRef.current.push(pt);
+        render();
+      }
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragStateRef.current) {
+      dragStateRef.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      return;
+    }
+
+    if (isBrushing) {
+      setIsBrushing(false);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      if (brushPointsRef.current.length > 2) {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          type: 'brush',
+          points: [...brushPointsRef.current],
+          color: drawingColor,
+          lineWidth: drawingLineWidth,
+          lineStyle: drawingLineStyle,
+          createdAt: Date.now(),
+        });
+      }
+      brushPointsRef.current = [];
+      finishToolUsage();
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = hitTestDrawings(x, y);
+    if (!hit) return;
+    const target = symbolDrawings.find((d) => d.id === hit.id);
+    if (target && target.type === 'text') {
+      e.stopPropagation();
+      setTextDraft({
+        x,
+        y,
+        point: target.points[0],
+        editingId: target.id,
+      });
+      setTextValue(target.text ?? '');
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draftPoints.length > 0) {
+      setDraftPoints([]);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = hitTestDrawings(x, y, true);
+    if (hit) {
+      setSelectedDrawingId(hit.id);
+    }
+    onRequestContextMenu?.(e.clientX, e.clientY, x, y, hit?.id ?? null);
+  };
+
+  const commitTextDraft = () => {
+    if (textDraft && textValue.trim()) {
+      if (textDraft.editingId) {
+        updateDrawing(symbol, textDraft.editingId, { text: textValue.trim() });
+      } else {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          type: 'text',
+          points: [textDraft.point],
+          color: drawingColor,
+          lineWidth: 1,
+          text: textValue.trim(),
+          createdAt: Date.now(),
+        });
+      }
+    }
+    setTextDraft(null);
+    setTextValue('');
+    finishToolUsage();
+  };
+
+  const isCanvasInteractive =
+    activeTool !== 'cursor' || hoverInteractive || Boolean(dragStateRef.current);
+
+  return (
+    <>
+      <canvas
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
+        style={{ width, height }}
+        className={`absolute inset-0 z-10 ${
+          activeTool !== 'cursor'
+            ? 'pointer-events-auto cursor-crosshair'
+            : isCanvasInteractive
+            ? 'pointer-events-auto cursor-grab active:cursor-grabbing'
+            : 'pointer-events-none'
+        }`}
+      />
+
+      {textDraft && (
+        <div
+          style={{
+            left: Math.min(textDraft.x, Math.max(12, width - 220)),
+            top: Math.min(textDraft.y, Math.max(12, height - 48)),
+          }}
+          className="absolute z-30 flex items-center gap-1.5 rounded-lg border border-blue-500/60 bg-[#1E222D] p-1.5 shadow-xl"
+        >
+          <input
+            autoFocus
+            value={textValue}
+            onChange={(e) => setTextValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTextDraft();
+              if (e.key === 'Escape') {
+                setTextDraft(null);
+                finishToolUsage();
+              }
+            }}
+            placeholder="Annotation text..."
+            className="w-40 bg-transparent px-1.5 py-0.5 text-xs text-white outline-none placeholder:text-slate-500"
+          />
+          <button
+            onClick={commitTextDraft}
+            className="rounded bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-blue-500"
+          >
+            Save
+          </button>
+        </div>
+      )}
+    </>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/SubPaneChart.tsx ===>>>
+import React, { useEffect, useMemo, useRef } from 'react';
+import {
+  ColorType,
+  CrosshairMode,
+  IChartApi,
+  ISeriesApi,
+  LineStyle,
+  LogicalRange,
+  UTCTimestamp,
+  createChart,
+} from 'lightweight-charts';
+import { Eye, EyeOff, X } from 'lucide-react';
+import { computeATR, computeMACD, computeRSI, computeStochastic } from '@/services/indicators';
+import { Candle, IndicatorConfig } from '@/types/trading';
+
+interface SubPaneChartProps {
+  indicator: IndicatorConfig;
+  candles: Candle[];
+  theme: 'dark' | 'light';
+  bgColorDark: string;
+  mainChart: IChartApi | null;
+  onToggleVisibility: () => void;
+  onRemove: () => void;
+}
+
+export const SubPaneChart: React.FC<SubPaneChartProps> = ({
+  indicator,
+  candles,
+  theme,
+  bgColorDark,
+  mainChart,
+  onToggleVisibility,
+  onRemove,
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const syncingRef = useRef(false);
+
+  const computed = useMemo(() => {
+    if (!indicator.visible || candles.length === 0) return null;
+    if (indicator.type === 'RSI') {
+      return { kind: 'RSI' as const, data: computeRSI(candles, indicator.params.period ?? 14) };
+    }
+    if (indicator.type === 'MACD') {
+      return {
+        kind: 'MACD' as const,
+        data: computeMACD(
+          candles,
+          indicator.params.fast ?? 12,
+          indicator.params.slow ?? 26,
+          indicator.params.signal ?? 9
+        ),
+      };
+    }
+    if (indicator.type === 'STOCH') {
+      return {
+        kind: 'STOCH' as const,
+        data: computeStochastic(
+          candles,
+          indicator.params.kPeriod ?? 14,
+          indicator.params.dPeriod ?? 3,
+          indicator.params.smooth ?? 3
+        ),
+      };
+    }
+    if (indicator.type === 'ATR') {
+      return { kind: 'ATR' as const, data: computeATR(candles, indicator.params.period ?? 14) };
+    }
+    return null;
+  }, [indicator, candles]);
+
+  const latestReadout = useMemo(() => {
+    if (!computed || !indicator.visible) return 'Hidden';
+    if (computed.kind === 'RSI') {
+      const last = computed.data[computed.data.length - 1];
+      return last ? last.value.toFixed(2) : '—';
+    }
+    if (computed.kind === 'ATR') {
+      const last = computed.data[computed.data.length - 1];
+      return last ? last.value.toFixed(4) : '—';
+    }
+    if (computed.kind === 'MACD') {
+      const m = computed.data.macd[computed.data.macd.length - 1];
+      const s = computed.data.signal[computed.data.signal.length - 1];
+      return m && s ? `${m.value.toFixed(2)} / ${s.value.toFixed(2)}` : '—';
+    }
+    if (computed.kind === 'STOCH') {
+      const k = computed.data.k[computed.data.k.length - 1];
+      const d = computed.data.d[computed.data.d.length - 1];
+      return k && d ? `%K ${k.value.toFixed(1)}  %D ${d.value.toFixed(1)}` : '—';
+    }
+    return '—';
+  }, [computed, indicator.visible]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const isDark = theme === 'dark';
+    const chart = createChart(el, {
+      width: el.clientWidth,
+      height: el.clientHeight,
+      layout: {
+        background: { type: ColorType.Solid, color: isDark ? bgColorDark : '#FFFFFF' },
+        textColor: isDark ? '#787B86' : '#475569',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
+        horzLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: {
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      timeScale: {
+        visible: false,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+      },
+    });
+
+    chartRef.current = chart;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) chart.applyOptions({ width, height });
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRefs.current = [];
+    };
+  }, [theme, bgColorDark]);
+
+  useEffect(() => {
+    const sub = chartRef.current;
+    if (!sub || !mainChart) return;
+
+    const onMainRange = (range: LogicalRange | null) => {
+      if (!range || syncingRef.current) return;
+      syncingRef.current = true;
+      sub.timeScale().setVisibleLogicalRange(range);
+      syncingRef.current = false;
+    };
+
+    const onSubRange = (range: LogicalRange | null) => {
+      if (!range || syncingRef.current) return;
+      syncingRef.current = true;
+      mainChart.timeScale().setVisibleLogicalRange(range);
+      syncingRef.current = false;
+    };
+
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(onMainRange);
+    sub.timeScale().subscribeVisibleLogicalRangeChange(onSubRange);
+
+    const currRange = mainChart.timeScale().getVisibleLogicalRange();
+    if (currRange) sub.timeScale().setVisibleLogicalRange(currRange);
+
+    return () => {
+      mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(onMainRange);
+      sub.timeScale().unsubscribeVisibleLogicalRangeChange(onSubRange);
+    };
+  }, [mainChart]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    for (const s of seriesRefs.current) {
+      try {
+        chart.removeSeries(s);
+      } catch {
+        // ignore
+      }
+    }
+    seriesRefs.current = [];
+
+    if (!computed || !indicator.visible) return;
+
+    if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+      const line = chart.addLineSeries({
+        color: indicator.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      line.setData(
+        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      if (computed.kind === 'RSI') {
+        line.createPriceLine({
+          price: 70,
+          color: 'rgba(242,54,69,0.5)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '',
+        });
+        line.createPriceLine({
+          price: 30,
+          color: 'rgba(8,153,129,0.5)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '',
+        });
+      }
+      seriesRefs.current.push(line);
+    } else if (computed.kind === 'MACD') {
+      const hist = chart.addHistogramSeries({
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      hist.setData(
+        computed.data.histogram.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+          color: p.color,
+        }))
+      );
+      const macdLine = chart.addLineSeries({
+        color: indicator.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+      });
+      macdLine.setData(
+        computed.data.macd.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      const sigLine = chart.addLineSeries({
+        color: indicator.secondaryColor ?? '#F97316',
+        lineWidth: 1,
+        priceLineVisible: false,
+      });
+      sigLine.setData(
+        computed.data.signal.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      seriesRefs.current.push(hist, macdLine, sigLine);
+    } else if (computed.kind === 'STOCH') {
+      const kLine = chart.addLineSeries({
+        color: indicator.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+      });
+      kLine.setData(computed.data.k.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      kLine.createPriceLine({
+        price: 80,
+        color: 'rgba(242,54,69,0.4)',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: '',
+      });
+      kLine.createPriceLine({
+        price: 20,
+        color: 'rgba(8,153,129,0.4)',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: '',
+      });
+      const dLine = chart.addLineSeries({
+        color: indicator.secondaryColor ?? '#F23645',
+        lineWidth: 1,
+        priceLineVisible: false,
+      });
+      dLine.setData(computed.data.d.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      seriesRefs.current.push(kLine, dLine);
+    }
+
+    if (mainChart) {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (r) chart.timeScale().setVisibleLogicalRange(r);
+    }
+  }, [computed, indicator, mainChart]);
+
+  const paramSummary = Object.values(indicator.params).join(', ');
+
+  return (
+    <div className="relative h-[106px] w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]">
+      <div className="pointer-events-auto absolute left-3 top-1.5 z-10 flex items-center gap-2 text-[11px]">
+        <span className="font-semibold text-slate-700 dark:text-[#D1D4DC]">
+          {indicator.name}
+          {paramSummary ? ` (${paramSummary})` : ''}
+        </span>
+        <span className="font-mono text-[11px] tabular-nums" style={{ color: indicator.color }}>
+          {latestReadout}
+        </span>
+        <button
+          onClick={onToggleVisibility}
+          title={indicator.visible ? 'Hide' : 'Show'}
+          className="text-slate-400 hover:text-white"
+        >
+          {indicator.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+        </button>
+        <button
+          onClick={onRemove}
+          title="Remove Indicator"
+          className="text-slate-400 hover:text-rose-400"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/components/chart/ChartPane.tsx ===>>>
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ColorType,
+  CrosshairMode,
+  IChartApi,
+  IPriceLine,
+  ISeriesApi,
+  LineStyle,
+  PriceScaleMode,
+  Time,
+  UTCTimestamp,
+  createChart,
+} from 'lightweight-charts';
+import {
+  Bell,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  ChevronUp,
+  Eye,
+  EyeOff,
+  Minus,
+  Plus,
+  RotateCcw,
+  Scissors,
+  Settings2,
+  TrendingDown,
+  TrendingUp,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
+import { getSymbolInfo, TIMEFRAME_MAP } from '@/data/symbols';
+import { cn, formatCompactNumber, formatPrice, generateId } from '@/lib/utils';
+import {
+  computeBollingerBands,
+  computeDonchian,
+  computeEMA,
+  computeHeikinAshi,
+  computeSMA,
+  computeSupertrend,
+  computeVWAP,
+} from '@/services/indicators';
+import { fetchHistoricalCandles, subscribeLiveTicks } from '@/services/marketData';
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, ChartContextMenuData, ChartPaneConfig, TimeframeId } from '@/types/trading';
+import { ChartContextMenu } from './ChartContextMenu';
+import { DrawingOverlay } from './DrawingOverlay';
+import { FloatingDrawingToolbar } from './FloatingDrawingToolbar';
+import { SubPaneChart } from './SubPaneChart';
+
+interface ChartPaneProps {
+  pane: ChartPaneConfig;
+  isActive: boolean;
+  isMultiPane: boolean;
+}
+
+type MainSeriesApi = ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'>;
+
+const RANGE_PRESETS: { label: string; tf: TimeframeId; bars: number }[] = [
+  { label: '1D', tf: '5m', bars: 120 },
+  { label: '5D', tf: '15m', bars: 220 },
+  { label: '1M', tf: '1h', bars: 240 },
+  { label: '3M', tf: '4h', bars: 260 },
+  { label: '1Y', tf: '1D', bars: 365 },
+  { label: 'ALL', tf: '1W', bars: 260 },
+];
+
+function formatCountdown(secondsLeft: number): string {
+  const s = Math.max(0, Math.floor(secondsLeft));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (hrs > 0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  return `${pad(mins)}:${pad(secs)}`;
+}
+
+export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPane }) => {
+  const theme = useTradingStore((s) => s.theme);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+  const updateChartSettings = useTradingStore((s) => s.updateChartSettings);
+  const setChartSettingsModalOpen = useTradingStore((s) => s.setChartSettingsModalOpen);
+
+  const setActivePaneId = useTradingStore((s) => s.setActivePaneId);
+  const updatePaneTimeframe = useTradingStore((s) => s.updatePaneTimeframe);
+  const updatePaneScaleMode = useTradingStore((s) => s.updatePaneScaleMode);
+  const toggleIndicatorVisibility = useTradingStore((s) => s.toggleIndicatorVisibility);
+  const removeIndicator = useTradingStore((s) => s.removeIndicator);
+  const updateQuote = useTradingStore((s) => s.updateQuote);
+  const processPaper = useTradingStore((s) => s.processMarketPriceForPaperTrading);
+
+  const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
+  const placeLimitOrder = useTradingStore((s) => s.placeLimitOrder);
+  const addAlert = useTradingStore((s) => s.addAlert);
+  const addDrawing = useTradingStore((s) => s.addDrawing);
+  const drawingColor = useTradingStore((s) => s.drawingColor);
+
+  const syncCrosshair = useTradingStore((s) => s.syncCrosshair);
+  const syncedCrosshairTime = useTradingStore((s) => s.syncedCrosshairTime);
+  const setSyncedCrosshairTime = useTradingStore((s) => s.setSyncedCrosshairTime);
+
+  const replay = useTradingStore((s) => s.replay);
+  const startReplayAt = useTradingStore((s) => s.startReplayAt);
+  const setReplayTotalBars = useTradingStore((s) => s.setReplayTotalBars);
+  const setReplayIndex = useTradingStore((s) => s.setReplayIndex);
+
+  const alerts = useTradingStore((s) => s.alerts);
+  const positions = useTradingStore((s) => s.positions);
+  const snapshotCounter = useTradingStore((s) => s.snapshotRequestCounter);
+  const addToast = useTradingStore((s) => s.addToast);
+
+  const symbolInfo = useMemo(() => getSymbolInfo(pane.symbol), [pane.symbol]);
+  const tfMeta = TIMEFRAME_MAP[pane.timeframe];
+
+  const mainContainerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const mainSeriesRef = useRef<MainSeriesApi | null>(null);
+  const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>[]>>(new Map());
+  const priceLinesRef = useRef<IPriceLine[]>([]);
+  const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hitTestDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
+  const isExternalCrosshairRef = useRef(false);
+
+  const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
+  const [fullCandles, setFullCandles] = useState<Candle[]>([]);
+  const [dataSource, setDataSource] = useState<'binance' | 'simulated'>('simulated');
+  const [loading, setLoading] = useState(true);
+  const [hoveredBar, setHoveredBar] = useState<Candle | null>(null);
+
+  // Interactive Chart UX states
+  const [legendExpanded, setLegendExpanded] = useState(true);
+  const [contextMenu, setContextMenu] = useState<ChartContextMenuData | null>(null);
+  const [hoverChart, setHoverChart] = useState(false);
+  const [priceAxisHover, setPriceAxisHover] = useState<{ y: number; price: number } | null>(null);
+  const [plusMenuOpen, setPlusMenuOpen] = useState<{ y: number; price: number } | null>(null);
+  const [scrolledAway, setScrolledAway] = useState(false);
+  const [quickQty, setQuickQty] = useState(() =>
+    symbolInfo.category === 'Crypto' ? '0.10' : symbolInfo.category === 'IDX' ? '1000' : '10'
+  );
+  const [countdownText, setCountdownText] = useState('00:00');
+  const [clockText, setClockText] = useState('');
+  const [lastPriceY, setLastPriceY] = useState<number | null>(null);
+
+  const isThisPaneInReplay = replay.enabled && replay.paneId === pane.id;
+
+  useEffect(() => {
+    setQuickQty(
+      symbolInfo.category === 'Crypto' ? '0.10' : symbolInfo.category === 'IDX' ? '1000' : '10'
+    );
+  }, [symbolInfo.category, pane.symbol]);
+
+  const displayCandles = useMemo(() => {
+    if (isThisPaneInReplay && !replay.isSelectingStart && fullCandles.length > 0) {
+      const end = Math.min(fullCandles.length, Math.max(5, replay.currentIndex + 1));
+      return fullCandles.slice(0, end);
+    }
+    return fullCandles;
+  }, [fullCandles, isThisPaneInReplay, replay.isSelectingStart, replay.currentIndex]);
+
+  // Live Candle Close Countdown & Bottom Clock
+  useEffect(() => {
+    const tickClock = () => {
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
+      const nextClose = (Math.floor(nowSec / tfMeta.seconds) + 1) * tfMeta.seconds;
+      setCountdownText(formatCountdown(nextClose - nowSec));
+
+      const d = new Date(nowMs);
+      if (chartSettings.timezone === 'UTC') {
+        setClockText(`${d.toISOString().slice(11, 19)} (UTC)`);
+      } else {
+        const offsetMin = -d.getTimezoneOffset();
+        const sign = offsetMin >= 0 ? '+' : '-';
+        const hrs = Math.floor(Math.abs(offsetMin) / 60);
+        setClockText(`${d.toTimeString().slice(0, 8)} (UTC${sign}${hrs})`);
+      }
+    };
+    tickClock();
+    const id = window.setInterval(tickClock, 1000);
+    return () => window.clearInterval(id);
+  }, [tfMeta.seconds, chartSettings.timezone]);
+
+  // Update countdown badge Y position
+  const refreshLastPriceY = useCallback(() => {
+    if (!mainSeriesRef.current || displayCandles.length === 0) {
+      setLastPriceY(null);
+      return;
+    }
+    const last = displayCandles[displayCandles.length - 1];
+    const coord = mainSeriesRef.current.priceToCoordinate(last.close);
+    setLastPriceY(coord !== null ? Number(coord) : null);
+  }, [displayCandles]);
+
+  // 1. Initialize main lightweight-charts instance
+  useEffect(() => {
+    const el = mainContainerRef.current;
+    if (!el) return;
+
+    const isDark = theme === 'dark';
+    const bgDark = chartSettings.bgColorDark || '#131722';
+    const bgLight = chartSettings.bgColorLight || '#FFFFFF';
+
+    const chart = createChart(el, {
+      width: el.clientWidth,
+      height: el.clientHeight,
+      layout: {
+        background:
+          chartSettings.bgType === 'gradient'
+            ? {
+                type: ColorType.VerticalGradient,
+                topColor: isDark ? bgDark : bgLight,
+                bottomColor: isDark ? '#0B0E14' : '#F0F3FA',
+              }
+            : { type: ColorType.Solid, color: isDark ? bgDark : bgLight },
+        textColor: isDark ? '#787B86' : '#475569',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: {
+          visible:
+            chartSettings.showGrid &&
+            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'vert'),
+          color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)',
+        },
+        horzLines: {
+          visible:
+            chartSettings.showGrid &&
+            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'horz'),
+          color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)',
+        },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          style:
+            chartSettings.crosshairStyle === 'solid'
+              ? LineStyle.Solid
+              : chartSettings.crosshairStyle === 'dotted'
+              ? LineStyle.Dotted
+              : LineStyle.Dashed,
+          color: isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.45)',
+          labelBackgroundColor: '#2962FF',
+        },
+        horzLine: {
+          style:
+            chartSettings.crosshairStyle === 'solid'
+              ? LineStyle.Solid
+              : chartSettings.crosshairStyle === 'dotted'
+              ? LineStyle.Dotted
+              : LineStyle.Dashed,
+          color: isDark ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.45)',
+          labelBackgroundColor: '#2962FF',
+        },
+      },
+      rightPriceScale: {
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.12, bottom: 0.16 },
+        invertScale: chartSettings.invertScale,
+      },
+      timeScale: {
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        timeVisible: true,
+        secondsVisible: tfMeta.seconds < 60,
+        rightOffset: 10,
+        barSpacing: 8,
+      },
+      handleScroll: { vertTouchDrag: true },
+      handleScale: { axisPressedMouseMove: true },
+    });
+
+    chartRef.current = chart;
+    setChartSize({ width: el.clientWidth, height: el.clientHeight });
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          chart.applyOptions({ width, height });
+          setChartSize({ width, height });
+        }
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      mainSeriesRef.current = null;
+      overlaySeriesRef.current.clear();
+      priceLinesRef.current = [];
+    };
+  }, [theme]);
+
+  // Apply appearance & scale updates live without recreating chart
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const isDark = theme === 'dark';
+    const bgDark = chartSettings.bgColorDark || '#131722';
+    const bgLight = chartSettings.bgColorLight || '#FFFFFF';
+
+    chart.applyOptions({
+      layout: {
+        background:
+          chartSettings.bgType === 'gradient'
+            ? {
+                type: ColorType.VerticalGradient,
+                topColor: isDark ? bgDark : bgLight,
+                bottomColor: isDark ? '#0B0E14' : '#F0F3FA',
+              }
+            : { type: ColorType.Solid, color: isDark ? bgDark : bgLight },
+      },
+      grid: {
+        vertLines: {
+          visible:
+            chartSettings.showGrid &&
+            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'vert'),
+        },
+        horzLines: {
+          visible:
+            chartSettings.showGrid &&
+            (chartSettings.gridStyle === 'both' || chartSettings.gridStyle === 'horz'),
+        },
+      },
+      crosshair: {
+        vertLine: {
+          style:
+            chartSettings.crosshairStyle === 'solid'
+              ? LineStyle.Solid
+              : chartSettings.crosshairStyle === 'dotted'
+              ? LineStyle.Dotted
+              : LineStyle.Dashed,
+        },
+        horzLine: {
+          style:
+            chartSettings.crosshairStyle === 'solid'
+              ? LineStyle.Solid
+              : chartSettings.crosshairStyle === 'dotted'
+              ? LineStyle.Dotted
+              : LineStyle.Dashed,
+        },
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: tfMeta.seconds < 60,
+      },
+      rightPriceScale: {
+        invertScale: chartSettings.invertScale,
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+    });
+  }, [theme, chartSettings, tfMeta.seconds, pane.scaleMode]);
+
+  // 2. Fetch historical candles
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setHoveredBar(null);
+
+    fetchHistoricalCandles(pane.symbol, pane.timeframe).then(({ candles, source }) => {
+      if (cancelled) return;
+      setFullCandles(candles);
+      setDataSource(source);
+      setLoading(false);
+
+      if (candles.length > 0) {
+        const last = candles[candles.length - 1];
+        updateQuote(pane.symbol, last.close, source, last.volume);
+      }
+
+      if (
+        useTradingStore.getState().replay.enabled &&
+        useTradingStore.getState().replay.paneId === pane.id
+      ) {
+        setReplayTotalBars(candles.length);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pane.symbol, pane.timeframe, pane.id, updateQuote, setReplayTotalBars]);
+
+  useEffect(() => {
+    if (isThisPaneInReplay && fullCandles.length > 0) {
+      setReplayTotalBars(fullCandles.length);
+    }
+  }, [isThisPaneInReplay, fullCandles.length, setReplayTotalBars]);
+
+  // 3. Subscribe to Live Ticks
+  useEffect(() => {
+    if (loading || fullCandles.length === 0 || isThisPaneInReplay) return;
+    const lastCandle = fullCandles[fullCandles.length - 1];
+
+    const unsubscribe = subscribeLiveTicks(
+      pane.symbol,
+      pane.timeframe,
+      lastCandle,
+      (tickCandle, source) => {
+        setDataSource(source);
+        setFullCandles((prev) => {
+          if (prev.length === 0) return [tickCandle];
+          const tail = prev[prev.length - 1];
+          if (tickCandle.time === tail.time) {
+            const copy = prev.slice();
+            copy[copy.length - 1] = tickCandle;
+            return copy;
+          }
+          if (tickCandle.time > tail.time) {
+            return [...prev.slice(-799), tickCandle];
+          }
+          return prev;
+        });
+
+        updateQuote(pane.symbol, tickCandle.close, source, tickCandle.volume);
+        processPaper(pane.symbol, tickCandle.high, tickCandle.low, tickCandle.close);
+      }
+    );
+
+    return unsubscribe;
+  }, [pane.symbol, pane.timeframe, loading, isThisPaneInReplay, fullCandles.length > 0]);
+
+  useEffect(() => {
+    if (!isThisPaneInReplay || replay.isSelectingStart || displayCandles.length === 0) return;
+    const cur = displayCandles[displayCandles.length - 1];
+    updateQuote(pane.symbol, cur.close, 'simulated', cur.volume);
+    processPaper(pane.symbol, cur.high, cur.low, cur.close);
+    if (replay.currentTimestamp !== cur.time) {
+      setReplayIndex(replay.currentIndex, cur.time);
+    }
+  }, [isThisPaneInReplay, replay.isSelectingStart, displayCandles, pane.symbol]);
+
+  // 4. Create / recreate Main Price Series
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (mainSeriesRef.current) {
+      try {
+        chart.removeSeries(mainSeriesRef.current);
+      } catch {
+        // ignore
+      }
+      mainSeriesRef.current = null;
+      priceLinesRef.current = [];
+    }
+
+    const priceFormat = {
+      type: 'price' as const,
+      precision: symbolInfo.precision,
+      minMove: symbolInfo.minMove,
+    };
+
+    let s: MainSeriesApi;
+    if (pane.chartStyle === 'hollow') {
+      s = chart.addCandlestickSeries({
+        upColor: 'transparent',
+        downColor: chartSettings.downColor,
+        borderUpColor: chartSettings.upColor,
+        borderDownColor: chartSettings.downColor,
+        wickUpColor: chartSettings.wickUpColor,
+        wickDownColor: chartSettings.wickDownColor,
+        priceFormat,
+      });
+    } else if (pane.chartStyle === 'bars') {
+      s = chart.addBarSeries({
+        upColor: chartSettings.upColor,
+        downColor: chartSettings.downColor,
+        priceFormat,
+      });
+    } else if (pane.chartStyle === 'line') {
+      s = chart.addLineSeries({
+        color: '#2962FF',
+        lineWidth: 2,
+        priceFormat,
+      });
+    } else if (pane.chartStyle === 'area') {
+      s = chart.addAreaSeries({
+        lineColor: '#2962FF',
+        topColor: 'rgba(41, 98, 255, 0.34)',
+        bottomColor: 'rgba(41, 98, 255, 0.02)',
+        lineWidth: 2,
+        priceFormat,
+      });
+    } else {
+      s = chart.addCandlestickSeries({
+        upColor: chartSettings.upColor,
+        downColor: chartSettings.downColor,
+        borderVisible: false,
+        wickUpColor: chartSettings.wickUpColor,
+        wickDownColor: chartSettings.wickDownColor,
+        priceFormat,
+      });
+    }
+
+    mainSeriesRef.current = s;
+  }, [
+    pane.chartStyle,
+    symbolInfo.precision,
+    symbolInfo.minMove,
+    theme,
+    chartSettings.upColor,
+    chartSettings.downColor,
+    chartSettings.wickUpColor,
+    chartSettings.wickDownColor,
+  ]);
+
+  // 5. Feed price data & overlay indicators
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = mainSeriesRef.current;
+    if (!chart || !series || displayCandles.length === 0) return;
+
+    const effectiveCandles =
+      pane.chartStyle === 'heikin_ashi' ? computeHeikinAshi(displayCandles) : displayCandles;
+
+    if (pane.chartStyle === 'line' || pane.chartStyle === 'area') {
+      (series as ISeriesApi<'Line' | 'Area'>).setData(
+        effectiveCandles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }))
+      );
+    } else {
+      (series as ISeriesApi<'Candlestick' | 'Bar'>).setData(
+        effectiveCandles.map((c) => ({
+          time: c.time as UTCTimestamp,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        }))
+      );
+    }
+
+    refreshLastPriceY();
+
+    for (const list of overlaySeriesRef.current.values()) {
+      for (const s of list) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    overlaySeriesRef.current.clear();
+
+    const overlays = pane.indicators.filter((i) => i.placement === 'overlay' && i.visible);
+    for (const ind of overlays) {
+      const created: ISeriesApi<'Line' | 'Histogram'>[] = [];
+
+      if (ind.type === 'VOLUME') {
+        const volSeries = chart.addHistogramSeries({
+          priceFormat: { type: 'volume' },
+          priceScaleId: '',
+          lastValueVisible: false,
+          priceLineVisible: false,
+        });
+        volSeries.priceScale().applyOptions({
+          scaleMargins: { top: 0.84, bottom: 0 },
+        });
+        volSeries.setData(
+          displayCandles.map((c) => ({
+            time: c.time as UTCTimestamp,
+            value: c.volume,
+            color:
+              c.close >= c.open ? 'rgba(8, 153, 129, 0.34)' : 'rgba(242, 54, 69, 0.34)',
+          }))
+        );
+        created.push(volSeries);
+      } else if (ind.type === 'SMA') {
+        const pts = computeSMA(displayCandles, ind.params.period ?? 50);
+        const l = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        created.push(l);
+      } else if (ind.type === 'EMA') {
+        const pts = computeEMA(displayCandles, ind.params.period ?? 21);
+        const l = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        created.push(l);
+      } else if (ind.type === 'VWAP') {
+        const pts = computeVWAP(displayCandles);
+        const l = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        created.push(l);
+      } else if (ind.type === 'BB') {
+        const bb = computeBollingerBands(
+          displayCandles,
+          ind.params.period ?? 20,
+          ind.params.stdDev ?? 2
+        );
+        const up = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        const mid = chart.addLineSeries({
+          color: ind.secondaryColor ?? '#64748B',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        const low = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        up.setData(bb.upper.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        mid.setData(bb.middle.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        low.setData(bb.lower.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        created.push(up, mid, low);
+      } else if (ind.type === 'DONCHIAN') {
+        const dc = computeDonchian(displayCandles, ind.params.period ?? 20);
+        const up = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        const low = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        up.setData(dc.upper.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        low.setData(dc.lower.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+        created.push(up, low);
+      } else if (ind.type === 'SUPERTREND') {
+        const st = computeSupertrend(
+          displayCandles,
+          ind.params.period ?? 10,
+          ind.params.multiplier ?? 3,
+          ind.color,
+          ind.secondaryColor ?? '#F23645'
+        );
+        const l = chart.addLineSeries({
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        l.setData(
+          st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color }))
+        );
+        created.push(l);
+      }
+
+      overlaySeriesRef.current.set(ind.id, created);
+    }
+  }, [displayCandles, pane.chartStyle, pane.indicators, theme, refreshLastPriceY]);
+
+  // 6. Plot active Price Alerts & Paper Trading Entry / SL / TP Price Lines
+  useEffect(() => {
+    const series = mainSeriesRef.current;
+    if (!series) return;
+
+    for (const pl of priceLinesRef.current) {
+      try {
+        series.removePriceLine(pl);
+      } catch {
+        // ignore
+      }
+    }
+    priceLinesRef.current = [];
+
+    const symAlerts = alerts.filter((a) => a.active && a.symbol === pane.symbol);
+    for (const a of symAlerts) {
+      priceLinesRef.current.push(
+        series.createPriceLine({
+          price: a.price,
+          color: '#F59E0B',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'Alert',
+        })
+      );
+    }
+
+    const symPositions = positions.filter((p) => p.symbol === pane.symbol);
+    for (const pos of symPositions) {
+      priceLinesRef.current.push(
+        series.createPriceLine({
+          price: pos.entryPrice,
+          color: pos.side === 'buy' ? '#00D4AA' : '#F23645',
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `${pos.side === 'buy' ? 'LONG' : 'SHORT'} ${pos.quantity}`,
+        })
+      );
+      if (pos.stopLoss) {
+        priceLinesRef.current.push(
+          series.createPriceLine({
+            price: pos.stopLoss,
+            color: '#F23645',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: 'SL',
+          })
+        );
+      }
+      if (pos.takeProfit) {
+        priceLinesRef.current.push(
+          series.createPriceLine({
+            price: pos.takeProfit,
+            color: '#089981',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: 'TP',
+          })
+        );
+      }
+    }
+  }, [alerts, positions, pane.symbol, pane.chartStyle]);
+
+  // 7. Crosshair, Scroll-Away Detection & Replay Bar Click
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const candleByTime = new Map<number, Candle>();
+    for (const c of displayCandles) candleByTime.set(c.time, c);
+
+    const onCrosshair = (param: { time?: Time }) => {
+      if (param.time !== undefined) {
+        const t = Number(param.time);
+        const found = candleByTime.get(t);
+        if (found) setHoveredBar(found);
+        if (syncCrosshair && !isExternalCrosshairRef.current) {
+          setSyncedCrosshairTime(t);
+        }
+      } else {
+        setHoveredBar(null);
+      }
+    };
+
+    const onRange = () => {
+      refreshLastPriceY();
+      const pos = chart.timeScale().scrollPosition();
+      setScrolledAway(pos < -6);
+    };
+
+    const onClick = (param: { time?: Time }) => {
+      setActivePaneId(pane.id);
+      setPlusMenuOpen(null);
+      if (isThisPaneInReplay && replay.isSelectingStart && param.time !== undefined) {
+        const clickedTime = Number(param.time);
+        const idx = fullCandles.findIndex((c) => c.time >= clickedTime);
+        if (idx >= 0) {
+          startReplayAt(pane.id, idx, fullCandles.length, fullCandles[idx].time);
+        }
+      }
+    };
+
+    chart.subscribeCrosshairMove(onCrosshair);
+    chart.subscribeClick(onClick);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+
+    return () => {
+      chart.unsubscribeCrosshairMove(onCrosshair);
+      chart.unsubscribeClick(onClick);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+    };
+  }, [
+    displayCandles,
+    fullCandles,
+    syncCrosshair,
+    isThisPaneInReplay,
+    replay.isSelectingStart,
+    pane.id,
+    setActivePaneId,
+    setSyncedCrosshairTime,
+    startReplayAt,
+    refreshLastPriceY,
+  ]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = mainSeriesRef.current;
+    if (!chart || !series || !syncCrosshair || isActive || syncedCrosshairTime === null) return;
+
+    const bar = displayCandles.find((c) => c.time === syncedCrosshairTime);
+    if (!bar) return;
+
+    isExternalCrosshairRef.current = true;
+    try {
+      chart.setCrosshairPosition(bar.close, bar.time as UTCTimestamp, series);
+      setHoveredBar(bar);
+    } catch {
+      // ignore
+    }
+    isExternalCrosshairRef.current = false;
+  }, [syncedCrosshairTime, syncCrosshair, isActive, displayCandles]);
+
+  // 8. Export High-Res Chart Snapshot
+  const prevSnapshotRef = useRef(snapshotCounter);
+  useEffect(() => {
+    if (snapshotCounter === prevSnapshotRef.current) return;
+    prevSnapshotRef.current = snapshotCounter;
+    if (!isActive || !chartRef.current) return;
+
+    try {
+      const chartCanvas = chartRef.current.takeScreenshot();
+      const out = document.createElement('canvas');
+      out.width = chartCanvas.width;
+      out.height = chartCanvas.height;
+      const ctx = out.getContext('2d');
+      if (!ctx) return;
+
+      ctx.drawImage(chartCanvas, 0, 0);
+      if (drawingCanvasRef.current) {
+        ctx.drawImage(drawingCanvasRef.current, 0, 0, out.width, out.height);
+      }
+
+      ctx.font = '600 13px Inter, sans-serif';
+      ctx.fillStyle = theme === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(15,23,42,0.45)';
+      ctx.fillText(
+        `ApexChart Pro  •  ${symbolInfo.displaySymbol}  •  ${pane.timeframe}`,
+        18,
+        out.height - 16
+      );
+
+      const url = out.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${pane.symbol}_${pane.timeframe}_${Date.now()}.png`;
+      a.click();
+
+      addToast({
+        title: 'Chart Snapshot Saved',
+        description: `${symbolInfo.displaySymbol} (${pane.timeframe}) downloaded as PNG.`,
+        variant: 'success',
+      });
+    } catch {
+      addToast({ title: 'Snapshot Failed', variant: 'danger' });
+    }
+  }, [
+    snapshotCounter,
+    isActive,
+    pane.symbol,
+    pane.timeframe,
+    symbolInfo.displaySymbol,
+    theme,
+    addToast,
+  ]);
+
+  // --- Interactive Chart Navigation & Context Actions ---
+
+  const handleResetView = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale('right').applyOptions({ autoScale: true });
+    chart.timeScale().applyOptions({ barSpacing: 8, rightOffset: 10 });
+    chart.timeScale().scrollToRealTime();
+    setScrolledAway(false);
+  }, []);
+
+  const handleFitContent = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale('right').applyOptions({ autoScale: true });
+    chart.timeScale().fitContent();
+  }, []);
+
+  const handleZoom = useCallback((factor: number) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (!range) return;
+    const span = range.to - range.from;
+    const nextSpan = Math.max(12, Math.min(600, span * factor));
+    const delta = nextSpan - span;
+    chart.timeScale().setVisibleLogicalRange({
+      from: range.from - delta * 0.7,
+      to: range.to + delta * 0.3,
+    });
+  }, []);
+
+  const handlePan = useCallback((barsShift: number) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (!range) return;
+    chart.timeScale().setVisibleLogicalRange({
+      from: range.from + barsShift,
+      to: range.to + barsShift,
+    });
+  }, []);
+
+  const openContextMenuAt = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      localX: number,
+      localY: number,
+      drawingId: string | null
+    ) => {
+      const chart = chartRef.current;
+      const series = mainSeriesRef.current;
+      if (!chart || !series) return;
+
+      const price = series.coordinateToPrice(localY);
+      const logical = chart.timeScale().coordinateToLogical(localX);
+      const lastPrice = displayCandles[displayCandles.length - 1]?.close ?? symbolInfo.basePrice;
+      const resolvedPrice = price !== null ? Number(price) : lastPrice;
+
+      let barIndex: number | null = null;
+      let time: number | null = null;
+      if (logical !== null && fullCandles.length > 0) {
+        const idx = Math.max(0, Math.min(fullCandles.length - 1, Math.round(Number(logical))));
+        barIndex = idx;
+        time = fullCandles[idx].time;
+      }
+
+      const detectedDrawing = drawingId ?? hitTestDrawingRef.current?.(localX, localY) ?? null;
+
+      setContextMenu({
+        x: clientX,
+        y: clientY,
+        price: resolvedPrice,
+        time,
+        barIndex,
+        drawingId: detectedDrawing,
+      });
+    },
+    [displayCandles, fullCandles, symbolInfo.basePrice]
+  );
+
+  const handleContainerContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const rect = mainContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    openContextMenuAt(e.clientX, e.clientY, localX, localY, null);
+  };
+
+  const handleContainerDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = mainContainerRef.current?.getBoundingClientRect();
+    if (!rect || !chartRef.current) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Double-click right price axis -> reset autoScale
+    if (x >= chartSize.width - 74) {
+      chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+      addToast({ title: 'Price Scale Auto-Fitted', variant: 'info' });
+      return;
+    }
+
+    // Double-click bottom time axis -> fit all bars
+    if (y >= chartSize.height - 28) {
+      handleResetView();
+      return;
+    }
+
+    // Double-click empty chart area -> open Chart Appearance Settings
+    setChartSettingsModalOpen(true);
+  };
+
+  const handleContainerMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = mainContainerRef.current?.getBoundingClientRect();
+    if (!rect || !mainSeriesRef.current) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (x >= 0 && x <= chartSize.width - 68 && y >= 8 && y <= chartSize.height - 32) {
+      const p = mainSeriesRef.current.coordinateToPrice(y);
+      if (p !== null) {
+        setPriceAxisHover({ y, price: Number(p) });
+        return;
+      }
+    }
+    setPriceAxisHover(null);
+  };
+
+  const handleDrawHLineAtPrice = (price: number) => {
+    const t = displayCandles[displayCandles.length - 1]?.time ?? Math.floor(Date.now() / 1000);
+    addDrawing({
+      id: generateId('drw'),
+      symbol: pane.symbol,
+      type: 'hline',
+      points: [{ time: t, price }],
+      color: drawingColor,
+      lineWidth: 1.5,
+      lineStyle: 'solid',
+      createdAt: Date.now(),
+    });
+  };
+
+  const handleStartReplayHere = (barIndex: number, time: number) => {
+    startReplayAt(pane.id, barIndex, fullCandles.length, time);
+    addToast({
+      title: 'Bar Replay Started',
+      description: `Cut at bar #${barIndex + 1}`,
+      variant: 'warning',
+    });
+  };
+
+  // Alt+R global reset for active pane
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === 'r' && e.shiftKey) {
+        e.preventDefault();
+        handleResetView();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive, handleResetView]);
+
+  const activeBar = hoveredBar ?? displayCandles[displayCandles.length - 1] ?? null;
+  const lastBar = displayCandles[displayCandles.length - 1] ?? null;
+  const barChange = activeBar ? activeBar.close - activeBar.open : 0;
+  const barChangePct = activeBar && activeBar.open > 0 ? (barChange / activeBar.open) * 100 : 0;
+  const isBull = barChange >= 0;
+
+  const spreadStep = symbolInfo.minMove * (symbolInfo.precision >= 4 ? 2 : 3);
+  const bidPrice = lastBar ? Math.max(symbolInfo.minMove, lastBar.close - spreadStep) : symbolInfo.basePrice;
+  const askPrice = lastBar ? lastBar.close + spreadStep : symbolInfo.basePrice;
+
+  const subPaneIndicators = pane.indicators.filter((i) => i.placement === 'subpane');
+  const overlayIndicators = pane.indicators.filter((i) => i.placement === 'overlay');
+
+  return (
+    <div
+      onMouseDown={() => {
+        setActivePaneId(pane.id);
+        setPlusMenuOpen(null);
+      }}
+      className={cn(
+        'relative flex h-full w-full flex-col overflow-hidden bg-white dark:bg-[#131722]',
+        isMultiPane && isActive
+          ? 'ring-1 ring-inset ring-blue-500'
+          : isMultiPane
+          ? 'ring-1 ring-inset ring-slate-200 dark:ring-[#2A2E39]'
+          : ''
+      )}
+    >
+      {/* Main Chart Viewport */}
+      <div
+        className="relative flex-1 min-h-0 w-full"
+        onMouseEnter={() => setHoverChart(true)}
+        onMouseLeave={() => {
+          setHoverChart(false);
+          setPriceAxisHover(null);
+        }}
+        onMouseMove={handleContainerMouseMove}
+        onContextMenu={handleContainerContextMenu}
+        onDoubleClick={handleContainerDoubleClick}
+      >
+        {/* Subtle Background Symbol Watermark */}
+        {chartSettings.showWatermark && (
+          <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center select-none opacity-[0.045] dark:opacity-[0.055]">
+            <div className="text-4xl sm:text-6xl font-black tracking-tight text-slate-900 dark:text-white">
+              {symbolInfo.displaySymbol}
+            </div>
+            <div className="mt-1 text-lg sm:text-2xl font-bold tracking-widest uppercase text-slate-900 dark:text-white">
+              {pane.timeframe} • {symbolInfo.exchange}
+            </div>
+          </div>
+        )}
+
+        {/* Clean TradingView-style Top-Left Inline Legend + Quick Trade + Collapsible Indicators */}
+        <div className="pointer-events-none absolute left-3 top-2 z-20 flex max-w-[82%] flex-col gap-1.5">
+          {/* Row 1: Symbol & OHLC Inline */}
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
+              {symbolInfo.displaySymbol}
+            </span>
+            <span className="text-[11px] font-medium text-[#787B86]">· {pane.timeframe} ·</span>
+            <span className="text-[11px] font-medium text-[#787B86]">{symbolInfo.exchange}</span>
+
+            {isThisPaneInReplay ? (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-amber-400 bg-amber-500/15">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                REPLAY
+              </span>
+            ) : dataSource === 'binance' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#089981]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[#089981]" />
+                LIVE
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-400">
+                <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                SIM
+              </span>
+            )}
+
+            {activeBar && (
+              <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] tabular-nums">
+                <span className="text-[#787B86]">
+                  O<span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                    {formatPrice(activeBar.open, symbolInfo.precision)}
+                  </span>
+                </span>
+                <span className="text-[#787B86]">
+                  H<span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                    {formatPrice(activeBar.high, symbolInfo.precision)}
+                  </span>
+                </span>
+                <span className="text-[#787B86]">
+                  L<span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                    {formatPrice(activeBar.low, symbolInfo.precision)}
+                  </span>
+                </span>
+                <span className="text-[#787B86]">
+                  C<span className={cn('ml-0.5', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                    {formatPrice(activeBar.close, symbolInfo.precision)}
+                  </span>
+                </span>
+                <span className={cn('font-semibold', isBull ? 'text-[#089981]' : 'text-[#F23645]')}>
+                  {barChange >= 0 ? '+' : ''}
+                  {formatPrice(barChange, symbolInfo.precision)} ({barChange >= 0 ? '+' : ''}
+                  {barChangePct.toFixed(2)}%)
+                </span>
+                <span className="text-[#787B86]">
+                  Vol <span className="text-slate-700 dark:text-[#D1D4DC]">{formatCompactNumber(activeBar.volume)}</span>
+                </span>
+              </div>
+            )}
+
+            <button
+              onClick={() => setChartSettingsModalOpen(true)}
+              title="Chart Settings"
+              className="rounded p-0.5 text-[#787B86] hover:bg-white/10 hover:text-[#D1D4DC]"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Row 2: One-Click Quick Buy/Sell Spread Buttons (TradingView Style) */}
+          {chartSettings.showQuickTrade && lastBar && (
+            <div className="pointer-events-auto inline-flex w-fit items-center overflow-hidden rounded border border-slate-200/90 bg-white/90 shadow-sm backdrop-blur dark:border-[#2A2E39] dark:bg-[#131722]/90">
+              <button
+                onClick={() => {
+                  const q = Number(quickQty) || 0.1;
+                  placeMarketOrder({
+                    symbol: pane.symbol,
+                    side: 'sell',
+                    quantity: q,
+                    price: bidPrice,
+                  });
+                }}
+                className="flex flex-col items-start px-2.5 py-0.5 text-left transition hover:bg-[#F23645]/15"
+              >
+                <span className="font-mono text-[11px] font-bold leading-tight text-[#F23645] tabular-nums">
+                  {formatPrice(bidPrice, symbolInfo.precision)}
+                </span>
+                <span className="text-[9px] font-semibold tracking-wider text-[#F23645]/80 uppercase">
+                  SELL
+                </span>
+              </button>
+
+              <input
+                value={quickQty}
+                onChange={(e) => setQuickQty(e.target.value)}
+                title="Quick Order Quantity"
+                className="h-full w-14 border-x border-slate-200 bg-transparent px-1 text-center font-mono text-[11px] font-semibold text-slate-900 outline-none dark:border-[#2A2E39] dark:text-[#D1D4DC]"
+              />
+
+              <button
+                onClick={() => {
+                  const q = Number(quickQty) || 0.1;
+                  placeMarketOrder({
+                    symbol: pane.symbol,
+                    side: 'buy',
+                    quantity: q,
+                    price: askPrice,
+                  });
+                }}
+                className="flex flex-col items-end px-2.5 py-0.5 text-right transition hover:bg-[#089981]/15"
+              >
+                <span className="font-mono text-[11px] font-bold leading-tight text-[#089981] tabular-nums">
+                  {formatPrice(askPrice, symbolInfo.precision)}
+                </span>
+                <span className="text-[9px] font-semibold tracking-wider text-[#089981]/80 uppercase">
+                  BUY
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* Row 3: Collapsible Overlay Indicators Stack */}
+          {overlayIndicators.length > 0 && (
+            <div className="pointer-events-auto flex flex-col items-start gap-0.5">
+              <button
+                onClick={() => setLegendExpanded(!legendExpanded)}
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium text-[#787B86] hover:bg-white/5 hover:text-[#D1D4DC]"
+              >
+                {legendExpanded ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+                <span>Indicators ({overlayIndicators.length})</span>
+              </button>
+
+              {legendExpanded &&
+                overlayIndicators.map((ind) => {
+                  const paramStr = Object.values(ind.params).join(', ');
+                  return (
+                    <div
+                      key={ind.id}
+                      className={cn(
+                        'group flex items-center gap-2 rounded px-1.5 py-0.5 text-[11px] transition hover:bg-black/5 dark:hover:bg-white/[0.06]',
+                        !ind.visible && 'opacity-45'
+                      )}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: ind.color }}
+                      />
+                      <span className="font-medium text-slate-700 dark:text-[#D1D4DC]">
+                        {ind.name}
+                        {paramStr ? ` (${paramStr})` : ''}
+                      </span>
+                      <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                        <button
+                          onClick={() => toggleIndicatorVisibility(pane.id, ind.id)}
+                          className="text-[#787B86] hover:text-white"
+                        >
+                          {ind.visible ? (
+                            <Eye className="h-3 w-3" />
+                          ) : (
+                            <EyeOff className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => removeIndicator(pane.id, ind.id)}
+                          className="text-[#787B86] hover:text-rose-400"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+
+        {/* Floating Selected Drawing Properties Toolbar */}
+        {isActive && <FloatingDrawingToolbar symbol={pane.symbol} />}
+
+        {/* Replay Bar Selection Prompt */}
+        {isThisPaneInReplay && replay.isSelectingStart && (
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-20 flex justify-center">
+            <div className="flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/15 px-4 py-1.5 text-xs font-medium text-amber-300 shadow-lg backdrop-blur-md">
+              <Scissors className="h-3.5 w-3.5" />
+              <span>Click any candle on the chart to cut history & start Bar Replay here</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Candle Close Countdown Pill on Right Price Scale Edge */}
+        {chartSettings.showCountdown && lastBar && lastPriceY !== null && !isThisPaneInReplay && (
+          <div
+            style={{
+              top: Math.max(18, Math.min(chartSize.height - 46, lastPriceY + 11)),
+            }}
+            className={cn(
+              'pointer-events-none absolute right-[4px] z-20 rounded px-1.5 py-[1px] font-mono text-[10px] font-bold text-white shadow-sm tabular-nums',
+              lastBar.close >= lastBar.open ? 'bg-[#089981]' : 'bg-[#F23645]'
+            )}
+          >
+            {countdownText}
+          </div>
+        )}
+
+        {/* Floating `+` Button on Right Price Scale Edge (TradingView signature feature!) */}
+        {priceAxisHover && !plusMenuOpen && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setPlusMenuOpen(priceAxisHover);
+            }}
+            style={{
+              top: Math.max(8, Math.min(chartSize.height - 40, priceAxisHover.y - 10)),
+            }}
+            title={`Quick Action @ ${formatPrice(priceAxisHover.price, symbolInfo.precision)}`}
+            className="absolute right-[72px] z-20 flex h-5 w-5 items-center justify-center rounded bg-[#2962FF] text-white shadow-md transition hover:scale-110"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        {/* `+` Price Quick Action Menu */}
+        {plusMenuOpen && (
+          <div
+            style={{
+              top: Math.max(8, Math.min(chartSize.height - 150, plusMenuOpen.y - 16)),
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="absolute right-[76px] z-40 w-52 rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+          >
+            <div className="border-b border-slate-200 px-3 py-1 font-mono text-[10px] font-bold text-blue-400 dark:border-[#2A2E39]">
+              @ {formatPrice(plusMenuOpen.price, symbolInfo.precision)}
+            </div>
+            <button
+              onClick={() => {
+                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const live = lastBar?.close ?? symbolInfo.basePrice;
+                addAlert({
+                  symbol: pane.symbol,
+                  price: px,
+                  condition: px >= live ? 'crossing_up' : 'crossing_down',
+                  note: 'Quick price axis alert',
+                });
+                addToast({
+                  title: `Alert Created @ ${formatPrice(px, symbolInfo.precision)}`,
+                  variant: 'warning',
+                });
+                setPlusMenuOpen(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+            >
+              <Bell className="h-3.5 w-3.5 text-amber-400" />
+              <span>Add Alert</span>
+            </button>
+            <button
+              onClick={() => {
+                handleDrawHLineAtPrice(Number(plusMenuOpen.price.toFixed(symbolInfo.precision)));
+                setPlusMenuOpen(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
+            >
+              <Minus className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Draw Horizontal Line</span>
+            </button>
+            <button
+              onClick={() => {
+                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const qty = symbolInfo.category === 'Crypto' ? 0.25 : symbolInfo.category === 'IDX' ? 1000 : 10;
+                placeLimitOrder({
+                  symbol: pane.symbol,
+                  side: 'buy',
+                  quantity: qty,
+                  limitPrice: px,
+                });
+                setPlusMenuOpen(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-[#089981] hover:bg-[#089981]/10"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>Place Buy Limit</span>
+            </button>
+            <button
+              onClick={() => {
+                const px = Number(plusMenuOpen.price.toFixed(symbolInfo.precision));
+                const qty = symbolInfo.category === 'Crypto' ? 0.25 : symbolInfo.category === 'IDX' ? 1000 : 10;
+                placeLimitOrder({
+                  symbol: pane.symbol,
+                  side: 'sell',
+                  quantity: qty,
+                  limitPrice: px,
+                });
+                setPlusMenuOpen(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-[#F23645] hover:bg-[#F23645]/10"
+            >
+              <TrendingDown className="h-3.5 w-3.5" />
+              <span>Place Sell Limit</span>
+            </button>
+          </div>
+        )}
+
+        {/* Hover Floating Zoom / Pan / Reset Chart Navigation Bar (TradingView Signature) */}
+        <div
+          className={cn(
+            'pointer-events-auto absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 shadow-lg backdrop-blur transition-opacity duration-200 dark:border-[#2A2E39] dark:bg-[#1E222D]/92',
+            hoverChart || scrolledAway ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          )}
+        >
+          <button
+            onClick={() => handleZoom(1.35)}
+            title="Zoom Out"
+            className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => handleZoom(0.74)}
+            title="Zoom In"
+            className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-3.5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+          <button
+            onClick={() => handlePan(-20)}
+            title="Scroll Left"
+            className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => handlePan(20)}
+            title="Scroll Right"
+            className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-3.5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+          <button
+            onClick={handleResetView}
+            title="Reset Chart View (Alt+Shift+R)"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
+          >
+            <RotateCcw className="h-3 w-3" />
+            <span>Reset</span>
+          </button>
+          {scrolledAway && (
+            <button
+              onClick={handleResetView}
+              title="Jump to Latest Candle"
+              className="flex items-center gap-0.5 rounded bg-[#2962FF] px-1.5 py-0.5 text-[10px] font-bold text-white hover:bg-blue-500"
+            >
+              <ChevronsRight className="h-3 w-3" />
+              <span>Latest</span>
+            </button>
+          )}
+        </div>
+
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#131722]/70 backdrop-blur-sm">
+            <div className="flex items-center gap-2.5 rounded-lg border border-[#2A2E39] bg-[#1E222D] px-4 py-2.5 text-xs text-[#D1D4DC] shadow-xl">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#2962FF] border-t-transparent" />
+              <span>
+                Loading {symbolInfo.displaySymbol} ({pane.timeframe})...
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div ref={mainContainerRef} className="h-full w-full" />
+
+        <DrawingOverlay
+          chart={chartRef.current}
+          series={mainSeriesRef.current}
+          candles={displayCandles}
+          symbol={pane.symbol}
+          timeframe={pane.timeframe}
+          precision={symbolInfo.precision}
+          width={chartSize.width}
+          height={chartSize.height}
+          theme={theme}
+          onCanvasReady={(c) => {
+            drawingCanvasRef.current = c;
+          }}
+          onHitTestExpose={(fn) => {
+            hitTestDrawingRef.current = fn;
+          }}
+          onRequestContextMenu={openContextMenuAt}
+        />
+      </div>
+
+      {/* Synchronized Oscillator Sub-Panes */}
+      {subPaneIndicators.map((ind) => (
+        <SubPaneChart
+          key={ind.id}
+          indicator={ind}
+          candles={displayCandles}
+          theme={theme}
+          bgColorDark={chartSettings.bgColorDark || '#131722'}
+          mainChart={chartRef.current}
+          onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
+          onRemove={() => removeIndicator(pane.id, ind.id)}
+        />
+      ))}
+
+      {/* Bottom Chart Range Presets + Live Clock + Scale Quick Toggles (TradingView Bottom Strip) */}
+      <div className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2.5 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]">
+        <div className="flex items-center gap-0.5">
+          {RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              onClick={() => {
+                updatePaneTimeframe(pane.id, preset.tf);
+                window.setTimeout(() => {
+                  chartRef.current?.timeScale().fitContent();
+                }, 250);
+              }}
+              className={cn(
+                'rounded px-1.5 py-0.5 font-medium transition',
+                pane.timeframe === preset.tf
+                  ? 'text-[#2962FF] font-bold bg-[#2962FF]/10'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-[#787B86] dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <button
+            onClick={() =>
+              updateChartSettings({
+                timezone: chartSettings.timezone === 'local' ? 'UTC' : 'local',
+              })
+            }
+            title="Click to switch Local / UTC Time"
+            className="hidden sm:inline text-slate-500 hover:text-slate-900 dark:text-[#787B86] dark:hover:text-[#D1D4DC] tabular-nums"
+          >
+            {clockText}
+          </button>
+
+          <div className="h-3 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+
+          <button
+            onClick={() =>
+              updatePaneScaleMode(
+                pane.id,
+                pane.scaleMode === 'percentage' ? 'normal' : 'percentage'
+              )
+            }
+            className={cn(
+              'rounded px-1 py-0.5 text-[10px] font-semibold transition',
+              pane.scaleMode === 'percentage'
+                ? 'text-[#2962FF]'
+                : 'text-[#787B86] hover:text-[#D1D4DC]'
+            )}
+          >
+            %
+          </button>
+          <button
+            onClick={() =>
+              updatePaneScaleMode(
+                pane.id,
+                pane.scaleMode === 'logarithmic' ? 'normal' : 'logarithmic'
+              )
+            }
+            className={cn(
+              'rounded px-1 py-0.5 text-[10px] font-semibold transition',
+              pane.scaleMode === 'logarithmic'
+                ? 'text-[#2962FF]'
+                : 'text-[#787B86] hover:text-[#D1D4DC]'
+            )}
+          >
+            log
+          </button>
+          <button
+            onClick={handleResetView}
+            className="rounded px-1 py-0.5 text-[10px] font-semibold text-[#2962FF] hover:bg-[#2962FF]/10"
+          >
+            auto
+          </button>
+        </div>
+      </div>
+
+      {/* Right-Click Context Menu */}
+      <ChartContextMenu
+        menu={contextMenu}
+        paneId={pane.id}
+        symbol={pane.symbol}
+        currentStyle={pane.chartStyle}
+        currentScale={pane.scaleMode}
+        onClose={() => setContextMenu(null)}
+        onResetView={handleResetView}
+        onFitContent={handleFitContent}
+        onDrawHLineAtPrice={handleDrawHLineAtPrice}
+        onStartReplayHere={handleStartReplayHere}
+      />
+    </div>
+  );
+};
+<<<=== END FILE ===>>>
