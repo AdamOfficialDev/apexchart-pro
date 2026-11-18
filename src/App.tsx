@@ -4,11 +4,13 @@ import { ToastContainer } from '@/components/common/ToastContainer';
 import { DrawingToolbar } from '@/components/layout/DrawingToolbar';
 import { TopToolbar } from '@/components/layout/TopToolbar';
 import { ChartSettingsModal } from '@/components/modals/ChartSettingsModal';
+import { CompareSymbolModal } from '@/components/modals/CompareSymbolModal';
 import { DrawingSettingsModal } from '@/components/modals/DrawingSettingsModal';
 import { IndicatorsModal } from '@/components/modals/IndicatorsModal';
 import { IndicatorSettingsModal } from '@/components/modals/IndicatorSettingsModal';
 import { ShortcutsModal } from '@/components/modals/ShortcutsModal';
 import { SymbolSearchModal } from '@/components/modals/SymbolSearchModal';
+import { TemplatesModal } from '@/components/modals/TemplatesModal';
 import { RightSidebar } from '@/components/panels/RightSidebar';
 import { TradingTerminal } from '@/components/panels/TradingTerminal';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
@@ -39,6 +41,8 @@ export const App: React.FC = () => {
 
       {/* Modals & Notifications */}
       <SymbolSearchModal />
+      <CompareSymbolModal />
+      <TemplatesModal />
       <IndicatorsModal />
       <IndicatorSettingsModal />
       <DrawingSettingsModal />

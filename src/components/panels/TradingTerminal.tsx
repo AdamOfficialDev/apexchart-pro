@@ -1,18 +1,73 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, RotateCcw, Terminal, X } from 'lucide-react';
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
+  Play,
+  RotateCcw,
+  Terminal,
+  X,
+} from 'lucide-react';
 import { getSymbolInfo } from '@/data/symbols';
-import { cn, formatPrice } from '@/lib/utils';
+import { cn, formatPrice, formatTimestamp } from '@/lib/utils';
+import { runBacktest } from '@/services/backtester';
+import { fetchHistoricalCandles } from '@/services/marketData';
 import { BottomPanelTab, useTradingStore } from '@/store/useTradingStore';
+import { BacktestResult, BacktestStrategyId } from '@/types/trading';
+
+const STRATEGIES: { id: BacktestStrategyId; label: string }[] = [
+  { id: 'rsi_divergence', label: 'RSI Divergence Pro' },
+  { id: 'ema_cross', label: 'EMA Cross (9/21)' },
+  { id: 'supertrend', label: 'Supertrend (10,3)' },
+  { id: 'rsi_reversion', label: 'RSI Reversion' },
+  { id: 'bb_breakout', label: 'BB Breakout' },
+];
+
+const EquityCurveChart: React.FC<{ values: number[]; positive: boolean }> = ({
+  values,
+  positive,
+}) => {
+  if (values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const w = 240;
+  const h = 48;
+  const pts = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - 4 - ((v - min) / span) * (h - 8);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg width={w} height={h} className="overflow-visible rounded bg-slate-100/60 dark:bg-[#0C0F17]/70 p-1">
+      <polyline
+        fill="none"
+        stroke={positive ? '#089981' : '#F23645'}
+        strokeWidth="1.8"
+        points={pts}
+      />
+    </svg>
+  );
+};
 
 export const TradingTerminal: React.FC = () => {
   const open = useTradingStore((s) => s.bottomPanelOpen);
   const setOpen = useTradingStore((s) => s.setBottomPanelOpen);
   const tab = useTradingStore((s) => s.bottomPanelTab);
   const setTab = useTradingStore((s) => s.setBottomPanelTab);
+  const bottomHeight = useTradingStore((s) => s.panelSizes.bottomHeight);
+  const updatePanelSizes = useTradingStore((s) => s.updatePanelSizes);
 
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
   const quotes = useTradingStore((s) => s.quotes);
+  const dataFeed = useTradingStore((s) => s.dataFeed);
+  const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
 
   const paperBalance = useTradingStore((s) => s.paperBalance);
   const positions = useTradingStore((s) => s.positions);
@@ -25,6 +80,9 @@ export const TradingTerminal: React.FC = () => {
   const closePosition = useTradingStore((s) => s.closePosition);
   const resetPaperAccount = useTradingStore((s) => s.resetPaperAccount);
 
+  const showBacktestOnChart = useTradingStore((s) => s.showBacktestOnChart);
+  const setBacktestOverlay = useTradingStore((s) => s.setBacktestOverlay);
+
   const activePane = panes.find((p) => p.id === activePaneId) ?? panes[0];
   const info = useMemo(() => getSymbolInfo(activePane.symbol), [activePane.symbol]);
   const markPrice = quotes[activePane.symbol]?.price ?? info.basePrice;
@@ -35,6 +93,12 @@ export const TradingTerminal: React.FC = () => {
   const [limitInput, setLimitInput] = useState(String(markPrice));
   const [slInput, setSlInput] = useState('');
   const [tpInput, setTpInput] = useState('');
+
+  // Backtester State
+  const [strategyId, setStrategyId] = useState<BacktestStrategyId>('rsi_divergence');
+  const [btCapital, setBtCapital] = useState('10000');
+  const [btResult, setBtResult] = useState<BacktestResult | null>(null);
+  const [btLoading, setBtLoading] = useState(false);
 
   useEffect(() => {
     setLimitInput(String(markPrice));
@@ -103,8 +167,49 @@ export const TradingTerminal: React.FC = () => {
     setQtyInput(qty >= 10 ? qty.toFixed(1) : qty.toFixed(4));
   };
 
+  const handleRunBacktest = async (selectedStrat = strategyId) => {
+    setBtLoading(true);
+    try {
+      const { candles } = await fetchHistoricalCandles(
+        activePane.symbol,
+        activePane.timeframe,
+        dataFeed
+      );
+      const cap = Math.max(100, Number(btCapital) || 10000);
+      const res = runBacktest(candles, selectedStrat, cap, rsiDivConfig);
+      setBtResult(res);
+      setBacktestOverlay(res.trades, true);
+    } finally {
+      setBtLoading(false);
+    }
+  };
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = bottomHeight;
+    const onMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY;
+      updatePanelSizes({ bottomHeight: Math.max(170, Math.min(480, startH + delta)) });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
     <div className="relative z-30 shrink-0 border-t border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]">
+      {open && (
+        <div
+          onMouseDown={startResize}
+          title="Drag to resize terminal height"
+          className="absolute inset-x-0 -top-[2px] z-40 h-[5px] cursor-ns-resize hover:bg-[#2962FF]/60"
+        />
+      )}
+
       <div className="flex h-8 items-center justify-between px-3">
         <div className="flex items-center gap-4">
           <button
@@ -112,11 +217,27 @@ export const TradingTerminal: React.FC = () => {
             className="flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-[#2962FF] dark:text-[#D1D4DC]"
           >
             <Terminal className="h-3.5 w-3.5 text-[#2962FF]" />
-            <span>Trading Panel</span>
+            <span>Trading & Strategy Tester</span>
             {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
           </button>
 
-          <div className="hidden sm:flex items-center gap-4 font-mono text-[11px] tabular-nums">
+          <button
+            onClick={() => {
+              setTab('backtest');
+              setOpen(true);
+            }}
+            className={cn(
+              'hidden sm:inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold transition',
+              open && tab === 'backtest'
+                ? 'bg-[#00D4AA]/20 text-[#00D4AA]'
+                : 'text-[#787B86] hover:text-[#00D4AA]'
+            )}
+          >
+            <BarChart3 className="h-3 w-3" />
+            <span>Backtester</span>
+          </button>
+
+          <div className="hidden md:flex items-center gap-4 font-mono text-[11px] tabular-nums">
             <span className="text-[#787B86]">
               Balance:{' '}
               <span className="font-semibold text-slate-800 dark:text-[#D1D4DC]">
@@ -168,7 +289,11 @@ export const TradingTerminal: React.FC = () => {
       </div>
 
       {open && (
-        <div className="grid h-64 grid-cols-1 border-t border-slate-200 dark:border-[#2A2E39] md:grid-cols-12">
+        <div
+          style={{ height: bottomHeight }}
+          className="grid grid-cols-1 border-t border-slate-200 dark:border-[#2A2E39] md:grid-cols-12"
+        >
+          {/* Left: Order Ticket */}
           <form
             onSubmit={submitOrder}
             className="flex flex-col justify-between border-b border-slate-200 p-3 dark:border-[#2A2E39] md:col-span-4 md:border-b-0 md:border-r overflow-y-auto"
@@ -306,14 +431,16 @@ export const TradingTerminal: React.FC = () => {
             </button>
           </form>
 
+          {/* Right: Positions / Orders / History / Strategy Backtester */}
           <div className="flex flex-col md:col-span-8 min-h-0">
             <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 dark:border-[#2A2E39]">
               <div className="flex items-center gap-1">
                 {(
                   [
                     { id: 'positions', label: `Positions (${positions.length})` },
-                    { id: 'orders', label: `Pending Orders (${pendingOrders.length})` },
+                    { id: 'orders', label: `Orders (${pendingOrders.length})` },
                     { id: 'history', label: `History (${closedTrades.length})` },
+                    { id: 'backtest', label: 'Strategy Backtester' },
                   ] as { id: BottomPanelTab; label: string }[]
                 ).map((t) => (
                   <button
@@ -322,7 +449,9 @@ export const TradingTerminal: React.FC = () => {
                     className={cn(
                       'rounded px-2.5 py-1 text-xs font-semibold transition',
                       tab === t.id || (tab === 'trade' && t.id === 'positions')
-                        ? 'bg-[#2962FF]/15 text-[#2962FF]'
+                        ? t.id === 'backtest'
+                          ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
+                          : 'bg-[#2962FF]/15 text-[#2962FF]'
                         : 'text-[#787B86] hover:text-slate-900 dark:hover:text-[#D1D4DC]'
                     )}
                   >
@@ -331,14 +460,16 @@ export const TradingTerminal: React.FC = () => {
                 ))}
               </div>
 
-              <button
-                onClick={resetPaperAccount}
-                title="Reset Virtual Balance to $100,000"
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[#787B86] hover:bg-[#1E222D] hover:text-[#D1D4DC]"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Reset $100k
-              </button>
+              {tab !== 'backtest' && (
+                <button
+                  onClick={resetPaperAccount}
+                  title="Reset Virtual Balance to $100,000"
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[#787B86] hover:bg-[#1E222D] hover:text-[#D1D4DC]"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset $100k
+                </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-auto">
@@ -360,7 +491,7 @@ export const TradingTerminal: React.FC = () => {
                     {positions.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-3 py-8 text-center font-sans text-[#787B86]">
-                          No open positions. Draw a Long/Short R:R box & right-click "Execute Trade" or use 1-Click buttons!
+                          No open positions. Drag SL/TP lines directly on chart once opened!
                         </td>
                       </tr>
                     ) : (
@@ -522,6 +653,179 @@ export const TradingTerminal: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+              )}
+
+              {tab === 'backtest' && (
+                <div className="p-3 space-y-3">
+                  {/* Strategy Controls Row */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1">
+                      {STRATEGIES.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setStrategyId(s.id);
+                            handleRunBacktest(s.id);
+                          }}
+                          className={cn(
+                            'rounded px-2.5 py-1 text-[11px] font-semibold transition',
+                            strategyId === s.id
+                              ? 'bg-[#00D4AA] text-slate-950'
+                              : 'bg-slate-100 text-slate-600 dark:bg-[#1E222D] dark:text-[#D1D4DC]'
+                          )}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={btCapital}
+                        onChange={(e) => setBtCapital(e.target.value)}
+                        title="Initial Capital ($)"
+                        className="w-24 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs outline-none dark:border-[#2A2E39] dark:bg-[#1E222D]"
+                      />
+                      <button
+                        onClick={() => handleRunBacktest(strategyId)}
+                        disabled={btLoading}
+                        className="inline-flex items-center gap-1 rounded bg-[#2962FF] px-3 py-1 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                      >
+                        <Play className="h-3 w-3" />
+                        {btLoading ? 'Running...' : `Test ${info.displaySymbol} (${activePane.timeframe})`}
+                      </button>
+                      {btResult && (
+                        <button
+                          onClick={() =>
+                            setBacktestOverlay(btResult.trades, !showBacktestOnChart)
+                          }
+                          title="Toggle Trade Entry/Exit Markers on Chart"
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold',
+                            showBacktestOnChart
+                              ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
+                              : 'bg-[#1E222D] text-[#787B86]'
+                          )}
+                        >
+                          {showBacktestOnChart ? (
+                            <Eye className="h-3.5 w-3.5" />
+                          ) : (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          )}
+                          On Chart
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {!btResult ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-xs text-[#787B86] dark:border-[#2A2E39]">
+                      Select any strategy above (including <strong>RSI Divergence Pro</strong>) and
+                      click <strong>Test</strong> to backtest on {info.displaySymbol}{' '}
+                      ({activePane.timeframe}) instantly.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Metrics Summary + Equity Curve */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 dark:border-[#2A2E39] dark:bg-[#1E222D]/60">
+                        <div className="grid grid-cols-5 gap-4 font-mono text-xs">
+                          <div>
+                            <div className="text-[10px] text-[#787B86]">Net Profit</div>
+                            <div
+                              className={cn(
+                                'font-bold',
+                                btResult.netProfitUsd >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                              )}
+                            >
+                              {btResult.netProfitUsd >= 0 ? '+' : ''}$
+                              {btResult.netProfitUsd.toFixed(2)} ({btResult.netProfitPct.toFixed(1)}%)
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#787B86]">Win Rate</div>
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {btResult.winRatePct.toFixed(1)}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#787B86]">Profit Factor</div>
+                            <div className="font-bold text-[#00D4AA]">
+                              {btResult.profitFactor.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#787B86]">Max Drawdown</div>
+                            <div className="font-bold text-[#F23645]">
+                              -{btResult.maxDrawdownPct.toFixed(2)}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#787B86]">Total Trades</div>
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {btResult.totalTrades}
+                            </div>
+                          </div>
+                        </div>
+
+                        <EquityCurveChart
+                          values={btResult.equityCurve}
+                          positive={btResult.netProfitUsd >= 0}
+                        />
+                      </div>
+
+                      {/* Simulated Trades Table */}
+                      {btResult.trades.length > 0 && (
+                        <div className="max-h-28 overflow-y-auto rounded border border-slate-200 dark:border-[#2A2E39]">
+                          <table className="w-full text-left font-mono text-[11px]">
+                            <thead className="sticky top-0 bg-slate-50 text-[10px] text-[#787B86] dark:bg-[#0C0F17]">
+                              <tr>
+                                <th className="px-2.5 py-1">Side</th>
+                                <th className="px-2.5 py-1">Entry Time</th>
+                                <th className="px-2.5 py-1">Entry</th>
+                                <th className="px-2.5 py-1">Exit</th>
+                                <th className="px-2.5 py-1">Reason</th>
+                                <th className="px-2.5 py-1 text-right">PnL</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-[#2A2E39]/40">
+                              {[...btResult.trades].reverse().map((tr) => (
+                                <tr key={tr.id}>
+                                  <td
+                                    className={cn(
+                                      'px-2.5 py-1 font-bold uppercase',
+                                      tr.side === 'buy' ? 'text-[#089981]' : 'text-[#F23645]'
+                                    )}
+                                  >
+                                    {tr.side}
+                                  </td>
+                                  <td className="px-2.5 py-1 text-[#787B86]">
+                                    {formatTimestamp(tr.entryTime, false)}
+                                  </td>
+                                  <td className="px-2.5 py-1">
+                                    {formatPrice(tr.entryPrice, info.precision)}
+                                  </td>
+                                  <td className="px-2.5 py-1">
+                                    {formatPrice(tr.exitPrice, info.precision)}
+                                  </td>
+                                  <td className="px-2.5 py-1 text-[#787B86]">{tr.reason}</td>
+                                  <td
+                                    className={cn(
+                                      'px-2.5 py-1 text-right font-bold',
+                                      tr.pnlUsd >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                                    )}
+                                  >
+                                    {tr.pnlUsd >= 0 ? '+' : ''}${tr.pnlUsd.toFixed(2)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>

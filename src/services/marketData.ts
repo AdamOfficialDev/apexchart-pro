@@ -61,6 +61,41 @@ async function fetchLiveFxSpotAnchor(info: SymbolInfo): Promise<number | null> {
   }
 }
 
+export async function fetchBinanceWatchlistTickers(
+  binanceSymbols: string[]
+): Promise<Record<string, { price: number; changePercent: number }>> {
+  if (binanceSymbols.length === 0) return {};
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 3500);
+  try {
+    const encoded = encodeURIComponent(JSON.stringify(binanceSymbols));
+    const res = await fetch(`${BINANCE_REST_BASE}/ticker/24hr?symbols=${encoded}`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) return {};
+    const list = (await res.json()) as Array<{
+      symbol: string;
+      lastPrice: string;
+      priceChangePercent: string;
+    }>;
+    const out: Record<string, { price: number; changePercent: number }> = {};
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        const p = Number(item.lastPrice);
+        const pct = Number(item.priceChangePercent);
+        if (Number.isFinite(p) && p > 0) {
+          out[item.symbol] = { price: p, changePercent: Number.isFinite(pct) ? pct : 0 };
+        }
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export function generateSyntheticCandles(
   symbolInfo: SymbolInfo,
   timeframe: TimeframeId,
@@ -255,12 +290,12 @@ export async function fetchHistoricalCandles(
   symbol: string,
   timeframe: TimeframeId,
   feedConfig?: DataFeedConfig
-): Promise<{ candles: Candle[]; source: FeedSourceType }> {
+): Promise<{ candles: Candle[]; source: FeedSourceType; warning?: string }> {
   const info = getSymbolInfo(symbol);
   const tfMeta = TIMEFRAME_MAP[timeframe];
   const tdKey = feedConfig?.twelveDataApiKey?.trim() || '';
+  let tdWarning: string | undefined;
 
-  // 1. Twelve Data Path (Native XAU/USD, Forex, US Stocks, IDX, or Crypto if preferred)
   const shouldTryTwelveData =
     Boolean(tdKey) &&
     Boolean(info.twelveDataSymbol) &&
@@ -277,7 +312,6 @@ export async function fetchHistoricalCandles(
       );
       if (raw.length > 0) {
         if (tfMeta.seconds < 60) {
-          // Smooth sub-minute bars anchored to latest real Twelve Data quote
           const lastBar = raw[raw.length - 1];
           const synth = generateSyntheticCandles(
             info,
@@ -294,12 +328,11 @@ export async function fetchHistoricalCandles(
         }
         return { candles: raw, source: 'twelvedata' };
       }
-    } catch {
-      // Fallback gracefully below
+    } catch (err) {
+      tdWarning = (err as Error).message;
     }
   }
 
-  // 2. Binance Public Vision Path (Crypto + XAUUSD 24/7 Spot Gold Proxy PAXGUSDT)
   const allowBinance =
     Boolean(info.binanceSymbol) &&
     (info.symbol !== 'XAUUSD' || feedConfig?.useGoldProxyWhenNoKey !== false);
@@ -313,7 +346,7 @@ export async function fetchHistoricalCandles(
           tfMeta.binanceInterval,
           Math.min(1000, tfMeta.defaultBars)
         );
-        return { candles, source: resolvedSource };
+        return { candles, source: resolvedSource, warning: tdWarning };
       }
 
       if (tfMeta.seconds < 60) {
@@ -334,9 +367,10 @@ export async function fetchHistoricalCandles(
             return {
               candles: Array.from(dedup.values()).sort((a, b) => a.time - b.time),
               source: resolvedSource,
+              warning: tdWarning,
             };
           }
-          return { candles: aggregated, source: resolvedSource };
+          return { candles: aggregated, source: resolvedSource, warning: tdWarning };
         }
       }
 
@@ -344,15 +378,14 @@ export async function fetchHistoricalCandles(
         const raw15m = await fetchBinanceKlines(info.binanceSymbol, '15m', 1000);
         const aggregated = aggregateCandles(raw15m, tfMeta.seconds);
         if (aggregated.length > 0) {
-          return { candles: aggregated, source: resolvedSource };
+          return { candles: aggregated, source: resolvedSource, warning: tdWarning };
         }
       }
     } catch {
-      // Fall through to anchored simulated history
+      // Fall through
     }
   }
 
-  // 3. Anchored FX Spot Rate or Deterministic Synthetic History
   const fxAnchor = await fetchLiveFxSpotAnchor(info);
   return {
     candles: generateSyntheticCandles(
@@ -363,6 +396,7 @@ export async function fetchHistoricalCandles(
       fxAnchor ?? info.basePrice
     ),
     source: 'simulated',
+    warning: tdWarning,
   };
 }
 

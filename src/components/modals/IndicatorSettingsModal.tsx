@@ -21,6 +21,9 @@ export const IndicatorSettingsModal: React.FC = () => {
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
   const updateIndicator = useTradingStore((s) => s.updateIndicator);
+  const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
+  const updateRsiDivConfig = useTradingStore((s) => s.updateRsiDivConfig);
+  const resetRsiDivConfig = useTradingStore((s) => s.resetRsiDivConfig);
 
   const [tab, setTab] = useState<'inputs' | 'style' | 'visibility'>('inputs');
 
@@ -47,8 +50,10 @@ export const IndicatorSettingsModal: React.FC = () => {
     indicator.type === 'EMA' ||
     indicator.type === 'BB' ||
     indicator.type === 'RSI' ||
+    indicator.type === 'RSI_DIV' ||
     indicator.type === 'MACD';
-  const supportsBands = indicator.type === 'RSI' || indicator.type === 'STOCH';
+  const supportsBands =
+    indicator.type === 'RSI' || indicator.type === 'RSI_DIV' || indicator.type === 'STOCH';
 
   return (
     <div
@@ -57,7 +62,7 @@ export const IndicatorSettingsModal: React.FC = () => {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[520px] w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        className="flex max-h-[540px] w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 dark:border-[#2A2E39]">
           <div className="flex items-center gap-2">
@@ -74,7 +79,6 @@ export const IndicatorSettingsModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-slate-200 px-3 dark:border-[#2A2E39] dark:bg-[#131722]/40">
           {(
             [
@@ -99,7 +103,6 @@ export const IndicatorSettingsModal: React.FC = () => {
           ))}
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 text-xs space-y-3.5">
           {tab === 'inputs' && (
             <>
@@ -151,6 +154,78 @@ export const IndicatorSettingsModal: React.FC = () => {
                         {s.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {indicator.type === 'RSI_DIV' && (
+                <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#2A2E39]">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[#00D4AA]">
+                    RSI Divergence Pro Rules
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Regular Divergence (Trendline / Body Break)</span>
+                    <input
+                      type="checkbox"
+                      checked={rsiDivConfig.enableRegular}
+                      onChange={(e) => updateRsiDivConfig({ enableRegular: e.target.checked })}
+                      className="accent-[#00D4AA]"
+                    />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Exaggerated Divergence (Double Top/Bottom Break)</span>
+                    <input
+                      type="checkbox"
+                      checked={rsiDivConfig.enableExaggerated}
+                      onChange={(e) =>
+                        updateRsiDivConfig({ enableExaggerated: e.target.checked })
+                      }
+                      className="accent-[#F59E0B]"
+                    />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Hidden Divergence (Prev H/L Fib Golden Ratio)</span>
+                    <input
+                      type="checkbox"
+                      checked={rsiDivConfig.enableHidden}
+                      onChange={(e) => updateRsiDivConfig({ enableHidden: e.target.checked })}
+                      className="accent-[#A855F7]"
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[#787B86]">
+                        Double Top Tol (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        min={0.05}
+                        max={2}
+                        value={rsiDivConfig.doubleTopTolerancePct}
+                        onChange={(e) =>
+                          updateRsiDivConfig({
+                            doubleTopTolerancePct: Number(e.target.value) || 0.35,
+                          })
+                        }
+                        className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono dark:border-[#2A2E39] dark:bg-[#131722]"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[#787B86]">
+                        Pivot Lookback (L/R)
+                      </label>
+                      <input
+                        type="number"
+                        min={2}
+                        max={12}
+                        value={rsiDivConfig.pivotLeft}
+                        onChange={(e) =>
+                          updateRsiDivConfig({ pivotLeft: Math.max(2, Number(e.target.value) || 4) })
+                        }
+                        className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono dark:border-[#2A2E39] dark:bg-[#131722]"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -268,7 +343,9 @@ export const IndicatorSettingsModal: React.FC = () => {
               {supportsBands && (
                 <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#2A2E39]">
                   <label className="flex cursor-pointer items-center justify-between">
-                    <span className="font-semibold text-[#00D4AA]">Show Overbought/Oversold Bands</span>
+                    <span className="font-semibold text-[#00D4AA]">
+                      Show Overbought/Oversold Bands
+                    </span>
                     <input
                       type="checkbox"
                       checked={indicator.showBands !== false}
@@ -285,7 +362,7 @@ export const IndicatorSettingsModal: React.FC = () => {
                       <label className="mb-0.5 block text-[10px] text-[#787B86]">Upper Band</label>
                       <input
                         type="number"
-                        value={indicator.upperLevel ?? (indicator.type === 'RSI' ? 70 : 80)}
+                        value={indicator.upperLevel ?? (indicator.type === 'STOCH' ? 80 : 70)}
                         onChange={(e) =>
                           updateIndicator(targetPane.id, indicator!.id, {
                             upperLevel: Number(e.target.value),
@@ -298,7 +375,7 @@ export const IndicatorSettingsModal: React.FC = () => {
                       <label className="mb-0.5 block text-[10px] text-[#787B86]">Lower Band</label>
                       <input
                         type="number"
-                        value={indicator.lowerLevel ?? (indicator.type === 'RSI' ? 30 : 20)}
+                        value={indicator.lowerLevel ?? (indicator.type === 'STOCH' ? 20 : 30)}
                         onChange={(e) =>
                           updateIndicator(targetPane.id, indicator!.id, {
                             lowerLevel: Number(e.target.value),
@@ -315,9 +392,7 @@ export const IndicatorSettingsModal: React.FC = () => {
 
           {tab === 'visibility' && (
             <div className="space-y-2.5">
-              <div className="text-[11px] text-[#787B86]">
-                Show indicator on timeframe groups:
-              </div>
+              <div className="text-[11px] text-[#787B86]">Show indicator on timeframe groups:</div>
               {(
                 [
                   { key: 'seconds', label: 'Seconds (1s – 30s)' },
@@ -344,10 +419,10 @@ export const IndicatorSettingsModal: React.FC = () => {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 dark:border-[#2A2E39]">
           <button
             onClick={() => {
+              if (indicator!.type === 'RSI_DIV') resetRsiDivConfig();
               if (!meta) return;
               updateIndicator(targetPane.id, indicator!.id, {
                 params: { ...meta.defaultParams },

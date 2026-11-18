@@ -12,15 +12,44 @@ export const RightSidebar: React.FC = () => {
   const rightTab = useTradingStore((s) => s.rightSidebarTab);
   const setRightTab = useTradingStore((s) => s.setRightSidebarTab);
   const activeAlertsCount = useTradingStore((s) => s.alerts.filter((a) => a.active).length);
+  const rightWidth = useTradingStore((s) => s.panelSizes.rightWidth);
+  const updatePanelSizes = useTradingStore((s) => s.updatePanelSizes);
 
   const toggle = (tab: Exclude<RightSidebarTab, null>) => {
     setRightTab(rightTab === tab ? null : tab);
   };
 
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rightWidth;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX;
+      const next = Math.max(220, Math.min(460, startW + delta));
+      updatePanelSizes({ rightWidth: next });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
-    <div className="flex h-full shrink-0">
+    <div className="relative flex h-full shrink-0">
       {rightTab !== null && (
-        <div className="h-full w-72 overflow-hidden border-l border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]">
+        <div
+          style={{ width: rightWidth }}
+          className="relative h-full overflow-hidden border-l border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]"
+        >
+          {/* Horizontal Resize Splitter */}
+          <div
+            onMouseDown={startResize}
+            title="Drag to resize sidebar"
+            className="absolute inset-y-0 left-0 z-30 w-[5px] cursor-ew-resize hover:bg-[#2962FF]/60"
+          />
           {rightTab === 'watchlist' && <WatchlistPanel />}
           {rightTab === 'orderbook' && <OrderBookPanel />}
           {rightTab === 'alerts' && <AlertsPanel />}

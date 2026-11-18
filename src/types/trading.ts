@@ -42,7 +42,7 @@ export interface SymbolInfo {
   volatility: number;
   binanceSymbol?: string;
   twelveDataSymbol?: string;
-  fxPair?: [string, string]; // e.g. ['EUR', 'USD'] for live FX rate anchor
+  fxPair?: [string, string];
   currency: string;
   description: string;
 }
@@ -96,7 +96,6 @@ export interface TimeframeVisibility {
 }
 
 export interface ChartSettings {
-  // Symbol & Candles
   upColor: string;
   downColor: string;
   wickUpColor: string;
@@ -112,7 +111,6 @@ export interface ChartSettings {
   showCountdown: boolean;
   precisionOverride: 'auto' | number;
 
-  // Status Line / Legend
   showStatusSymbol: boolean;
   showStatusFeedBadge: boolean;
   showStatusOHLC: boolean;
@@ -121,15 +119,13 @@ export interface ChartSettings {
   showIndicatorTitles: boolean;
   showIndicatorArgs: boolean;
 
-  // Scales & Lines
   priceScalePosition: 'right' | 'left';
   invertScale: boolean;
   scaleFontSize: number;
-  scaleMarginTop: number; // percentage 2..35
-  scaleMarginBottom: number; // percentage 2..35
+  scaleMarginTop: number;
+  scaleMarginBottom: number;
   showSymbolAxisLabel: boolean;
 
-  // Canvas & Appearance
   bgType: 'solid' | 'gradient';
   bgColorDark: string;
   bgColorDarkBottom: string;
@@ -144,11 +140,10 @@ export interface ChartSettings {
   crosshairColor: string;
   crosshairWidth: 1 | 2 | 3;
   showWatermark: boolean;
-  watermarkOpacity: number; // 2..20
-  rightOffset: number; // bars
-  barSpacing: number; // px
+  watermarkOpacity: number;
+  rightOffset: number;
+  barSpacing: number;
 
-  // Trading & Timezone
   showQuickTrade: boolean;
   showPositionsOnChart: boolean;
   showOrdersOnChart: boolean;
@@ -164,6 +159,103 @@ export interface SmartOverlaySettings {
   showFVG: boolean;
   showAutoSR: boolean;
   showAutoTrendlines: boolean;
+  showRSIDivergence: boolean;
+  showSessions: boolean;
+  showDailyOpen: boolean;
+}
+
+export interface RSIDivergenceConfig {
+  rsiPeriod: number;
+  pivotLeft: number;
+  pivotRight: number;
+  enableRegular: boolean;
+  enableExaggerated: boolean;
+  enableHidden: boolean;
+  doubleTopTolerancePct: number;
+  goldenRatioMin: number; // e.g. 0.50
+  goldenRatioTarget: number; // e.g. 0.618
+  goldenRatioMax: number; // e.g. 0.65
+}
+
+export type DivergenceKind = 'regular' | 'exaggerated' | 'hidden';
+export type DivergenceDirection = 'bull' | 'bear';
+
+export interface RSIDivergenceSignal {
+  id: string;
+  kind: DivergenceKind;
+  direction: DivergenceDirection;
+  p1Index: number;
+  p1Time: number;
+  p1Price: number;
+  p1Rsi: number;
+  p2Index: number;
+  p2Time: number;
+  p2Price: number;
+  p2Rsi: number;
+  // Trigger Trendline (for Regular & Exaggerated body-break setups)
+  trendline?: {
+    t1: number;
+    p1: number;
+    t2: number;
+    p2: number;
+  };
+  // Fibonacci Golden Ratio Box (for Hidden Divergence setups)
+  fibSetup?: {
+    prevLow: number;
+    prevHigh: number;
+    startTime: number;
+    endTime: number;
+    goldenTop: number;
+    goldenMid: number;
+    goldenBot: number;
+  };
+  valid: boolean; // True once trendline body-break occurred OR Golden Ratio tapped
+  entryTime: number;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+}
+
+export type BacktestStrategyId =
+  | 'rsi_divergence'
+  | 'ema_cross'
+  | 'rsi_reversion'
+  | 'supertrend'
+  | 'bb_breakout';
+
+export interface BacktestTrade {
+  id: string;
+  side: 'buy' | 'sell';
+  entryTime: number;
+  entryPrice: number;
+  exitTime: number;
+  exitPrice: number;
+  pnlUsd: number;
+  pnlPct: number;
+  reason: string;
+}
+
+export interface BacktestResult {
+  strategyId: BacktestStrategyId;
+  strategyName: string;
+  initialCapital: number;
+  finalEquity: number;
+  netProfitUsd: number;
+  netProfitPct: number;
+  winRatePct: number;
+  profitFactor: number;
+  maxDrawdownPct: number;
+  totalTrades: number;
+  equityCurve: number[];
+  trades: BacktestTrade[];
+}
+
+export interface ChartTemplate {
+  id: string;
+  name: string;
+  chartStyle: ChartStyleType;
+  indicators: Omit<IndicatorConfig, 'id'>[];
+  smartOverlays: SmartOverlaySettings;
 }
 
 export type IndicatorType =
@@ -175,6 +267,7 @@ export type IndicatorType =
   | 'DONCHIAN'
   | 'VOLUME'
   | 'RSI'
+  | 'RSI_DIV'
   | 'MACD'
   | 'STOCH'
   | 'ATR';
@@ -278,9 +371,9 @@ export interface DrawingObject {
   type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>;
   points: DrawingPoint[];
   color: string;
-  opacity?: number; // 10..100
+  opacity?: number;
   fillColor?: string;
-  fillOpacity?: number; // 0..80
+  fillOpacity?: number;
   showFill?: boolean;
   lineWidth: number;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
@@ -333,6 +426,7 @@ export interface ChartPaneConfig {
   timeframe: TimeframeId;
   chartStyle: ChartStyleType;
   scaleMode: ScaleMode;
+  compareSymbol?: string | null;
   indicators: IndicatorConfig[];
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { getSymbolInfo } from '@/data/symbols';
+import { getSymbolInfo, SYMBOLS } from '@/data/symbols';
 import { formatPrice, playAlertSound } from '@/lib/utils';
+import { fetchBinanceWatchlistTickers } from '@/services/marketData';
 import { useTradingStore } from '@/store/useTradingStore';
 
 export function useAlertMonitor() {
@@ -11,12 +12,41 @@ export function useAlertMonitor() {
   const layout = useTradingStore((s) => s.layout);
   const prevPricesRef = useRef<Record<string, number>>({});
 
+  // Real-time Binance 24h batch ticker sync for Watchlist + fallback drift for offline/non-Binance
   useEffect(() => {
-    const visiblePaneCount =
-      layout === '1x1' ? 1 : layout === '1x2' || layout === '2x1' ? 2 : layout === '1+2' ? 3 : 4;
-
-    const timer = window.setInterval(() => {
+    const syncWatchlist = async () => {
       const store = useTradingStore.getState();
+      const allSymbols = Array.from(new Set([...store.watchlist, ...SYMBOLS.map((s) => s.symbol)]));
+      const binanceMap = new Map<string, string[]>();
+
+      for (const sym of allSymbols) {
+        const info = getSymbolInfo(sym);
+        if (info.binanceSymbol) {
+          const arr = binanceMap.get(info.binanceSymbol) ?? [];
+          arr.push(sym);
+          binanceMap.set(info.binanceSymbol, arr);
+        }
+      }
+
+      const liveBatch = await fetchBinanceWatchlistTickers(Array.from(binanceMap.keys()));
+
+      for (const [bSym, targetSyms] of binanceMap.entries()) {
+        const item = liveBatch[bSym];
+        if (item) {
+          for (const sym of targetSyms) {
+            store.updateQuote(
+              sym,
+              item.price,
+              sym === 'XAUUSD' ? 'gold-proxy' : 'binance',
+              0,
+              item.changePercent
+            );
+          }
+        }
+      }
+
+      const visiblePaneCount =
+        layout === '1x1' ? 1 : layout === '1x2' || layout === '2x1' ? 2 : layout === '1+2' ? 3 : 4;
       const activeChartSymbols = new Set(
         store.panes.slice(0, visiblePaneCount).map((p) => p.symbol)
       );
@@ -24,13 +54,17 @@ export function useAlertMonitor() {
       for (const sym of store.watchlist) {
         if (activeChartSymbols.has(sym)) continue;
         const info = getSymbolInfo(sym);
+        if (info.binanceSymbol && liveBatch[info.binanceSymbol]) continue;
+
         const curr = store.quotes[sym]?.price ?? info.basePrice;
         const drift = (Math.random() - 0.495) * info.volatility * 0.08 * curr;
         const nextPrice = Math.max(info.minMove, Number((curr + drift).toFixed(info.precision)));
         store.updateQuote(sym, nextPrice, 'simulated', Math.round(Math.random() * 50));
       }
-    }, 1400);
+    };
 
+    syncWatchlist();
+    const timer = window.setInterval(syncWatchlist, 5000);
     return () => window.clearInterval(timer);
   }, [layout, watchlist, panes]);
 

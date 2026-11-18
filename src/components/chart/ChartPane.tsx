@@ -21,6 +21,9 @@ import {
   ChevronUp,
   Eye,
   EyeOff,
+  GitCompare,
+  Maximize2,
+  Minimize2,
   Minus,
   MoveRight,
   Plus,
@@ -131,6 +134,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
   const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
 
+  const maximizedPaneId = useTradingStore((s) => s.maximizedPaneId);
+  const setMaximizedPaneId = useTradingStore((s) => s.setMaximizedPaneId);
+  const setPaneCompareSymbol = useTradingStore((s) => s.setPaneCompareSymbol);
+
   const setActivePaneId = useTradingStore((s) => s.setActivePaneId);
   const updatePaneTimeframe = useTradingStore((s) => s.updatePaneTimeframe);
   const updatePaneScaleMode = useTradingStore((s) => s.updatePaneScaleMode);
@@ -172,14 +179,21 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const mainContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<MainSeriesApi | null>(null);
+  const compareSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>[]>>(new Map());
+  const overlaySignatureRef = useRef<string>('');
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hitTestDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
   const isExternalCrosshairRef = useRef(false);
 
+  // Coalesced tick refs for high-frequency WS performance
+  const pendingTickRef = useRef<{ candle: Candle; source: FeedSourceType } | null>(null);
+  const flushTimerRef = useRef<number | null>(null);
+
   const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
   const [fullCandles, setFullCandles] = useState<Candle[]>([]);
+  const [compareCandles, setCompareCandles] = useState<Candle[]>([]);
   const [dataSource, setDataSource] = useState<FeedSourceType>('simulated');
   const [loading, setLoading] = useState(true);
   const [hoveredBar, setHoveredBar] = useState<Candle | null>(null);
@@ -198,6 +212,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const [lastPriceY, setLastPriceY] = useState<number | null>(null);
 
   const isThisPaneInReplay = replay.enabled && replay.paneId === pane.id;
+  const isMaximized = maximizedPaneId === pane.id;
 
   useEffect(() => {
     setQuickQty(
@@ -236,7 +251,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     setLastPriceY(coord !== null ? Number(coord) : null);
   }, [displayCandles]);
 
-  // 1. Initialize main chart
+  // 1. Initialize Chart
   useEffect(() => {
     const el = mainContainerRef.current;
     if (!el) return;
@@ -295,6 +310,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
 
     chartRef.current = chart;
+    overlaySignatureRef.current = '';
     setChartSize({ width: el.clientWidth, height: el.clientHeight });
 
     const ro = new ResizeObserver((entries) => {
@@ -313,12 +329,14 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       chart.remove();
       chartRef.current = null;
       mainSeriesRef.current = null;
+      compareSeriesRef.current = null;
       overlaySeriesRef.current.clear();
+      overlaySignatureRef.current = '';
       priceLinesRef.current = [];
     };
   }, [theme]);
 
-  // Live apply ALL ChartSettings without destroying chart
+  // Apply ChartSettings updates live
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -431,30 +449,40 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
   }, [theme, chartSettings, tzPreset, tfMeta.seconds, pane.scaleMode]);
 
-  // 2. Fetch Historical Candles (re-runs on symbol, timeframe, or DataFeed config change!)
+  // 2. Fetch Historical Candles + explicit Twelve Data warning toast
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setHoveredBar(null);
 
-    fetchHistoricalCandles(pane.symbol, pane.timeframe, dataFeed).then(({ candles, source }) => {
-      if (cancelled) return;
-      setFullCandles(candles);
-      setDataSource(source);
-      setLoading(false);
+    fetchHistoricalCandles(pane.symbol, pane.timeframe, dataFeed).then(
+      ({ candles, source, warning }) => {
+        if (cancelled) return;
+        setFullCandles(candles);
+        setDataSource(source);
+        setLoading(false);
 
-      if (candles.length > 0) {
-        const last = candles[candles.length - 1];
-        updateQuote(pane.symbol, last.close, source, last.volume);
-      }
+        if (warning && isActive) {
+          addToast({
+            title: `Twelve Data Fallback (${symbolInfo.displaySymbol})`,
+            description: warning,
+            variant: 'warning',
+          });
+        }
 
-      if (
-        useTradingStore.getState().replay.enabled &&
-        useTradingStore.getState().replay.paneId === pane.id
-      ) {
-        setReplayTotalBars(candles.length);
+        if (candles.length > 0) {
+          const last = candles[candles.length - 1];
+          updateQuote(pane.symbol, last.close, source, last.volume);
+        }
+
+        if (
+          useTradingStore.getState().replay.enabled &&
+          useTradingStore.getState().replay.paneId === pane.id
+        ) {
+          setReplayTotalBars(candles.length);
+        }
       }
-    });
+    );
 
     return () => {
       cancelled = true;
@@ -466,9 +494,22 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     dataFeed.twelveDataApiKey,
     dataFeed.preferTwelveData,
     dataFeed.useGoldProxyWhenNoKey,
-    updateQuote,
-    setReplayTotalBars,
   ]);
+
+  // Fetch Compare Symbol Candles when active
+  useEffect(() => {
+    let cancelled = false;
+    if (!pane.compareSymbol) {
+      setCompareCandles([]);
+      return;
+    }
+    fetchHistoricalCandles(pane.compareSymbol, pane.timeframe, dataFeed).then(({ candles }) => {
+      if (!cancelled) setCompareCandles(candles);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pane.compareSymbol, pane.timeframe, dataFeed]);
 
   useEffect(() => {
     if (isThisPaneInReplay && fullCandles.length > 0) {
@@ -476,38 +517,58 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, fullCandles.length, setReplayTotalBars]);
 
-  // 3. Subscribe to Live Ticks
+  // 3. Coalesced Live Tick Stream (batches rapid WebSocket trades at 120ms for 60fps!)
   useEffect(() => {
     if (loading || fullCandles.length === 0 || isThisPaneInReplay) return;
     const lastCandle = fullCandles[fullCandles.length - 1];
+
+    const flushPending = () => {
+      flushTimerRef.current = null;
+      const pending = pendingTickRef.current;
+      if (!pending) return;
+      pendingTickRef.current = null;
+      const { candle: tickCandle, source } = pending;
+
+      setDataSource(source);
+      setFullCandles((prev) => {
+        if (prev.length === 0) return [tickCandle];
+        const tail = prev[prev.length - 1];
+        if (tickCandle.time === tail.time) {
+          const copy = prev.slice();
+          copy[copy.length - 1] = tickCandle;
+          return copy;
+        }
+        if (tickCandle.time > tail.time) {
+          return [...prev.slice(-799), tickCandle];
+        }
+        return prev;
+      });
+
+      updateQuote(pane.symbol, tickCandle.close, source, tickCandle.volume);
+      processPaper(pane.symbol, tickCandle.high, tickCandle.low, tickCandle.close);
+    };
 
     const unsubscribe = subscribeLiveTicks(
       pane.symbol,
       pane.timeframe,
       lastCandle,
       (tickCandle, source) => {
-        setDataSource(source);
-        setFullCandles((prev) => {
-          if (prev.length === 0) return [tickCandle];
-          const tail = prev[prev.length - 1];
-          if (tickCandle.time === tail.time) {
-            const copy = prev.slice();
-            copy[copy.length - 1] = tickCandle;
-            return copy;
-          }
-          if (tickCandle.time > tail.time) {
-            return [...prev.slice(-799), tickCandle];
-          }
-          return prev;
-        });
-
-        updateQuote(pane.symbol, tickCandle.close, source, tickCandle.volume);
-        processPaper(pane.symbol, tickCandle.high, tickCandle.low, tickCandle.close);
+        pendingTickRef.current = { candle: tickCandle, source };
+        if (flushTimerRef.current === null) {
+          flushTimerRef.current = window.setTimeout(flushPending, 120);
+        }
       },
       dataFeed
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      pendingTickRef.current = null;
+    };
   }, [
     pane.symbol,
     pane.timeframe,
@@ -529,7 +590,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, replay.isSelectingStart, displayCandles, pane.symbol]);
 
-  // 4. Create Main Price Series
+  // 4. Main Series Creation
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -629,7 +690,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showSymbolAxisLabel,
   ]);
 
-  // 5. Feed Data & Overlay Indicators (with Source, Offset, Style, Visibility!)
+  // 5. Feed Data & Reuse Overlay Indicator Series (NO removeSeries/addLineSeries on live ticks!)
   useEffect(() => {
     const chart = chartRef.current;
     const series = mainSeriesRef.current;
@@ -656,17 +717,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
     refreshLastPriceY();
 
-    for (const list of overlaySeriesRef.current.values()) {
-      for (const s of list) {
-        try {
-          chart.removeSeries(s);
-        } catch {
-          // ignore
-        }
-      }
-    }
-    overlaySeriesRef.current.clear();
-
     const targetScaleId = chartSettings.priceScalePosition === 'left' ? 'left' : 'right';
     const overlays = pane.indicators.filter(
       (i) =>
@@ -675,158 +725,185 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         isVisibleOnTimeframeGroup(i.visibility, tfMeta.group)
     );
 
+    const nextSig = JSON.stringify({
+      scale: targetScaleId,
+      items: overlays.map((o) => ({
+        id: o.id,
+        type: o.type,
+        color: o.color,
+        sec: o.secondaryColor,
+        lw: o.lineWidth ?? 2,
+        ls: o.lineStyle ?? 'solid',
+        lv: Boolean(o.showLastValue),
+      })),
+    });
+
+    // Rebuild series instances ONLY if overlay config changed
+    if (overlaySignatureRef.current !== nextSig) {
+      for (const list of overlaySeriesRef.current.values()) {
+        for (const s of list) {
+          try {
+            chart.removeSeries(s);
+          } catch {
+            // ignore
+          }
+        }
+      }
+      overlaySeriesRef.current.clear();
+      overlaySignatureRef.current = nextSig;
+
+      for (const ind of overlays) {
+        const created: ISeriesApi<'Line' | 'Histogram'>[] = [];
+        const lw = (ind.lineWidth ?? 2) as 1 | 2 | 3 | 4;
+        const ls = toChartLineStyle(ind.lineStyle);
+        const showLast = Boolean(ind.showLastValue);
+
+        if (ind.type === 'VOLUME') {
+          const volSeries = chart.addHistogramSeries({
+            priceFormat: { type: 'volume' },
+            priceScaleId: '',
+            lastValueVisible: false,
+            priceLineVisible: false,
+          });
+          volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+          created.push(volSeries);
+        } else if (ind.type === 'BB') {
+          const up = chart.addLineSeries({
+            color: ind.color,
+            lineWidth: 1,
+            lineStyle: ls,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: showLast,
+          });
+          const mid = chart.addLineSeries({
+            color: ind.secondaryColor ?? '#64748B',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: false,
+          });
+          const low = chart.addLineSeries({
+            color: ind.color,
+            lineWidth: 1,
+            lineStyle: ls,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: showLast,
+          });
+          created.push(up, mid, low);
+        } else if (ind.type === 'DONCHIAN') {
+          const up = chart.addLineSeries({
+            color: ind.color,
+            lineWidth: lw,
+            lineStyle: ls,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: showLast,
+          });
+          const low = chart.addLineSeries({
+            color: ind.color,
+            lineWidth: lw,
+            lineStyle: ls,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: showLast,
+          });
+          created.push(up, low);
+        } else {
+          const l = chart.addLineSeries({
+            color: ind.color,
+            lineWidth: lw,
+            lineStyle: ls,
+            priceScaleId: targetScaleId,
+            priceLineVisible: false,
+            lastValueVisible: showLast,
+          });
+          created.push(l);
+        }
+
+        overlaySeriesRef.current.set(ind.id, created);
+      }
+    }
+
+    // Update data on reused series
     for (const ind of overlays) {
-      const created: ISeriesApi<'Line' | 'Histogram'>[] = [];
+      const seriesList = overlaySeriesRef.current.get(ind.id);
+      if (!seriesList || seriesList.length === 0) continue;
       const src = ind.source ?? 'close';
       const offset = ind.offset ?? 0;
-      const lw = (ind.lineWidth ?? 2) as 1 | 2 | 3 | 4;
-      const ls = toChartLineStyle(ind.lineStyle);
-      const showLast = Boolean(ind.showLastValue);
 
       if (ind.type === 'VOLUME') {
-        const volSeries = chart.addHistogramSeries({
-          priceFormat: { type: 'volume' },
-          priceScaleId: '',
-          lastValueVisible: false,
-          priceLineVisible: false,
-        });
-        volSeries.priceScale().applyOptions({
-          scaleMargins: { top: 0.84, bottom: 0 },
-        });
-        volSeries.setData(
+        (seriesList[0] as ISeriesApi<'Histogram'>).setData(
           displayCandles.map((c) => ({
             time: c.time as UTCTimestamp,
             value: c.volume,
-            color:
-              c.close >= c.open ? 'rgba(8, 153, 129, 0.34)' : 'rgba(242, 54, 69, 0.34)',
+            color: c.close >= c.open ? 'rgba(8, 153, 129, 0.34)' : 'rgba(242, 54, 69, 0.34)',
           }))
         );
-        created.push(volSeries);
       } else if (ind.type === 'SMA') {
         const pts = applyIndicatorOffset(
           computeSMA(displayCandles, ind.params.period ?? 50, src),
           offset,
           tfMeta.seconds
         );
-        const l = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: lw,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        created.push(l);
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
+          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+        );
       } else if (ind.type === 'EMA') {
         const pts = applyIndicatorOffset(
           computeEMA(displayCandles, ind.params.period ?? 21, src),
           offset,
           tfMeta.seconds
         );
-        const l = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: lw,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        created.push(l);
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
+          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+        );
       } else if (ind.type === 'VWAP') {
         const pts = applyIndicatorOffset(computeVWAP(displayCandles), offset, tfMeta.seconds);
-        const l = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: lw,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        l.setData(pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-        created.push(l);
-      } else if (ind.type === 'BB') {
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
+          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+        );
+      } else if (ind.type === 'BB' && seriesList.length === 3) {
         const bb = computeBollingerBands(
           displayCandles,
           ind.params.period ?? 20,
           ind.params.stdDev ?? 2,
           src
         );
-        const up = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: 1,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        const mid = chart.addLineSeries({
-          color: ind.secondaryColor ?? '#64748B',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
-        const low = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: 1,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        up.setData(
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
           applyIndicatorOffset(bb.upper, offset, tfMeta.seconds).map((p) => ({
             time: p.time as UTCTimestamp,
             value: p.value,
           }))
         );
-        mid.setData(
+        (seriesList[1] as ISeriesApi<'Line'>).setData(
           applyIndicatorOffset(bb.middle, offset, tfMeta.seconds).map((p) => ({
             time: p.time as UTCTimestamp,
             value: p.value,
           }))
         );
-        low.setData(
+        (seriesList[2] as ISeriesApi<'Line'>).setData(
           applyIndicatorOffset(bb.lower, offset, tfMeta.seconds).map((p) => ({
             time: p.time as UTCTimestamp,
             value: p.value,
           }))
         );
-        created.push(up, mid, low);
-      } else if (ind.type === 'DONCHIAN') {
+      } else if (ind.type === 'DONCHIAN' && seriesList.length === 2) {
         const dc = computeDonchian(displayCandles, ind.params.period ?? 20);
-        const up = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: lw,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        const low = chart.addLineSeries({
-          color: ind.color,
-          lineWidth: lw,
-          lineStyle: ls,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        up.setData(
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
           applyIndicatorOffset(dc.upper, offset, tfMeta.seconds).map((p) => ({
             time: p.time as UTCTimestamp,
             value: p.value,
           }))
         );
-        low.setData(
+        (seriesList[1] as ISeriesApi<'Line'>).setData(
           applyIndicatorOffset(dc.lower, offset, tfMeta.seconds).map((p) => ({
             time: p.time as UTCTimestamp,
             value: p.value,
           }))
         );
-        created.push(up, low);
       } else if (ind.type === 'SUPERTREND') {
         const st = applyIndicatorOffset(
           computeSupertrend(
@@ -839,17 +916,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           offset,
           tfMeta.seconds
         );
-        const l = chart.addLineSeries({
-          lineWidth: lw,
-          priceScaleId: targetScaleId,
-          priceLineVisible: false,
-          lastValueVisible: showLast,
-        });
-        l.setData(st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color })));
-        created.push(l);
+        (seriesList[0] as ISeriesApi<'Line'>).setData(
+          st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color }))
+        );
       }
-
-      overlaySeriesRef.current.set(ind.id, created);
     }
   }, [
     displayCandles,
@@ -861,6 +931,46 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.priceScalePosition,
     refreshLastPriceY,
   ]);
+
+  // 5B. Compare Symbol Overlay Series
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (!pane.compareSymbol || compareCandles.length === 0) {
+      if (compareSeriesRef.current) {
+        try {
+          chart.removeSeries(compareSeriesRef.current);
+        } catch {
+          // ignore
+        }
+        compareSeriesRef.current = null;
+      }
+      return;
+    }
+
+    if (!compareSeriesRef.current) {
+      const cs = chart.addLineSeries({
+        color: '#F59E0B',
+        lineWidth: 2,
+        priceScaleId: 'compare',
+        priceFormat: { type: 'percent', precision: 2, minMove: 0.01 },
+        priceLineVisible: false,
+      });
+      cs.priceScale().applyOptions({
+        scaleMargins: { top: 0.14, bottom: 0.16 },
+      });
+      compareSeriesRef.current = cs;
+    }
+
+    const base = compareCandles[0].close || 1;
+    compareSeriesRef.current.setData(
+      compareCandles.map((c) => ({
+        time: c.time as UTCTimestamp,
+        value: ((c.close - base) / base) * 100,
+      }))
+    );
+  }, [pane.compareSymbol, compareCandles]);
 
   // 6. Plot Alerts, Positions & High/Low Lines
   useEffect(() => {
@@ -913,7 +1023,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
-            title: 'Alert',
+            title: 'Alert (drag)',
           })
         );
       }
@@ -940,7 +1050,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               lineWidth: 1,
               lineStyle: LineStyle.Dotted,
               axisLabelVisible: true,
-              title: 'SL',
+              title: 'SL (drag)',
             })
           );
         }
@@ -952,7 +1062,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               lineWidth: 1,
               lineStyle: LineStyle.Dotted,
               axisLabelVisible: true,
-              title: 'TP',
+              title: 'TP (drag)',
             })
           );
         }
@@ -1048,7 +1158,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     isExternalCrosshairRef.current = false;
   }, [syncedCrosshairTime, syncCrosshair, isActive, displayCandles]);
 
-  // 8. Export PNG Snapshot
+  // 8. Export Snapshot
   const prevSnapshotRef = useRef(snapshotCounter);
   useEffect(() => {
     if (snapshotCounter === prevSnapshotRef.current) return;
@@ -1288,6 +1398,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
   const subPaneIndicators = pane.indicators.filter((i) => i.placement === 'subpane');
   const overlayIndicators = pane.indicators.filter((i) => i.placement === 'overlay');
+  const hasRsiDivIndicator = pane.indicators.some((i) => i.type === 'RSI_DIV' && i.visible);
   const isLeftScale = chartSettings.priceScalePosition === 'left';
 
   return (
@@ -1328,6 +1439,27 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               {pane.timeframe} • {symbolInfo.exchange}
             </div>
           </div>
+        )}
+
+        {/* Maximize / Restore Pane Toggle in Multi-Chart Grids */}
+        {(isMultiPane || isMaximized) && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMaximizedPaneId(isMaximized ? null : pane.id);
+            }}
+            title={isMaximized ? 'Restore Multi-Chart Grid' : 'Maximize This Pane'}
+            className={cn(
+              'absolute top-2 z-20 rounded border border-slate-200/80 bg-white/85 p-1 text-slate-600 shadow backdrop-blur transition hover:text-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D]/90 dark:text-[#D1D4DC]',
+              isLeftScale ? 'right-3' : 'right-20'
+            )}
+          >
+            {isMaximized ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+          </button>
         )}
 
         {/* Top-Left Inline Legend */}
@@ -1380,6 +1512,19 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                   </span>
                 )}
               </button>
+            )}
+
+            {pane.compareSymbol && (
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
+                <GitCompare className="h-3 w-3" />
+                vs {getSymbolInfo(pane.compareSymbol).displaySymbol} (%)
+                <button
+                  onClick={() => setPaneCompareSymbol(pane.id, null)}
+                  className="hover:text-white"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
             )}
 
             {activeBar && (
@@ -1781,6 +1926,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           width={chartSize.width}
           height={chartSize.height}
           theme={theme}
+          hasRsiDivIndicator={hasRsiDivIndicator}
           onCanvasReady={(c) => {
             drawingCanvasRef.current = c;
           }}
@@ -1805,7 +1951,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         />
       ))}
 
-      {/* Bottom Chart Range Presets + Live Timezone Clock + Scale Controls */}
       <div className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2.5 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]">
         <div className="flex items-center gap-0.5">
           {RANGE_PRESETS.map((preset) => (

@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  Bookmark,
   Camera,
   CandlestickChart,
   Check,
   ChevronDown,
   Columns2,
   Database,
+  GitCompare,
   Grid2X2,
   Keyboard,
   LayoutGrid,
@@ -79,6 +81,8 @@ export const TopToolbar: React.FC = () => {
   const setSearchModalOpen = useTradingStore((s) => s.setSearchModalOpen);
   const setIndicatorsModalOpen = useTradingStore((s) => s.setIndicatorsModalOpen);
   const setShortcutsModalOpen = useTradingStore((s) => s.setShortcutsModalOpen);
+  const setCompareModalOpen = useTradingStore((s) => s.setCompareModalOpen);
+  const setTemplatesModalOpen = useTradingStore((s) => s.setTemplatesModalOpen);
   const openChartSettingsTab = useTradingStore((s) => s.openChartSettingsTab);
   const triggerSnapshot = useTradingStore((s) => s.triggerSnapshot);
 
@@ -133,10 +137,11 @@ export const TopToolbar: React.FC = () => {
           </span>
           <span className="inline-flex items-center gap-0.5 rounded bg-[#089981]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
             <Unlock className="h-2.5 w-2.5" />
-            V3
+            V4
           </span>
         </div>
 
+        {/* Symbol Search */}
         <button
           onClick={() => setSearchModalOpen(true)}
           className="flex items-center gap-2 rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
@@ -160,8 +165,23 @@ export const TopToolbar: React.FC = () => {
           </kbd>
         </button>
 
+        {/* Compare Symbol (+) */}
+        <button
+          onClick={() => setCompareModalOpen(true)}
+          title="Compare / Overlay Symbol (%)"
+          className={cn(
+            'hidden sm:inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium transition',
+            activePane.compareSymbol
+              ? 'bg-amber-500/15 text-amber-400'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+          )}
+        >
+          <GitCompare className="h-3.5 w-3.5" />
+        </button>
+
         <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
+        {/* All Timeframes */}
         <div className="relative flex items-center gap-0.5">
           <div className="hidden lg:flex items-center gap-0.5">
             {orderedFavorites.map((tf) => (
@@ -264,6 +284,7 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
+        {/* Chart Type */}
         <div className="relative">
           <button
             onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
@@ -314,10 +335,11 @@ export const TopToolbar: React.FC = () => {
           </span>
         </button>
 
+        {/* Smart AI + RSI Divergence Pro + Sessions Menu */}
         <div className="relative">
           <button
             onClick={() => setOpenMenu(openMenu === 'smart' ? null : 'smart')}
-            title="Smart Quant & AI Overlays"
+            title="Smart AI Overlays, RSI Divergence Pro & Sessions"
             className={cn(
               'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-semibold transition',
               activeSmartCount > 0 || openMenu === 'smart'
@@ -335,16 +357,21 @@ export const TopToolbar: React.FC = () => {
           </button>
 
           {openMenu === 'smart' && (
-            <div className="absolute left-0 top-9 z-50 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="absolute left-0 top-9 z-50 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
               <div className="mb-1.5 flex items-center justify-between px-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#00D4AA]">
-                  Smart Quant Overlays
+                  Smart Quant & Divergence
                 </span>
                 <span className="text-[9px] font-bold text-[#787B86]">PRO FREE</span>
               </div>
               <div className="space-y-1 text-xs">
                 {(
                   [
+                    {
+                      key: 'showRSIDivergence',
+                      title: 'RSI Divergence Pro (Reg / Exag / Hid)',
+                      sub: 'Trendline breakouts + Golden Ratio Fib setups',
+                    },
                     {
                       key: 'showVPVR',
                       title: 'Volume Profile (VPVR)',
@@ -369,6 +396,16 @@ export const TopToolbar: React.FC = () => {
                       key: 'showAutoTrendlines',
                       title: 'Auto Pivot Trendlines',
                       sub: 'Dynamic structural support & resistance',
+                    },
+                    {
+                      key: 'showSessions',
+                      title: 'Trading Sessions (Killzones)',
+                      sub: 'Asia, London & New York session shading',
+                    },
+                    {
+                      key: 'showDailyOpen',
+                      title: 'Daily Open Line',
+                      sub: 'Today UTC open institutional reference',
                     },
                   ] as const
                 ).map((item) => {
@@ -402,6 +439,16 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
+        {/* Chart Templates */}
+        <button
+          onClick={() => setTemplatesModalOpen(true)}
+          title="Chart & Indicator Templates"
+          className="hidden lg:inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+        >
+          <Bookmark className="h-3.5 w-3.5 text-[#2962FF]" />
+          <span>Templates</span>
+        </button>
+
         <button
           onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
           className={cn(
@@ -420,7 +467,7 @@ export const TopToolbar: React.FC = () => {
       <div className="flex items-center gap-1">
         <button
           onClick={() => openChartSettingsTab('feeds')}
-          title="Configure Live Data Feeds & Twelve Data API Key (XAUUSD, Forex, Stocks, IDX)"
+          title="Configure Live Data Feeds & Twelve Data API Key"
           className={cn(
             'hidden md:inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold transition',
             hasTdKey

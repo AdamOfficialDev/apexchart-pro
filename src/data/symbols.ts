@@ -1,4 +1,5 @@
 import {
+  ChartTemplate,
   DrawingToolMeta,
   FibLevelItem,
   IndicatorCatalogItem,
@@ -213,7 +214,7 @@ export const SYMBOLS: SymbolInfo[] = [
     precision: 2,
     minMove: 0.01,
     volatility: 0.011,
-    binanceSymbol: 'PAXGUSDT', // 1:1 physical Gold proxy live 24/7 when no Twelve Data key
+    binanceSymbol: 'PAXGUSDT',
     twelveDataSymbol: 'XAU/USD',
     currency: 'USD',
     description: 'Spot Gold bullion (1 Troy Oz). Live via Twelve Data API or 24/7 Gold Proxy (PAXG).',
@@ -434,26 +435,106 @@ export const SYMBOLS: SymbolInfo[] = [
   },
 ];
 
-export function getSymbolInfo(symbol: string): SymbolInfo {
-  const found = SYMBOLS.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase());
+// Dynamically supports ANY custom ticker typed by the user!
+export function getSymbolInfo(rawSymbol: string): SymbolInfo {
+  const clean = rawSymbol.trim().toUpperCase().replace(/\s+/g, '');
+  const found = SYMBOLS.find(
+    (s) => s.symbol.toUpperCase() === clean || s.displaySymbol.toUpperCase() === clean
+  );
   if (found) return found;
+
+  // Crypto pairs (e.g. PEPEUSDT, SUIUSDT, LINKUSDT, BTCUSD)
+  if (clean.endsWith('USDT') || clean.endsWith('USDC') || clean.endsWith('FDUSD')) {
+    const base = clean.replace(/(USDT|USDC|FDUSD)$/, '');
+    const isMicro = base === 'PEPE' || base === 'SHIB' || base === 'BONK' || base === 'FLOKI';
+    return {
+      symbol: clean,
+      displaySymbol: `${base}/USDT`,
+      name: `${base} / TetherUS (Custom)`,
+      category: 'Crypto',
+      exchange: 'BINANCE',
+      basePrice: isMicro ? 0.000012 : 12.5,
+      precision: isMicro ? 8 : 4,
+      minMove: isMicro ? 0.00000001 : 0.0001,
+      volatility: 0.045,
+      binanceSymbol: clean,
+      twelveDataSymbol: `${base}/USD`,
+      currency: 'USDT',
+      description: `Live Binance spot pair ${base}/USDT.`,
+    };
+  }
+
+  // Indonesian IDX Equities (e.g. ADRO.JK, ASII.JK)
+  if (clean.endsWith('.JK')) {
+    const code = clean.replace('.JK', '');
+    return {
+      symbol: clean,
+      displaySymbol: code,
+      name: `${code} Tbk (IDX)`,
+      category: 'IDX',
+      exchange: 'IDX',
+      basePrice: 2500,
+      precision: 0,
+      minMove: 10,
+      volatility: 0.02,
+      twelveDataSymbol: `${code}:IDX`,
+      currency: 'IDR',
+      description: `Indonesian Equity ${code} on IDX.`,
+    };
+  }
+
+  // 6-letter FX pairs (e.g. AUDUSD, USDCAD, EURJPY)
+  if (/^[A-Z]{6}$/.test(clean)) {
+    const b = clean.slice(0, 3);
+    const q = clean.slice(3, 6);
+    const isJpy = q === 'JPY';
+    return {
+      symbol: clean,
+      displaySymbol: `${b}/${q}`,
+      name: `${b} / ${q} Spot FX`,
+      category: 'Forex',
+      exchange: 'FX',
+      basePrice: isJpy ? 150 : 1.1,
+      precision: isJpy ? 3 : 5,
+      minMove: isJpy ? 0.001 : 0.00001,
+      volatility: 0.006,
+      twelveDataSymbol: `${b}/${q}`,
+      fxPair: [b, q],
+      currency: q,
+      description: `Foreign exchange spot pair ${b}/${q}.`,
+    };
+  }
+
+  // Default US Stock / Custom Ticker
   return {
-    symbol,
-    displaySymbol: symbol,
-    name: symbol,
-    category: 'Crypto',
+    symbol: clean,
+    displaySymbol: clean,
+    name: `${clean} (Custom Instrument)`,
+    category: 'Stocks',
     exchange: 'CUSTOM',
-    basePrice: 100,
+    basePrice: 150,
     precision: 2,
     minMove: 0.01,
-    volatility: 0.02,
-    twelveDataSymbol: symbol,
+    volatility: 0.022,
+    twelveDataSymbol: clean,
     currency: 'USD',
-    description: 'Custom market instrument.',
+    description: `Custom instrument ${clean}.`,
   };
 }
 
 export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
+  {
+    type: 'RSI_DIV',
+    name: 'RSI Divergence Pro (Reg / Exag / Hid)',
+    shortName: 'RSI Div Pro',
+    category: 'Momentum',
+    placement: 'subpane',
+    description: 'Regular & Exaggerated trendline breakouts + Hidden Golden Ratio Fib setups.',
+    defaultColor: '#A855F7',
+    defaultParams: { period: 14 },
+    defaultUpperLevel: 70,
+    defaultLowerLevel: 30,
+  },
   {
     type: 'EMA',
     name: 'Exponential Moving Average',
@@ -577,10 +658,139 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
   },
 ];
 
+export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
+  {
+    id: 'tpl_rsi_div_hunter',
+    name: 'RSI Divergence Hunter (Reg / Exag / Hid)',
+    chartStyle: 'candles',
+    indicators: [
+      {
+        type: 'EMA',
+        name: 'EMA',
+        placement: 'overlay',
+        visible: true,
+        color: '#2962FF',
+        params: { period: 50 },
+      },
+      {
+        type: 'EMA',
+        name: 'EMA',
+        placement: 'overlay',
+        visible: true,
+        color: '#F59E0B',
+        params: { period: 200 },
+      },
+      {
+        type: 'VOLUME',
+        name: 'Vol',
+        placement: 'overlay',
+        visible: true,
+        color: '#089981',
+        params: {},
+      },
+      {
+        type: 'RSI_DIV',
+        name: 'RSI Div Pro',
+        placement: 'subpane',
+        visible: true,
+        color: '#A855F7',
+        params: { period: 14 },
+        upperLevel: 70,
+        lowerLevel: 30,
+      },
+    ],
+    smartOverlays: {
+      showVPVR: false,
+      showMarketStructure: true,
+      showFVG: false,
+      showAutoSR: true,
+      showAutoTrendlines: false,
+      showRSIDivergence: true,
+      showSessions: false,
+      showDailyOpen: false,
+    },
+  },
+  {
+    id: 'tpl_smc_gold_scalp',
+    name: 'SMC / ICT Gold & FX Killzones',
+    chartStyle: 'candles',
+    indicators: [
+      {
+        type: 'VWAP',
+        name: 'VWAP',
+        placement: 'overlay',
+        visible: true,
+        color: '#EC4899',
+        params: {},
+      },
+      {
+        type: 'VOLUME',
+        name: 'Vol',
+        placement: 'overlay',
+        visible: true,
+        color: '#089981',
+        params: {},
+      },
+    ],
+    smartOverlays: {
+      showVPVR: true,
+      showMarketStructure: true,
+      showFVG: true,
+      showAutoSR: false,
+      showAutoTrendlines: false,
+      showRSIDivergence: true,
+      showSessions: true,
+      showDailyOpen: true,
+    },
+  },
+  {
+    id: 'tpl_momentum_swing',
+    name: 'EMA + Supertrend + MACD Momentum',
+    chartStyle: 'heikin_ashi',
+    indicators: [
+      {
+        type: 'EMA',
+        name: 'EMA',
+        placement: 'overlay',
+        visible: true,
+        color: '#2962FF',
+        params: { period: 21 },
+      },
+      {
+        type: 'SUPERTREND',
+        name: 'ST',
+        placement: 'overlay',
+        visible: true,
+        color: '#089981',
+        secondaryColor: '#F23645',
+        params: { period: 10, multiplier: 3 },
+      },
+      {
+        type: 'MACD',
+        name: 'MACD',
+        placement: 'subpane',
+        visible: true,
+        color: '#2962FF',
+        secondaryColor: '#F97316',
+        params: { fast: 12, slow: 26, signal: 9 },
+      },
+    ],
+    smartOverlays: {
+      showVPVR: false,
+      showMarketStructure: false,
+      showFVG: false,
+      showAutoSR: true,
+      showAutoTrendlines: true,
+      showRSIDivergence: false,
+      showSessions: false,
+      showDailyOpen: false,
+    },
+  },
+];
+
 export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'cursor', label: 'Crosshair / Select', group: 'cursors', pointsRequired: 0, description: 'Inspect candles or select and drag drawings' },
   { id: 'eraser', label: 'Eraser', group: 'cursors', pointsRequired: 1, description: 'Click any drawing to remove it instantly' },
-
   { id: 'trendline', label: 'Trend Line', group: 'lines', shortcut: 'Alt+T', pointsRequired: 2, description: '2-point diagonal line' },
   { id: 'ray', label: 'Ray', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely forward' },
   { id: 'extended_line', label: 'Extended Line', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely in both directions' },
@@ -591,7 +801,6 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'cross_line', label: 'Cross Line', group: 'lines', pointsRequired: 1, description: 'Simultaneous horizontal & vertical reference cross' },
   { id: 'channel', label: 'Parallel Channel', group: 'lines', pointsRequired: 3, description: '3-point parallel trend channel with midline' },
   { id: 'regression_channel', label: 'Regression Trend', group: 'lines', pointsRequired: 2, description: 'Statistical OLS Linear Regression ±2σ channel' },
-
   { id: 'fib', label: 'Fib Retracement', group: 'fib_gann', shortcut: 'Alt+F', pointsRequired: 2, description: 'Standard & custom Fibonacci retracement levels' },
   { id: 'fib_ext', label: 'Trend-Based Fib Extension', group: 'fib_gann', pointsRequired: 3, description: '3-point A-B-C projection up to 2.618' },
   { id: 'fib_channel', label: 'Fib Channel', group: 'fib_gann', pointsRequired: 3, description: 'Diagonal Fibonacci parallel channels' },
@@ -600,31 +809,26 @@ export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
   { id: 'fib_arc', label: 'Fib Circles / Arcs', group: 'fib_gann', pointsRequired: 2, description: 'Concentric Fibonacci ratio resistance arcs' },
   { id: 'pitchfork', label: "Andrews' Pitchfork", group: 'fib_gann', pointsRequired: 3, description: '3-point median line & parallel channel prongs' },
   { id: 'gann_box', label: 'Gann Box', group: 'fib_gann', pointsRequired: 2, description: 'Price-time square proportions & Gann diagonals' },
-
   { id: 'xabcd', label: 'XABCD Harmonic Pattern', group: 'patterns', pointsRequired: 5, description: '5-point harmonic pattern with live Fib leg ratios' },
   { id: 'abcd', label: 'ABCD Pattern', group: 'patterns', pointsRequired: 4, description: '4-point harmonic AB=CD wave with ratios' },
   { id: 'elliott_impulse', label: 'Elliott Impulse Wave (12345)', group: 'patterns', pointsRequired: 6, description: '6-point 0-1-2-3-4-5 Elliott impulse structure' },
   { id: 'elliott_abc', label: 'Elliott Correction (ABC)', group: 'patterns', pointsRequired: 4, description: '4-point 0-A-B-C corrective wave' },
   { id: 'head_shoulders', label: 'Head & Shoulders', group: 'patterns', pointsRequired: 7, description: '7-point reversal pattern with neckline' },
-
   { id: 'long_pos', label: 'Long Position (R:R)', group: 'forecast', shortcut: 'Alt+L', pointsRequired: 1, description: 'Entry / TP / SL risk-reward box' },
   { id: 'short_pos', label: 'Short Position (R:R)', group: 'forecast', shortcut: 'Alt+S', pointsRequired: 1, description: 'Short Entry / TP / SL risk-reward box' },
   { id: 'date_price_range', label: 'Date & Price Range', group: 'forecast', pointsRequired: 2, description: 'Persistent measurement box with bars & volume' },
   { id: 'bar_pattern', label: 'Bars Pattern (Ghost Copy)', group: 'forecast', pointsRequired: 3, description: 'Copy historical candle sequence & project forward' },
-
   { id: 'rect', label: 'Rectangle Zone', group: 'shapes', shortcut: 'Alt+R', pointsRequired: 2, description: 'Supply/demand box with midline' },
   { id: 'rotated_rect', label: 'Rotated Rectangle', group: 'shapes', pointsRequired: 3, description: 'Angled channel/box zone' },
   { id: 'ellipse', label: 'Ellipse / Circle', group: 'shapes', pointsRequired: 2, description: 'Elliptical highlight zone' },
   { id: 'triangle', label: 'Triangle', group: 'shapes', pointsRequired: 3, description: '3-point shaded triangle' },
   { id: 'arc', label: 'Curved Arc', group: 'shapes', pointsRequired: 3, description: '3-point smooth Bezier curve' },
   { id: 'polyline', label: 'Polyline Path', group: 'shapes', pointsRequired: 0, description: 'Multi-click path (double-click to finish)' },
-
   { id: 'brush', label: 'Brush', group: 'annotations', pointsRequired: 0, description: 'Freehand drawing brush' },
   { id: 'highlighter', label: 'Highlighter', group: 'annotations', pointsRequired: 0, description: 'Wide translucent marker stroke' },
   { id: 'arrow_marker', label: 'Arrow', group: 'annotations', pointsRequired: 2, description: 'Directional pointer arrow' },
   { id: 'text', label: 'Text Note', group: 'annotations', pointsRequired: 1, description: 'Text annotation label' },
   { id: 'callout', label: 'Callout', group: 'annotations', pointsRequired: 2, description: 'Anchor pointer with speech bubble note' },
   { id: 'price_label', label: 'Price Label', group: 'annotations', pointsRequired: 1, description: 'Sticky exact price callout tag' },
-
   { id: 'ruler', label: 'Measure Ruler', group: 'measure', pointsRequired: 2, description: 'Measure price change, % & bar duration' },
 ];

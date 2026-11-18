@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ColorType,
   CrosshairMode,
   IChartApi,
   ISeriesApi,
   LineStyle,
+  Logical,
   LogicalRange,
   UTCTimestamp,
   createChart,
@@ -18,6 +19,7 @@ import {
   computeRSI,
   computeStochastic,
 } from '@/services/indicators';
+import { computeRSIDivergences } from '@/services/rsiDivergence';
 import { useTradingStore } from '@/store/useTradingStore';
 import { Candle, IndicatorConfig, TimeframeId } from '@/types/trading';
 
@@ -32,6 +34,12 @@ interface SubPaneChartProps {
   onRemove: () => void;
 }
 
+function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
+  if (ls === 'dashed') return LineStyle.Dashed;
+  if (ls === 'dotted') return LineStyle.Dotted;
+  return LineStyle.Solid;
+}
+
 export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   indicator,
   candles,
@@ -43,21 +51,29 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   onRemove,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
   const syncingRef = useRef(false);
+
   const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
   const chartSettings = useTradingStore((s) => s.chartSettings);
+  const smartOverlays = useTradingStore((s) => s.smartOverlays);
+  const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
+  const subPaneHeight = useTradingStore((s) => s.panelSizes.subPaneHeight);
+  const updatePanelSizes = useTradingStore((s) => s.updatePanelSizes);
 
   const tfMeta = TIMEFRAME_MAP[timeframe];
   const isTimeframeVisible = isVisibleOnTimeframeGroup(indicator.visibility, tfMeta.group);
+  const isRsiKind = indicator.type === 'RSI' || indicator.type === 'RSI_DIV';
 
   const computed = useMemo(() => {
     if (!indicator.visible || !isTimeframeVisible || candles.length === 0) return null;
     const src = indicator.source ?? 'close';
     const offset = indicator.offset ?? 0;
 
-    if (indicator.type === 'RSI') {
+    if (isRsiKind) {
       return {
         kind: 'RSI' as const,
         data: applyIndicatorOffset(
@@ -110,7 +126,30 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       };
     }
     return null;
-  }, [indicator, candles, isTimeframeVisible, tfMeta.seconds]);
+  }, [indicator, isRsiKind, candles, isTimeframeVisible, tfMeta.seconds]);
+
+  // Compute RSI Divergences for RSI Sub-Pane lines
+  const rsiDivs = useMemo(() => {
+    if (
+      !isRsiKind ||
+      !indicator.visible ||
+      (!smartOverlays.showRSIDivergence && indicator.type !== 'RSI_DIV')
+    ) {
+      return [];
+    }
+    return computeRSIDivergences(candles, {
+      ...rsiDivConfig,
+      rsiPeriod: indicator.params.period ?? rsiDivConfig.rsiPeriod,
+    });
+  }, [
+    isRsiKind,
+    indicator.visible,
+    indicator.type,
+    indicator.params.period,
+    smartOverlays.showRSIDivergence,
+    candles,
+    rsiDivConfig,
+  ]);
 
   const latestReadout = useMemo(() => {
     if (!computed || !indicator.visible || !isTimeframeVisible) return 'Hidden';
@@ -135,6 +174,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     return '—';
   }, [computed, indicator.visible, isTimeframeVisible]);
 
+  // Initialize sub-pane chart
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -172,6 +212,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     });
 
     chartRef.current = chart;
+    seriesSigRef.current = '';
 
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -186,6 +227,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       chart.remove();
       chartRef.current = null;
       seriesRefs.current = [];
+      seriesSigRef.current = '';
     };
   }, [theme, bgColorDark, chartSettings.priceScalePosition, chartSettings.scaleFontSize]);
 
@@ -219,120 +261,155 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     };
   }, [mainChart]);
 
+  // Reuse indicator series when structural signature hasn't changed!
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
 
-    for (const s of seriesRefs.current) {
-      try {
-        chart.removeSeries(s);
-      } catch {
-        // ignore
+    if (!computed || !indicator.visible || !isTimeframeVisible) {
+      for (const s of seriesRefs.current) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          // ignore
+        }
       }
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+      return;
     }
-    seriesRefs.current = [];
 
-    if (!computed || !indicator.visible || !isTimeframeVisible) return;
+    const sig = JSON.stringify({
+      id: indicator.id,
+      type: indicator.type,
+      color: indicator.color,
+      secondaryColor: indicator.secondaryColor,
+      lw: indicator.lineWidth ?? 2,
+      ls: indicator.lineStyle ?? 'solid',
+      showBands: indicator.showBands !== false,
+      up: indicator.upperLevel,
+      lo: indicator.lowerLevel,
+      lastVal: indicator.showLastValue !== false,
+    });
 
     const lw = (indicator.lineWidth ?? 2) as 1 | 2 | 3 | 4;
-    const ls =
-      indicator.lineStyle === 'dashed'
-        ? LineStyle.Dashed
-        : indicator.lineStyle === 'dotted'
-        ? LineStyle.Dotted
-        : LineStyle.Solid;
+    const ls = toChartLineStyle(indicator.lineStyle);
 
-    if (computed.kind === 'RSI' || computed.kind === 'ATR') {
-      const line = chart.addLineSeries({
-        color: indicator.color,
-        lineWidth: lw,
-        lineStyle: ls,
-        priceLineVisible: false,
-        lastValueVisible: indicator.showLastValue !== false,
-      });
-      line.setData(computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-      if (computed.kind === 'RSI' && indicator.showBands !== false) {
-        line.createPriceLine({
-          price: indicator.upperLevel ?? 70,
-          color: 'rgba(242,54,69,0.5)',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '',
-        });
-        line.createPriceLine({
-          price: indicator.lowerLevel ?? 30,
-          color: 'rgba(8,153,129,0.5)',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '',
-        });
+    if (seriesSigRef.current !== sig) {
+      for (const s of seriesRefs.current) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          // ignore
+        }
       }
-      seriesRefs.current.push(line);
+      seriesRefs.current = [];
+      seriesSigRef.current = sig;
+
+      if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+        const line = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceLineVisible: false,
+          lastValueVisible: indicator.showLastValue !== false,
+        });
+        if (computed.kind === 'RSI' && indicator.showBands !== false) {
+          line.createPriceLine({
+            price: indicator.upperLevel ?? 70,
+            color: 'rgba(242,54,69,0.5)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+          line.createPriceLine({
+            price: indicator.lowerLevel ?? 30,
+            color: 'rgba(8,153,129,0.5)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+        }
+        seriesRefs.current.push(line);
+      } else if (computed.kind === 'MACD') {
+        const hist = chart.addHistogramSeries({
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        const macdLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceLineVisible: false,
+        });
+        const sigLine = chart.addLineSeries({
+          color: indicator.secondaryColor ?? '#F97316',
+          lineWidth: 1,
+          priceLineVisible: false,
+        });
+        seriesRefs.current.push(hist, macdLine, sigLine);
+      } else if (computed.kind === 'STOCH') {
+        const kLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceLineVisible: false,
+        });
+        if (indicator.showBands !== false) {
+          kLine.createPriceLine({
+            price: indicator.upperLevel ?? 80,
+            color: 'rgba(242,54,69,0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+          kLine.createPriceLine({
+            price: indicator.lowerLevel ?? 20,
+            color: 'rgba(8,153,129,0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+        }
+        const dLine = chart.addLineSeries({
+          color: indicator.secondaryColor ?? '#F23645',
+          lineWidth: 1,
+          priceLineVisible: false,
+        });
+        seriesRefs.current.push(kLine, dLine);
+      }
+    }
+
+    // Update data cleanly on reused series
+    if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+      (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
+        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
     } else if (computed.kind === 'MACD') {
-      const hist = chart.addHistogramSeries({
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
-      hist.setData(
+      (seriesRefs.current[0] as ISeriesApi<'Histogram'>)?.setData(
         computed.data.histogram.map((p) => ({
           time: p.time as UTCTimestamp,
           value: p.value,
           color: p.color,
         }))
       );
-      const macdLine = chart.addLineSeries({
-        color: indicator.color,
-        lineWidth: lw,
-        lineStyle: ls,
-        priceLineVisible: false,
-      });
-      macdLine.setData(
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
         computed.data.macd.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
       );
-      const sigLine = chart.addLineSeries({
-        color: indicator.secondaryColor ?? '#F97316',
-        lineWidth: 1,
-        priceLineVisible: false,
-      });
-      sigLine.setData(
+      (seriesRefs.current[2] as ISeriesApi<'Line'>)?.setData(
         computed.data.signal.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
       );
-      seriesRefs.current.push(hist, macdLine, sigLine);
     } else if (computed.kind === 'STOCH') {
-      const kLine = chart.addLineSeries({
-        color: indicator.color,
-        lineWidth: lw,
-        lineStyle: ls,
-        priceLineVisible: false,
-      });
-      kLine.setData(computed.data.k.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-      if (indicator.showBands !== false) {
-        kLine.createPriceLine({
-          price: indicator.upperLevel ?? 80,
-          color: 'rgba(242,54,69,0.4)',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '',
-        });
-        kLine.createPriceLine({
-          price: indicator.lowerLevel ?? 20,
-          color: 'rgba(8,153,129,0.4)',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '',
-        });
-      }
-      const dLine = chart.addLineSeries({
-        color: indicator.secondaryColor ?? '#F23645',
-        lineWidth: 1,
-        priceLineVisible: false,
-      });
-      dLine.setData(computed.data.d.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-      seriesRefs.current.push(kLine, dLine);
+      (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
+        computed.data.k.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
+        computed.data.d.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
     }
 
     if (mainChart) {
@@ -341,11 +418,117 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     }
   }, [computed, indicator, mainChart, isTimeframeVisible]);
 
+  // Draw RSI Divergence connecting lines on RSI Sub-Pane canvas!
+  const drawRsiDivLines = useCallback(() => {
+    const canvas = divCanvasRef.current;
+    const chart = chartRef.current;
+    const rsiSeries = seriesRefs.current[0] as ISeriesApi<'Line'> | undefined;
+    const el = containerRef.current;
+    if (!canvas || !el) return;
+
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    if (!chart || !rsiSeries || rsiDivs.length === 0) {
+      ctx.restore();
+      return;
+    }
+
+    for (const sig of rsiDivs) {
+      const x1 = chart.timeScale().logicalToCoordinate(sig.p1Index as Logical);
+      const x2 = chart.timeScale().logicalToCoordinate(sig.p2Index as Logical);
+      const y1 = rsiSeries.priceToCoordinate(sig.p1Rsi);
+      const y2 = rsiSeries.priceToCoordinate(sig.p2Rsi);
+      if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+
+      const isBull = sig.direction === 'bull';
+      const col =
+        sig.kind === 'regular'
+          ? isBull
+            ? '#00D4AA'
+            : '#F23645'
+          : sig.kind === 'exaggerated'
+          ? '#F59E0B'
+          : '#A855F7';
+
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Number(x1), Number(y1));
+      ctx.lineTo(Number(x2), Number(y2));
+      ctx.stroke();
+
+      ctx.font = '700 8px Inter, sans-serif';
+      ctx.fillStyle = col;
+      const tag =
+        sig.kind === 'regular' ? 'REG' : sig.kind === 'exaggerated' ? 'EXAG' : 'HID';
+      ctx.fillText(tag, Number(x2) - 8, isBull ? Number(y2) + 10 : Number(y2) - 5);
+    }
+
+    ctx.restore();
+  }, [rsiDivs]);
+
+  useEffect(() => {
+    drawRsiDivLines();
+  }, [drawRsiDivLines, subPaneHeight]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const onRange = () => drawRsiDivLines();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+    };
+  }, [drawRsiDivLines]);
+
+  // Vertical Drag-to-Resize Handle on top border of sub-pane
+  const startResizeDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = subPaneHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY;
+      const nextH = Math.max(72, Math.min(240, startH + delta));
+      updatePanelSizes({ subPaneHeight: nextH });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   const paramSummary = Object.values(indicator.params).join(', ');
   const isLeftScale = chartSettings.priceScalePosition === 'left';
 
   return (
-    <div className="relative h-[106px] w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]">
+    <div
+      style={{ height: subPaneHeight }}
+      className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
+    >
+      {/* Drag Handle to resize Sub-Pane height */}
+      <div
+        onMouseDown={startResizeDrag}
+        title="Drag to resize indicator height"
+        className="absolute inset-x-0 -top-[2px] z-20 h-[5px] cursor-ns-resize hover:bg-[#2962FF]/60"
+      />
+
       <div
         className={`pointer-events-auto absolute top-1.5 z-10 flex items-center gap-2 text-[11px] ${
           isLeftScale ? 'left-20' : 'left-3'
@@ -380,7 +563,12 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
           <X className="h-3 w-3" />
         </button>
       </div>
+
       <div ref={containerRef} className="h-full w-full" />
+      <canvas
+        ref={divCanvasRef}
+        className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+      />
     </div>
   );
 };

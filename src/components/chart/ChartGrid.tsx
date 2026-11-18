@@ -8,21 +8,25 @@ export const ChartGrid: React.FC = () => {
   const layout = useTradingStore((s) => s.layout);
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
+  const maximizedPaneId = useTradingStore((s) => s.maximizedPaneId);
 
   const visibleCount =
     layout === '1x1' ? 1 : layout === '1x2' || layout === '2x1' ? 2 : layout === '1+2' ? 3 : 4;
 
-  const visiblePanes = panes.slice(0, visibleCount);
-  const isMultiPane = visibleCount > 1;
+  const basePanes = panes.slice(0, visibleCount);
+  const maxPane = maximizedPaneId ? basePanes.find((p) => p.id === maximizedPaneId) : null;
+  const visiblePanes = maxPane ? [maxPane] : basePanes;
+  const isMultiPane = visibleCount > 1 && !maxPane;
 
-  const gridClass =
-    layout === '1x1'
-      ? 'grid-cols-1 grid-rows-1'
-      : layout === '1x2'
-      ? 'grid-cols-2 grid-rows-1'
-      : layout === '2x1'
-      ? 'grid-cols-1 grid-rows-2'
-      : 'grid-cols-2 grid-rows-2';
+  const gridClass = maxPane
+    ? 'grid-cols-1 grid-rows-1'
+    : layout === '1x1'
+    ? 'grid-cols-1 grid-rows-1'
+    : layout === '1x2'
+    ? 'grid-cols-2 grid-rows-1'
+    : layout === '2x1'
+    ? 'grid-cols-1 grid-rows-2'
+    : 'grid-cols-2 grid-rows-2';
 
   return (
     <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden bg-slate-200 dark:bg-[#0C0F17]">
@@ -32,7 +36,7 @@ export const ChartGrid: React.FC = () => {
             key={pane.id}
             className={cn(
               'min-h-0 min-w-0 h-full w-full',
-              layout === '1+2' && idx === 0 && 'row-span-2'
+              !maxPane && layout === '1+2' && idx === 0 && 'row-span-2'
             )}
           >
             <ChartPane

@@ -8,6 +8,7 @@ import {
   TIMEFRAME_MAP,
 } from '@/data/symbols';
 import { formatCompactNumber, formatPrice, generateId } from '@/lib/utils';
+import { computeRSIDivergences } from '@/services/rsiDivergence';
 import {
   computeLinearRegression,
   computeMarketStructure,
@@ -26,6 +27,7 @@ interface DrawingOverlayProps {
   width: number;
   height: number;
   theme: 'dark' | 'light';
+  hasRsiDivIndicator?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
   onHitTestExpose?: (fn: (x: number, y: number) => string | null) => void;
   onRequestContextMenu?: (
@@ -102,6 +104,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   width,
   height,
   theme,
+  hasRsiDivIndicator = false,
   onCanvasReady,
   onHitTestExpose,
   onRequestContextMenu,
@@ -125,7 +128,16 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const updateDrawing = useTradingStore((s) => s.updateDrawing);
   const removeDrawing = useTradingStore((s) => s.removeDrawing);
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
+  const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
   const chartSettings = useTradingStore((s) => s.chartSettings);
+
+  const alerts = useTradingStore((s) => s.alerts);
+  const positions = useTradingStore((s) => s.positions);
+  const updateAlertPrice = useTradingStore((s) => s.updateAlertPrice);
+  const updatePositionTPSL = useTradingStore((s) => s.updatePositionTPSL);
+
+  const backtestTrades = useTradingStore((s) => s.backtestTrades);
+  const showBacktestOnChart = useTradingStore((s) => s.showBacktestOnChart);
 
   const tfMeta = TIMEFRAME_MAP[timeframe];
   const tfSec = tfMeta.seconds;
@@ -159,6 +171,12 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     candles,
   ]);
 
+  const showRsiDivOverlay = smartOverlays.showRSIDivergence || hasRsiDivIndicator;
+  const rsiDivSignals = useMemo(() => {
+    if (!showRsiDivOverlay || candles.length < 30) return [];
+    return computeRSIDivergences(candles, rsiDivConfig);
+  }, [showRsiDivOverlay, candles, rsiDivConfig]);
+
   const [draftPoints, setDraftPoints] = useState<DrawingPoint[]>([]);
   const [cursorPoint, setCursorPoint] = useState<DrawingPoint | null>(null);
   const [rulerStart, setRulerStart] = useState<DrawingPoint | null>(null);
@@ -175,12 +193,19 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const brushPointsRef = useRef<DrawingPoint[]>([]);
 
   const [hoverInteractive, setHoverInteractive] = useState(false);
+  const [hoverLineDrag, setHoverLineDrag] = useState(false);
+
   const dragStateRef = useRef<{
     drawingId: string;
     mode: 'point' | 'move';
     pointIndex: number;
     startPointer: DrawingPoint;
     originalPoints: DrawingPoint[];
+  } | null>(null);
+
+  const dragOrderLineRef = useRef<{
+    kind: 'alert' | 'sl' | 'tp';
+    targetId: string;
   } | null>(null);
 
   useEffect(() => {
@@ -294,6 +319,46 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       return { x, y };
     },
     [timeToX, priceToY]
+  );
+
+  const hitTestOrderLines = useCallback(
+    (sy: number): { kind: 'alert' | 'sl' | 'tp'; targetId: string } | null => {
+      if (chartSettings.showAlertsOnChart) {
+        for (const a of alerts) {
+          if (!a.active || a.symbol !== symbol) continue;
+          const ay = priceToY(a.price);
+          if (ay !== null && Math.abs(sy - ay) <= 6) {
+            return { kind: 'alert', targetId: a.id };
+          }
+        }
+      }
+      if (chartSettings.showPositionsOnChart) {
+        for (const pos of positions) {
+          if (pos.symbol !== symbol) continue;
+          if (pos.stopLoss) {
+            const sly = priceToY(pos.stopLoss);
+            if (sly !== null && Math.abs(sy - sly) <= 6) {
+              return { kind: 'sl', targetId: pos.id };
+            }
+          }
+          if (pos.takeProfit) {
+            const tpy = priceToY(pos.takeProfit);
+            if (tpy !== null && Math.abs(sy - tpy) <= 6) {
+              return { kind: 'tp', targetId: pos.id };
+            }
+          }
+        }
+      }
+      return null;
+    },
+    [
+      alerts,
+      positions,
+      symbol,
+      priceToY,
+      chartSettings.showAlertsOnChart,
+      chartSettings.showPositionsOnChart,
+    ]
   );
 
   const hitTestDrawings = useCallback(
@@ -414,17 +479,24 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     if (!parent) return;
 
     const onProbeMove = (ev: MouseEvent) => {
-      if (activeTool !== 'cursor' || dragStateRef.current) return;
+      if (activeTool !== 'cursor' || dragStateRef.current || dragOrderLineRef.current) return;
       const rect = parent.getBoundingClientRect();
       const x = ev.clientX - rect.left;
       const y = ev.clientY - rect.top;
       const hit = hitTestDrawings(x, y);
-      setHoverInteractive(Boolean(hit));
+      if (hit) {
+        setHoverInteractive(true);
+        setHoverLineDrag(false);
+        return;
+      }
+      const lineHit = hitTestOrderLines(y);
+      setHoverInteractive(false);
+      setHoverLineDrag(Boolean(lineHit));
     };
 
     parent.addEventListener('mousemove', onProbeMove);
     return () => parent.removeEventListener('mousemove', onProbeMove);
-  }, [activeTool, hitTestDrawings]);
+  }, [activeTool, hitTestDrawings, hitTestOrderLines]);
 
   const finishToolUsage = useCallback(() => {
     if (!stayInDrawingMode) {
@@ -452,7 +524,74 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const plotRight = isLeftScale ? width : Math.max(0, width - 70);
     const chartPlotWidth = Math.max(0, plotRight - plotLeft);
 
-    // Smart Overlays Layer
+    // 0. TRADING SESSIONS / KILLZONES & DAILY OPEN
+    if (smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
+      ctx.save();
+      let prevBucket = '';
+      let bandStartX: number | null = null;
+
+      const drawSessionBand = (x1: number, x2: number, sess: string) => {
+        const w = Math.max(2, x2 - x1);
+        if (sess === 'ASIA') ctx.fillStyle = 'rgba(99, 102, 241, 0.06)';
+        else if (sess === 'LONDON') ctx.fillStyle = 'rgba(6, 182, 212, 0.07)';
+        else if (sess === 'NY') ctx.fillStyle = 'rgba(245, 158, 11, 0.07)';
+        else return;
+        ctx.fillRect(x1, 0, w, height);
+        ctx.font = '700 9px Inter, sans-serif';
+        ctx.fillStyle =
+          sess === 'ASIA' ? '#818CF8' : sess === 'LONDON' ? '#22D3EE' : '#FBBF24';
+        if (w > 24) ctx.fillText(sess, x1 + 4, height - 34);
+      };
+
+      const getSess = (utcHour: number) => {
+        if (utcHour >= 0 && utcHour < 7) return 'ASIA';
+        if (utcHour >= 7 && utcHour < 13) return 'LONDON';
+        if (utcHour >= 13 && utcHour < 21) return 'NY';
+        return '';
+      };
+
+      for (let i = Math.max(0, candles.length - 260); i < candles.length; i++) {
+        const c = candles[i];
+        const hr = new Date(c.time * 1000).getUTCHours();
+        const s = getSess(hr);
+        const x = timeToX(c.time);
+        if (x === null) continue;
+        if (s !== prevBucket) {
+          if (prevBucket && bandStartX !== null) drawSessionBand(bandStartX, x, prevBucket);
+          prevBucket = s;
+          bandStartX = x;
+        }
+        if (i === candles.length - 1 && prevBucket && bandStartX !== null) {
+          drawSessionBand(bandStartX, x + 6, prevBucket);
+        }
+      }
+      ctx.restore();
+    }
+
+    if (smartOverlays.showDailyOpen && candles.length > 0) {
+      const latestDay = Math.floor(candles[candles.length - 1].time / 86400);
+      const dayOpenBar = candles.find((c) => Math.floor(c.time / 86400) === latestDay);
+      if (dayOpenBar) {
+        const x0 = timeToX(dayOpenBar.time);
+        const y0 = priceToY(dayOpenBar.open);
+        if (x0 !== null && y0 !== null) {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(Math.max(plotLeft, x0), y0);
+          ctx.lineTo(plotRight, y0);
+          ctx.stroke();
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = '#38BDF8';
+          ctx.fillText(`DO ${formatPrice(dayOpenBar.open, precision)}`, plotRight - 115, y0 - 4);
+          ctx.restore();
+        }
+      }
+    }
+
+    // 1. SMART AI OVERLAYS (VPVR, FVG, Auto S/R, BOS/CHoCH, Trendlines)
     if (vpvrData && smartOverlays.showVPVR) {
       const maxBarW = Math.min(130, chartPlotWidth * 0.22);
       const rightEdge = plotRight - 2;
@@ -596,6 +735,203 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       }
     }
 
+    // -----------------------------------------------------------------------
+    // 2. RSI DIVERGENCE PRO RENDERER (REGULAR / EXAGGERATED / HIDDEN)
+    // -----------------------------------------------------------------------
+    if (showRsiDivOverlay && rsiDivSignals.length > 0) {
+      ctx.save();
+      for (const sig of rsiDivSignals) {
+        const sp1 = toScreen({ time: sig.p1Time, price: sig.p1Price });
+        const sp2 = toScreen({ time: sig.p2Time, price: sig.p2Price });
+        if (!sp1 || !sp2) continue;
+
+        const isBull = sig.direction === 'bull';
+        const baseColor =
+          sig.kind === 'regular'
+            ? isBull
+              ? '#00D4AA'
+              : '#F23645'
+            : sig.kind === 'exaggerated'
+            ? '#F59E0B'
+            : '#A855F7';
+
+        // Connect Divergence Price Pivots
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(sp1.x, sp1.y);
+        ctx.lineTo(sp2.x, sp2.y);
+        ctx.stroke();
+
+        // Divergence Label Pill at P2
+        const shortKind =
+          sig.kind === 'regular' ? 'REG' : sig.kind === 'exaggerated' ? 'EXAG' : 'HID';
+        const badgeText = `${shortKind} ${isBull ? 'BULL' : 'BEAR'}`;
+        ctx.font = '700 9px Inter, sans-serif';
+        const bw = ctx.measureText(badgeText).width + 10;
+        const by = isBull ? sp2.y + 8 : sp2.y - 22;
+        ctx.fillStyle = baseColor;
+        ctx.beginPath();
+        ctx.roundRect(sp2.x - bw / 2, by, bw, 15, 4);
+        ctx.fill();
+        ctx.fillStyle = '#0B0E14';
+        ctx.fillText(badgeText, sp2.x - bw / 2 + 5, by + 10.5);
+
+        // Regular & Exaggerated -> Trendline Body-Break Line + Valid Entry + SL/TP
+        if ((sig.kind === 'regular' || sig.kind === 'exaggerated') && sig.trendline) {
+          const tl1 = toScreen({ time: sig.trendline.t1, price: sig.trendline.p1 });
+          const tl2 = toScreen({ time: sig.trendline.t2, price: sig.trendline.p2 });
+          if (tl1 && tl2) {
+            ctx.strokeStyle = '#38BDF8';
+            ctx.lineWidth = 1.4;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(tl1.x, tl1.y);
+            ctx.lineTo(tl2.x, tl2.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
+
+        // Hidden Divergence -> Previous High/Low Fib Retracement + Golden Ratio Zone
+        if (sig.kind === 'hidden' && sig.fibSetup) {
+          const fx1 = timeToX(sig.fibSetup.startTime);
+          const fx2 = timeToX(sig.fibSetup.endTime);
+          const gTopY = priceToY(sig.fibSetup.goldenTop);
+          const gBotY = priceToY(sig.fibSetup.goldenBot);
+          const gMidY = priceToY(sig.fibSetup.goldenMid);
+          const hiY = priceToY(sig.fibSetup.prevHigh);
+          const loY = priceToY(sig.fibSetup.prevLow);
+
+          if (fx1 !== null && fx2 !== null && gTopY !== null && gBotY !== null) {
+            const boxX = Math.min(fx1, fx2);
+            const boxW = Math.max(70, Math.abs(fx2 - fx1));
+
+            // 0 & 1.0 Prev High / Prev Low boundaries
+            if (hiY !== null && loY !== null) {
+              ctx.strokeStyle = 'rgba(168, 85, 247, 0.35)';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([2, 3]);
+              ctx.beginPath();
+              ctx.moveTo(boxX, hiY);
+              ctx.lineTo(boxX + boxW, hiY);
+              ctx.moveTo(boxX, loY);
+              ctx.lineTo(boxX + boxW, loY);
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+
+            // Shaded Golden Ratio Pocket (0.50 - 0.618 - 0.65)
+            const gTop = Math.min(gTopY, gBotY);
+            const gH = Math.max(4, Math.abs(gBotY - gTopY));
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.22)';
+            ctx.fillRect(boxX, gTop, boxW, gH);
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX, gTop, boxW, gH);
+
+            if (gMidY !== null) {
+              ctx.font = '700 9px "JetBrains Mono", monospace';
+              ctx.fillStyle = '#FBBF24';
+              ctx.fillText(
+                `0.618 GOLDEN ${formatPrice(sig.fibSetup.goldenMid, precision)}`,
+                boxX + 4,
+                gMidY - 3
+              );
+            }
+          }
+        }
+
+        // Entry & SL / TP markers on valid setups (only recent 6 signals for visual clarity)
+        const ep = toScreen({ time: sig.entryTime, price: sig.entryPrice });
+        const slY = priceToY(sig.stopLoss);
+        const tpY = priceToY(sig.takeProfit);
+
+        if (ep && sig.valid) {
+          ctx.fillStyle = isBull ? '#089981' : '#F23645';
+          const tag =
+            sig.kind === 'hidden'
+              ? `GOLDEN ${isBull ? 'BUY' : 'SELL'}`
+              : `VALID ${shortKind} ${isBull ? 'BUY' : 'SELL'}`;
+          ctx.font = '700 9px Inter, sans-serif';
+          const tw = ctx.measureText(tag).width + 10;
+          const ty = isBull ? ep.y + 14 : ep.y - 26;
+          ctx.beginPath();
+          ctx.roundRect(ep.x - tw / 2, ty, tw, 16, 4);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillText(tag, ep.x - tw / 2 + 5, ty + 11);
+
+          // SL & TP ticks extending 40px from entry
+          if (slY !== null) {
+            ctx.strokeStyle = '#F23645';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(ep.x, slY);
+            ctx.lineTo(ep.x + 48, slY);
+            ctx.stroke();
+            ctx.font = '700 9px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#F23645';
+            ctx.fillText('SL', ep.x + 50, slY + 3);
+          }
+          if (tpY !== null) {
+            ctx.strokeStyle = '#089981';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(ep.x, tpY);
+            ctx.lineTo(ep.x + 48, tpY);
+            ctx.stroke();
+            ctx.font = '700 9px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#089981';
+            ctx.fillText('TP', ep.x + 50, tpY + 3);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. BACKTESTER TRADE MARKERS ON CHART
+    // -----------------------------------------------------------------------
+    if (showBacktestOnChart && backtestTrades.length > 0) {
+      ctx.save();
+      for (const bt of backtestTrades) {
+        const ent = toScreen({ time: bt.entryTime, price: bt.entryPrice });
+        const ext = toScreen({ time: bt.exitTime, price: bt.exitPrice });
+        if (ent) {
+          const isBuy = bt.side === 'buy';
+          ctx.fillStyle = isBuy ? '#00D4AA' : '#F23645';
+          ctx.beginPath();
+          if (isBuy) {
+            ctx.moveTo(ent.x, ent.y + 6);
+            ctx.lineTo(ent.x - 5, ent.y + 15);
+            ctx.lineTo(ent.x + 5, ent.y + 15);
+          } else {
+            ctx.moveTo(ent.x, ent.y - 6);
+            ctx.lineTo(ent.x - 5, ent.y - 15);
+            ctx.lineTo(ent.x + 5, ent.y - 15);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (ent && ext) {
+          ctx.strokeStyle = bt.pnlUsd >= 0 ? 'rgba(0,212,170,0.45)' : 'rgba(242,54,69,0.45)';
+          ctx.setLineDash([3, 3]);
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(ent.x, ent.y);
+          ctx.lineTo(ext.x, ext.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.restore();
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. 43 INTERACTIVE USER DRAWINGS
+    // -----------------------------------------------------------------------
     const drawSingle = (
       type: Exclude<DrawingToolType, 'cursor' | 'eraser'>,
       ptsData: DrawingPoint[],
@@ -734,12 +1070,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.moveTo(pts[0].x, 0);
         ctx.lineTo(pts[0].x, height);
         ctx.stroke();
-        if (obj?.text) {
-          ctx.setLineDash([]);
-          ctx.font = fontSpec;
-          ctx.fillStyle = txtCol;
-          ctx.fillText(obj.text, pts[0].x + 6, 36);
-        }
       } else if (type === 'cross_line' && pts.length >= 1) {
         ctx.beginPath();
         ctx.moveTo(0, pts[0].y);
@@ -1543,6 +1873,10 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     vpvrData,
     structureData,
     smartOverlays,
+    showRsiDivOverlay,
+    rsiDivSignals,
+    showBacktestOnChart,
+    backtestTrades,
     chartSettings.priceScalePosition,
   ]);
 
@@ -1606,10 +1940,18 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             originalPoints: target.points.map((pt) => ({ ...pt })),
           };
           e.currentTarget.setPointerCapture(e.pointerId);
+          return;
         }
-      } else {
-        setSelectedDrawingId(null);
       }
+
+      const lineHit = hitTestOrderLines(y);
+      if (lineHit) {
+        dragOrderLineRef.current = lineHit;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      setSelectedDrawingId(null);
       return;
     }
 
@@ -1700,6 +2042,26 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    if (dragOrderLineRef.current && series) {
+      const rawPrice = series.coordinateToPrice(y);
+      if (rawPrice === null) return;
+      const nextPrice = Math.max(0.000001, Number(Number(rawPrice).toFixed(precision)));
+      const { kind, targetId } = dragOrderLineRef.current;
+      if (kind === 'alert') {
+        updateAlertPrice(targetId, nextPrice);
+      } else {
+        const pos = positions.find((p) => p.id === targetId);
+        if (pos) {
+          updatePositionTPSL(
+            pos.id,
+            kind === 'sl' ? nextPrice : pos.stopLoss,
+            kind === 'tp' ? nextPrice : pos.takeProfit
+          );
+        }
+      }
+      return;
+    }
+
     if (dragStateRef.current) {
       const pt = screenToData(x, y, true);
       if (!pt) return;
@@ -1740,6 +2102,14 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragOrderLineRef.current) {
+      dragOrderLineRef.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      return;
+    }
+
     if (dragStateRef.current) {
       dragStateRef.current = null;
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -1840,7 +2210,11 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
   const activeToolMeta = DRAWING_TOOLS_CATALOG.find((t) => t.id === activeTool);
   const isCanvasInteractive =
-    activeTool !== 'cursor' || hoverInteractive || Boolean(dragStateRef.current);
+    activeTool !== 'cursor' ||
+    hoverInteractive ||
+    hoverLineDrag ||
+    Boolean(dragStateRef.current) ||
+    Boolean(dragOrderLineRef.current);
 
   return (
     <>
@@ -1857,6 +2231,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             ? 'pointer-events-auto cursor-cell'
             : activeTool !== 'cursor'
             ? 'pointer-events-auto cursor-crosshair'
+            : hoverLineDrag || dragOrderLineRef.current
+            ? 'pointer-events-auto cursor-ns-resize'
             : isCanvasInteractive
             ? 'pointer-events-auto cursor-grab active:cursor-grabbing'
             : 'pointer-events-none'

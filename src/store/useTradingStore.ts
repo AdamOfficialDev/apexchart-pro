@@ -1,11 +1,17 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { INDICATOR_CATALOG, getSymbolInfo } from '@/data/symbols';
+import {
+  DEFAULT_CHART_TEMPLATES,
+  INDICATOR_CATALOG,
+  getSymbolInfo,
+} from '@/data/symbols';
 import { generateId } from '@/lib/utils';
 import {
+  BacktestTrade,
   ChartPaneConfig,
   ChartSettings,
   ChartStyleType,
+  ChartTemplate,
   ClosedTrade,
   DataFeedConfig,
   DrawingObject,
@@ -20,6 +26,7 @@ import {
   PaperPosition,
   PendingOrder,
   PriceAlert,
+  RSIDivergenceConfig,
   ReplayState,
   ScaleMode,
   SmartOverlaySettings,
@@ -28,7 +35,7 @@ import {
 } from '@/types/trading';
 
 export type RightSidebarTab = 'watchlist' | 'orderbook' | 'alerts' | 'technicals' | 'objects' | null;
-export type BottomPanelTab = 'positions' | 'orders' | 'history' | 'trade';
+export type BottomPanelTab = 'positions' | 'orders' | 'history' | 'trade' | 'backtest';
 
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   upColor: '#089981',
@@ -94,6 +101,22 @@ export const DEFAULT_SMART_OVERLAYS: SmartOverlaySettings = {
   showFVG: false,
   showAutoSR: false,
   showAutoTrendlines: false,
+  showRSIDivergence: true,
+  showSessions: false,
+  showDailyOpen: false,
+};
+
+export const DEFAULT_RSI_DIV_CONFIG: RSIDivergenceConfig = {
+  rsiPeriod: 14,
+  pivotLeft: 4,
+  pivotRight: 3,
+  enableRegular: true,
+  enableExaggerated: true,
+  enableHidden: true,
+  doubleTopTolerancePct: 0.35,
+  goldenRatioMin: 0.5,
+  goldenRatioTarget: 0.618,
+  goldenRatioMax: 0.65,
 };
 
 export const DEFAULT_DATA_FEED: DataFeedConfig = {
@@ -137,11 +160,12 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
     timeframe: '15m',
     chartStyle: 'candles',
     scaleMode: 'normal',
+    compareSymbol: null,
     indicators: [
       createIndicatorInstance('EMA', { period: 21 }, '#2962FF'),
       createIndicatorInstance('EMA', { period: 55 }, '#F59E0B'),
       createIndicatorInstance('VOLUME'),
-      createIndicatorInstance('RSI', { period: 14 }, '#A855F7'),
+      createIndicatorInstance('RSI_DIV', { period: 14 }, '#A855F7'),
     ],
   },
   {
@@ -150,6 +174,7 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
     timeframe: '15m',
     chartStyle: 'candles',
     scaleMode: 'normal',
+    compareSymbol: null,
     indicators: [
       createIndicatorInstance('EMA', { period: 21 }, '#06B6D4'),
       createIndicatorInstance('VOLUME'),
@@ -161,10 +186,8 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
     timeframe: '1h',
     chartStyle: 'candles',
     scaleMode: 'normal',
-    indicators: [
-      createIndicatorInstance('VWAP'),
-      createIndicatorInstance('VOLUME'),
-    ],
+    compareSymbol: null,
+    indicators: [createIndicatorInstance('VWAP'), createIndicatorInstance('VOLUME')],
   },
   {
     id: 'pane-4',
@@ -172,10 +195,8 @@ const DEFAULT_PANES: ChartPaneConfig[] = [
     timeframe: '5m',
     chartStyle: 'candles',
     scaleMode: 'normal',
-    indicators: [
-      createIndicatorInstance('BB', { period: 20, stdDev: 2 }),
-      createIndicatorInstance('VOLUME'),
-    ],
+    compareSymbol: null,
+    indicators: [createIndicatorInstance('BB', { period: 20, stdDev: 2 }), createIndicatorInstance('VOLUME')],
   },
 ];
 
@@ -198,6 +219,9 @@ interface TradingStore {
   resetChartSettings: () => void;
   smartOverlays: SmartOverlaySettings;
   updateSmartOverlays: (patch: Partial<SmartOverlaySettings>) => void;
+  rsiDivConfig: RSIDivergenceConfig;
+  updateRsiDivConfig: (patch: Partial<RSIDivergenceConfig>) => void;
+  resetRsiDivConfig: () => void;
   dataFeed: DataFeedConfig;
   updateDataFeed: (patch: Partial<DataFeedConfig>) => void;
 
@@ -207,6 +231,8 @@ interface TradingStore {
   setBottomPanelOpen: (open: boolean) => void;
   bottomPanelTab: BottomPanelTab;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
+  panelSizes: { rightWidth: number; bottomHeight: number; subPaneHeight: number };
+  updatePanelSizes: (patch: Partial<{ rightWidth: number; bottomHeight: number; subPaneHeight: number }>) => void;
 
   searchModalOpen: boolean;
   setSearchModalOpen: (open: boolean) => void;
@@ -214,6 +240,10 @@ interface TradingStore {
   setIndicatorsModalOpen: (open: boolean) => void;
   shortcutsModalOpen: boolean;
   setShortcutsModalOpen: (open: boolean) => void;
+  compareModalOpen: boolean;
+  setCompareModalOpen: (open: boolean) => void;
+  templatesModalOpen: boolean;
+  setTemplatesModalOpen: (open: boolean) => void;
   chartSettingsModalOpen: boolean;
   setChartSettingsModalOpen: (open: boolean) => void;
   chartSettingsInitialTab: 'symbol' | 'status' | 'scales' | 'canvas' | 'trading' | 'feeds';
@@ -227,6 +257,8 @@ interface TradingStore {
 
   layout: LayoutType;
   setLayout: (layout: LayoutType) => void;
+  maximizedPaneId: string | null;
+  setMaximizedPaneId: (id: string | null) => void;
   panes: ChartPaneConfig[];
   activePaneId: string;
   setActivePaneId: (paneId: string) => void;
@@ -245,6 +277,18 @@ interface TradingStore {
   updatePaneTimeframe: (paneId: string, timeframe: TimeframeId) => void;
   updatePaneChartStyle: (paneId: string, chartStyle: ChartStyleType) => void;
   updatePaneScaleMode: (paneId: string, scaleMode: ScaleMode) => void;
+  setPaneCompareSymbol: (paneId: string, compareSymbol: string | null) => void;
+
+  // Templates
+  chartTemplates: ChartTemplate[];
+  saveChartTemplate: (name: string, paneId: string) => void;
+  applyChartTemplate: (paneId: string, templateId: string) => void;
+  deleteChartTemplate: (templateId: string) => void;
+
+  // Backtester Chart Markers
+  backtestTrades: BacktestTrade[];
+  showBacktestOnChart: boolean;
+  setBacktestOverlay: (trades: BacktestTrade[], visible: boolean) => void;
 
   addIndicator: (paneId: string, type: IndicatorType) => void;
   removeIndicator: (paneId: string, indicatorId: string) => void;
@@ -300,11 +344,13 @@ interface TradingStore {
     symbol: string,
     price: number,
     source?: FeedSourceType,
-    volume?: number
+    volume?: number,
+    overrideChangePct?: number
   ) => void;
 
   alerts: PriceAlert[];
   addAlert: (alert: Omit<PriceAlert, 'id' | 'active' | 'createdAt'>) => void;
+  updateAlertPrice: (id: string, price: number) => void;
   toggleAlert: (id: string) => void;
   removeAlert: (id: string) => void;
   markAlertTriggered: (id: string) => void;
@@ -371,6 +417,13 @@ export const useTradingStore = create<TradingStore>()(
           smartOverlays: { ...state.smartOverlays, ...patch },
         })),
 
+      rsiDivConfig: DEFAULT_RSI_DIV_CONFIG,
+      updateRsiDivConfig: (patch) =>
+        set((state) => ({
+          rsiDivConfig: { ...state.rsiDivConfig, ...patch },
+        })),
+      resetRsiDivConfig: () => set({ rsiDivConfig: DEFAULT_RSI_DIV_CONFIG }),
+
       dataFeed: DEFAULT_DATA_FEED,
       updateDataFeed: (patch) =>
         set((state) => ({
@@ -383,6 +436,11 @@ export const useTradingStore = create<TradingStore>()(
       setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
       bottomPanelTab: 'positions',
       setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+      panelSizes: { rightWidth: 288, bottomHeight: 256, subPaneHeight: 112 },
+      updatePanelSizes: (patch) =>
+        set((state) => ({
+          panelSizes: { ...state.panelSizes, ...patch },
+        })),
 
       searchModalOpen: false,
       setSearchModalOpen: (open) => set({ searchModalOpen: open }),
@@ -390,6 +448,10 @@ export const useTradingStore = create<TradingStore>()(
       setIndicatorsModalOpen: (open) => set({ indicatorsModalOpen: open }),
       shortcutsModalOpen: false,
       setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+      compareModalOpen: false,
+      setCompareModalOpen: (open) => set({ compareModalOpen: open }),
+      templatesModalOpen: false,
+      setTemplatesModalOpen: (open) => set({ templatesModalOpen: open }),
       chartSettingsModalOpen: false,
       setChartSettingsModalOpen: (open) => set({ chartSettingsModalOpen: open }),
       chartSettingsInitialTab: 'symbol',
@@ -404,7 +466,9 @@ export const useTradingStore = create<TradingStore>()(
         set((s) => ({ snapshotRequestCounter: s.snapshotRequestCounter + 1 })),
 
       layout: '1x1',
-      setLayout: (layout) => set({ layout }),
+      setLayout: (layout) => set({ layout, maximizedPaneId: null }),
+      maximizedPaneId: null,
+      setMaximizedPaneId: (maximizedPaneId) => set({ maximizedPaneId }),
       panes: DEFAULT_PANES,
       activePaneId: 'pane-1',
       setActivePaneId: (paneId) => set({ activePaneId: paneId }),
@@ -452,6 +516,61 @@ export const useTradingStore = create<TradingStore>()(
         set((state) => ({
           panes: state.panes.map((p) => (p.id === paneId ? { ...p, scaleMode } : p)),
         })),
+
+      setPaneCompareSymbol: (paneId, compareSymbol) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId ? { ...p, compareSymbol } : p
+          ),
+        })),
+
+      chartTemplates: DEFAULT_CHART_TEMPLATES,
+      saveChartTemplate: (name, paneId) => {
+        const pane = get().panes.find((p) => p.id === paneId);
+        if (!pane || !name.trim()) return;
+        const tpl: ChartTemplate = {
+          id: generateId('tpl'),
+          name: name.trim(),
+          chartStyle: pane.chartStyle,
+          indicators: pane.indicators.map(({ id: _id, ...rest }) => ({ ...rest })),
+          smartOverlays: { ...get().smartOverlays },
+        };
+        set((state) => ({
+          chartTemplates: [tpl, ...state.chartTemplates],
+        }));
+        get().addToast({ title: `Template Saved: ${tpl.name}`, variant: 'success' });
+      },
+
+      applyChartTemplate: (paneId, templateId) => {
+        const tpl = get().chartTemplates.find((t) => t.id === templateId);
+        if (!tpl) return;
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  chartStyle: tpl.chartStyle,
+                  indicators: tpl.indicators.map((ind) => ({
+                    ...ind,
+                    id: generateId('ind'),
+                  })),
+                }
+              : p
+          ),
+          smartOverlays: { ...tpl.smartOverlays },
+        }));
+        get().addToast({ title: `Template Applied: ${tpl.name}`, variant: 'info' });
+      },
+
+      deleteChartTemplate: (templateId) =>
+        set((state) => ({
+          chartTemplates: state.chartTemplates.filter((t) => t.id !== templateId),
+        })),
+
+      backtestTrades: [],
+      showBacktestOnChart: false,
+      setBacktestOverlay: (backtestTrades, showBacktestOnChart) =>
+        set({ backtestTrades, showBacktestOnChart }),
 
       addIndicator: (paneId, type) =>
         set((state) => ({
@@ -780,13 +899,21 @@ export const useTradingStore = create<TradingStore>()(
         }),
 
       quotes: {},
-      updateQuote: (symbol, price, source = 'simulated', volume = 0) =>
+      updateQuote: (symbol, price, source = 'simulated', volume = 0, overrideChangePct) =>
         set((state) => {
           const prev = state.quotes[symbol];
           const info = getSymbolInfo(symbol);
-          const prevClose = prev?.prevClose ?? info.basePrice;
+          const prevClose =
+            overrideChangePct !== undefined
+              ? price / Math.max(1 + overrideChangePct / 100, 1e-6)
+              : prev?.prevClose ?? info.basePrice;
           const change = price - prevClose;
-          const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+          const changePercent =
+            overrideChangePct !== undefined
+              ? overrideChangePct
+              : prevClose > 0
+              ? (change / prevClose) * 100
+              : 0;
           const spark = prev?.sparkline ? [...prev.sparkline, price].slice(-24) : [price];
 
           return {
@@ -820,6 +947,11 @@ export const useTradingStore = create<TradingStore>()(
             },
             ...state.alerts,
           ],
+        })),
+
+      updateAlertPrice: (id, price) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) => (a.id === id ? { ...a, price } : a)),
         })),
 
       toggleAlert: (id) =>
@@ -1013,12 +1145,15 @@ export const useTradingStore = create<TradingStore>()(
         })),
     }),
     {
-      name: 'apexchart-pro-storage-v4',
+      name: 'apexchart-pro-storage-v5',
       partialize: (state) => ({
         theme: state.theme,
         chartSettings: state.chartSettings,
         smartOverlays: state.smartOverlays,
+        rsiDivConfig: state.rsiDivConfig,
         dataFeed: state.dataFeed,
+        panelSizes: state.panelSizes,
+        chartTemplates: state.chartTemplates,
         layout: state.layout,
         panes: state.panes,
         activePaneId: state.activePaneId,

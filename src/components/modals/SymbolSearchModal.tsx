@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
-import { SYMBOLS } from '@/data/symbols';
+import { PlusCircle, Search, X } from 'lucide-react';
+import { getSymbolInfo, SYMBOLS } from '@/data/symbols';
 import { cn, formatPrice } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
 import { MarketCategory } from '@/types/trading';
@@ -12,11 +12,15 @@ export const SymbolSearchModal: React.FC = () => {
   const setOpen = useTradingStore((s) => s.setSearchModalOpen);
   const activePaneId = useTradingStore((s) => s.activePaneId);
   const updatePaneSymbol = useTradingStore((s) => s.updatePaneSymbol);
+  const watchlist = useTradingStore((s) => s.watchlist);
+  const toggleWatchlistSymbol = useTradingStore((s) => s.toggleWatchlistSymbol);
   const quotes = useTradingStore((s) => s.quotes);
 
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState<'All' | MarketCategory>('All');
   const [selectedIdx, setSelectedIdx] = useState(0);
+
+  const cleanQuery = query.trim().toUpperCase().replace(/\s+/g, '');
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -32,6 +36,19 @@ export const SymbolSearchModal: React.FC = () => {
     });
   }, [query, cat]);
 
+  const exactMatchExists = useMemo(
+    () =>
+      SYMBOLS.some(
+        (s) => s.symbol.toUpperCase() === cleanQuery || s.displaySymbol.toUpperCase() === cleanQuery
+      ),
+    [cleanQuery]
+  );
+
+  const customPreview = useMemo(
+    () => (cleanQuery.length >= 2 && !exactMatchExists ? getSymbolInfo(cleanQuery) : null),
+    [cleanQuery, exactMatchExists]
+  );
+
   useEffect(() => {
     setSelectedIdx(0);
   }, [query, cat, open]);
@@ -42,6 +59,14 @@ export const SymbolSearchModal: React.FC = () => {
     updatePaneSymbol(activePaneId, symbol);
     setOpen(false);
     setQuery('');
+  };
+
+  const addAndChooseCustom = () => {
+    if (!customPreview) return;
+    if (!watchlist.includes(customPreview.symbol)) {
+      toggleWatchlistSymbol(customPreview.symbol);
+    }
+    choose(customPreview.symbol);
   };
 
   return (
@@ -66,11 +91,12 @@ export const SymbolSearchModal: React.FC = () => {
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setSelectedIdx((i) => Math.max(0, i - 1));
-              } else if (e.key === 'Enter' && results[selectedIdx]) {
-                choose(results[selectedIdx].symbol);
+              } else if (e.key === 'Enter') {
+                if (results[selectedIdx]) choose(results[selectedIdx].symbol);
+                else if (customPreview) addAndChooseCustom();
               }
             }}
-            placeholder="Search Crypto, Forex, US Stocks, IDX, Gold..."
+            placeholder="Search or type ANY ticker (e.g. PEPEUSDT, SUIUSDT, MSFT, ADRO.JK)..."
             className="flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-[#787B86] dark:text-[#D1D4DC]"
           />
           <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
@@ -96,8 +122,32 @@ export const SymbolSearchModal: React.FC = () => {
         </div>
 
         <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/60">
-          {results.length === 0 ? (
-            <div className="p-8 text-center text-xs text-[#787B86]">No matching instruments found.</div>
+          {customPreview && (
+            <button
+              onClick={addAndChooseCustom}
+              className="flex w-full items-center justify-between bg-[#00D4AA]/10 px-4 py-2.5 text-left hover:bg-[#00D4AA]/20"
+            >
+              <div className="flex items-center gap-2.5">
+                <PlusCircle className="h-4 w-4 text-[#00D4AA]" />
+                <div>
+                  <div className="text-xs font-bold text-[#00D4AA]">
+                    Load Custom Ticker: {customPreview.displaySymbol}
+                  </div>
+                  <div className="text-[10px] text-[#787B86]">
+                    {customPreview.description} • Auto-added to Watchlist
+                  </div>
+                </div>
+              </div>
+              <span className="rounded bg-[#00D4AA]/20 px-2 py-0.5 text-[10px] font-bold text-[#00D4AA]">
+                {customPreview.exchange}
+              </span>
+            </button>
+          )}
+
+          {results.length === 0 && !customPreview ? (
+            <div className="p-8 text-center text-xs text-[#787B86]">
+              Type any ticker symbol (like PEPEUSDT, MSFT, ADRO.JK, AUDUSD) to load dynamically.
+            </div>
           ) : (
             results.map((s, idx) => {
               const q = quotes[s.symbol];
