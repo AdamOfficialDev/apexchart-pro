@@ -5,7 +5,46 @@ const BINANCE_REST_BASE = 'https://data-api.binance.vision/api/v3';
 const BINANCE_WS_BASE = 'wss://data-stream.binance.vision/ws';
 const TWELVE_REST_BASE = 'https://api.twelvedata.com';
 const TWELVE_WS_BASE = 'wss://ws.twelvedata.com/v1/quotes/price';
+
 const FX_RATE_CACHE: { rates?: Record<string, number>; fetchedAt?: number } = {};
+const SERVER_CLOCK: { offsetSec: number; syncedAt: number } = { offsetSec: 0, syncedAt: 0 };
+
+export function getServerClockOffsetSec(): number {
+  return SERVER_CLOCK.offsetSec;
+}
+
+export function getServerNowSec(): number {
+  return Math.floor(Date.now() / 1000) + SERVER_CLOCK.offsetSec;
+}
+
+function updateServerOffsetFromServerTime(serverTimeSec: number) {
+  if (!Number.isFinite(serverTimeSec) || serverTimeSec < 1600000000) return;
+  const localSec = Math.floor(Date.now() / 1000);
+  SERVER_CLOCK.offsetSec = serverTimeSec - localSec;
+  SERVER_CLOCK.syncedAt = Date.now();
+}
+
+async function syncServerClock(): Promise<number> {
+  if (Date.now() - SERVER_CLOCK.syncedAt < 300000 && SERVER_CLOCK.syncedAt > 0) {
+    return getServerNowSec();
+  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 2500);
+  try {
+    const res = await fetch(`${BINANCE_REST_BASE}/time`, { signal: controller.signal });
+    if (res.ok) {
+      const json = (await res.json()) as { serverTime?: number };
+      if (json.serverTime) {
+        updateServerOffsetFromServerTime(Math.floor(json.serverTime / 1000));
+      }
+    }
+  } catch {
+    // Fallback gracefully to local clock offset 0
+  } finally {
+    window.clearTimeout(timer);
+  }
+  return getServerNowSec();
+}
 
 function createSeededRng(seedStr: string) {
   let h = 2166136261 >>> 0;
@@ -104,8 +143,9 @@ export function generateSyntheticCandles(
   endAnchorPrice?: number
 ): Candle[] {
   const tfSec = TIMEFRAME_MAP[timeframe].seconds;
-  const nowBucket = Math.floor((endAnchorTimeSec ?? Math.floor(Date.now() / 1000)) / tfSec) * tfSec;
-  const rng = createSeededRng(`${symbolInfo.symbol}-${timeframe}`);
+  const anchorSec = endAnchorTimeSec ?? getServerNowSec();
+  const nowBucket = Math.floor(anchorSec / tfSec) * tfSec;
+  const rng = createSeededRng(`${symbolInfo.symbol}-${timeframe}-${nowBucket}`);
 
   const stepScale = Math.sqrt(tfSec / 86400);
   const stepVol = Math.max(symbolInfo.volatility * stepScale, symbolInfo.volatility * 0.045);
@@ -184,17 +224,19 @@ function aggregateCandles(source: Candle[], targetTfSec: number): Candle[] {
 async function fetchBinanceKlines(
   binanceSymbol: string,
   interval: string,
-  limit: number
+  limit: number,
+  endTimeMs?: number
 ): Promise<Candle[]> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 3800);
+  const timer = window.setTimeout(() => controller.abort(), 4500);
 
   try {
-    const url = `${BINANCE_REST_BASE}/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
+    const endParam = endTimeMs ? `&endTime=${endTimeMs}` : '';
+    const url = `${BINANCE_REST_BASE}/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}${endParam}`;
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as unknown[][];
-    if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
+    if (!Array.isArray(data) || data.length === 0) return [];
 
     const map = new Map<number, Candle>();
     for (const row of data) {
@@ -214,26 +256,57 @@ async function fetchBinanceKlines(
   }
 }
 
+async function fetchBinanceDeepKlines(
+  binanceSymbol: string,
+  interval: string,
+  batches = 2,
+  initialEndMs?: number
+): Promise<Candle[]> {
+  const merged = new Map<number, Candle>();
+  let endMs = initialEndMs;
+
+  for (let i = 0; i < batches; i++) {
+    const chunk = await fetchBinanceKlines(binanceSymbol, interval, 1000, endMs);
+    if (chunk.length === 0) break;
+    for (const c of chunk) merged.set(c.time, c);
+    endMs = chunk[0].time * 1000 - 1;
+    if (chunk.length < 950) break;
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.time - b.time);
+}
+
 function parseTwelveDatetimeToUnixSec(dtStr: string): number {
   const iso = dtStr.includes(' ') ? dtStr.replace(' ', 'T') + 'Z' : dtStr + 'T00:00:00Z';
   const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : getServerNowSec();
+}
+
+function formatUnixSecToTwelveDate(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 async function fetchTwelveDataKlines(
   tdSymbol: string,
   interval: string,
   apiKey: string,
-  outputsize = 380
+  outputsize = 1800,
+  endDateSec?: number
 ): Promise<Candle[]> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 5000);
+  const timer = window.setTimeout(() => controller.abort(), 6000);
   try {
+    const endParam = endDateSec
+      ? `&end_date=${encodeURIComponent(formatUnixSecToTwelveDate(endDateSec))}`
+      : '';
+    // Explicitly enforce timezone=UTC so REST bars align 1:1 with WS UTC Unix timestamps!
     const url = `${TWELVE_REST_BASE}/time_series?symbol=${encodeURIComponent(
       tdSymbol
-    )}&interval=${encodeURIComponent(interval)}&outputsize=${outputsize}&apikey=${encodeURIComponent(
-      apiKey
-    )}`;
+    )}&interval=${encodeURIComponent(
+      interval
+    )}&outputsize=${outputsize}&timezone=UTC${endParam}&apikey=${encodeURIComponent(apiKey)}`;
+
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`Twelve Data HTTP ${res.status}`);
     const json = (await res.json()) as {
@@ -296,6 +369,8 @@ export async function fetchHistoricalCandles(
   const tdKey = feedConfig?.twelveDataApiKey?.trim() || '';
   let tdWarning: string | undefined;
 
+  const serverNowSec = await syncServerClock();
+
   const shouldTryTwelveData =
     Boolean(tdKey) &&
     Boolean(info.twelveDataSymbol) &&
@@ -304,20 +379,20 @@ export async function fetchHistoricalCandles(
   if (shouldTryTwelveData && info.twelveDataSymbol) {
     try {
       const interval = tfMeta.twelveDataInterval ?? '1min';
-      const raw = await fetchTwelveDataKlines(
-        info.twelveDataSymbol,
-        interval,
-        tdKey,
-        Math.min(500, tfMeta.defaultBars)
-      );
+      const reqSize = tfMeta.seconds < 60 ? 300 : Math.min(2500, tfMeta.defaultBars);
+      const raw = await fetchTwelveDataKlines(info.twelveDataSymbol, interval, tdKey, reqSize);
+
       if (raw.length > 0) {
         if (tfMeta.seconds < 60) {
+          // Anchor sub-minute synthetic history to TRUE UTC server time (never skewed local PC clock!)
           const lastBar = raw[raw.length - 1];
+          const isMarketOpen = serverNowSec - lastBar.time < 900;
+          const anchorTime = isMarketOpen ? serverNowSec : lastBar.time + 59;
           const synth = generateSyntheticCandles(
             info,
             timeframe,
             tfMeta.defaultBars,
-            Math.floor(Date.now() / 1000),
+            anchorTime,
             lastBar.close
           );
           return { candles: synth, source: 'twelvedata' };
@@ -341,16 +416,19 @@ export async function fetchHistoricalCandles(
     const resolvedSource: FeedSourceType = info.symbol === 'XAUUSD' ? 'gold-proxy' : 'binance';
     try {
       if (tfMeta.binanceInterval) {
-        const candles = await fetchBinanceKlines(
+        const batches = tfMeta.seconds >= 86400 ? 2 : 2;
+        const candles = await fetchBinanceDeepKlines(
           info.binanceSymbol,
           tfMeta.binanceInterval,
-          Math.min(1000, tfMeta.defaultBars)
+          batches
         );
-        return { candles, source: resolvedSource, warning: tdWarning };
+        if (candles.length > 0) {
+          return { candles, source: resolvedSource, warning: tdWarning };
+        }
       }
 
       if (tfMeta.seconds < 60) {
-        const raw1s = await fetchBinanceKlines(info.binanceSymbol, '1s', 1000);
+        const raw1s = await fetchBinanceDeepKlines(info.binanceSymbol, '1s', 2);
         const aggregated = aggregateCandles(raw1s, tfMeta.seconds);
         if (aggregated.length > 0) {
           const neededPrefix = Math.max(0, tfMeta.defaultBars - aggregated.length);
@@ -375,7 +453,7 @@ export async function fetchHistoricalCandles(
       }
 
       if (timeframe === '45m') {
-        const raw15m = await fetchBinanceKlines(info.binanceSymbol, '15m', 1000);
+        const raw15m = await fetchBinanceDeepKlines(info.binanceSymbol, '15m', 2);
         const aggregated = aggregateCandles(raw15m, tfMeta.seconds);
         if (aggregated.length > 0) {
           return { candles: aggregated, source: resolvedSource, warning: tdWarning };
@@ -392,12 +470,91 @@ export async function fetchHistoricalCandles(
       info,
       timeframe,
       tfMeta.defaultBars,
-      undefined,
+      serverNowSec,
       fxAnchor ?? info.basePrice
     ),
     source: 'simulated',
     warning: tdWarning,
   };
+}
+
+// Infinite Scroll-Left Historical Backfill (loads older bars seamlessly!)
+export async function fetchOlderCandles(
+  symbol: string,
+  timeframe: TimeframeId,
+  oldestCandle: Candle,
+  feedConfig?: DataFeedConfig
+): Promise<Candle[]> {
+  const info = getSymbolInfo(symbol);
+  const tfMeta = TIMEFRAME_MAP[timeframe];
+  const tdKey = feedConfig?.twelveDataApiKey?.trim() || '';
+
+  const shouldTryTwelveData =
+    Boolean(tdKey) &&
+    Boolean(info.twelveDataSymbol) &&
+    (feedConfig?.preferTwelveData || !info.binanceSymbol || info.symbol === 'XAUUSD');
+
+  if (shouldTryTwelveData && info.twelveDataSymbol) {
+    try {
+      if (tfMeta.seconds >= 60) {
+        const interval = tfMeta.twelveDataInterval ?? '1min';
+        const older = await fetchTwelveDataKlines(
+          info.twelveDataSymbol,
+          interval,
+          tdKey,
+          1500,
+          oldestCandle.time - 1
+        );
+        const mapped = timeframe === '3m' ? aggregateCandles(older, 180) : older;
+        const filtered = mapped.filter((c) => c.time < oldestCandle.time);
+        if (filtered.length > 0) return filtered;
+      }
+    } catch {
+      // Fallback below
+    }
+  }
+
+  const allowBinance =
+    Boolean(info.binanceSymbol) &&
+    (info.symbol !== 'XAUUSD' || feedConfig?.useGoldProxyWhenNoKey !== false);
+
+  if (allowBinance && info.binanceSymbol) {
+    try {
+      const endMs = oldestCandle.time * 1000 - 1;
+      if (tfMeta.binanceInterval) {
+        const chunk = await fetchBinanceKlines(
+          info.binanceSymbol,
+          tfMeta.binanceInterval,
+          1000,
+          endMs
+        );
+        const filtered = chunk.filter((c) => c.time < oldestCandle.time);
+        if (filtered.length > 0) return filtered;
+      } else if (timeframe === '45m') {
+        const chunk15m = await fetchBinanceKlines(info.binanceSymbol, '15m', 1000, endMs);
+        const agg = aggregateCandles(chunk15m, tfMeta.seconds).filter(
+          (c) => c.time < oldestCandle.time
+        );
+        if (agg.length > 0) return agg;
+      } else if (tfMeta.seconds < 60) {
+        const chunk1s = await fetchBinanceKlines(info.binanceSymbol, '1s', 1000, endMs);
+        const agg = aggregateCandles(chunk1s, tfMeta.seconds).filter(
+          (c) => c.time < oldestCandle.time
+        );
+        if (agg.length > 0) return agg;
+      }
+    } catch {
+      // Fallback synthetic older history
+    }
+  }
+
+  return generateSyntheticCandles(
+    info,
+    timeframe,
+    800,
+    oldestCandle.time - tfMeta.seconds,
+    oldestCandle.open
+  ).filter((c) => c.time < oldestCandle.time);
 }
 
 export function subscribeLiveTicks(
@@ -413,8 +570,14 @@ export function subscribeLiveTicks(
 
   let disposed = false;
   let currentBar: Candle = { ...initialLastCandle };
+  let activeSource: FeedSourceType = 'simulated';
+  let hasReceivedLiveStream = false;
+  let lastLiveMsgLocalMs = Date.now();
+
   let ws: WebSocket | null = null;
   let simTimer: number | null = null;
+  let rolloverTimer: number | null = null;
+  let tdRestPollTimer: number | null = null;
   let wsHandshakeTimeout: number | null = null;
 
   const processTrade = (
@@ -424,8 +587,22 @@ export function subscribeLiveTicks(
     source: FeedSourceType
   ) => {
     if (disposed) return;
+    activeSource = source;
+
+    // Keep global server clock synchronized from live WS timestamps!
+    if (source === 'binance' || source === 'gold-proxy' || source === 'twelvedata') {
+      updateServerOffsetFromServerTime(tradeTimeSec);
+      hasReceivedLiveStream = true;
+      lastLiveMsgLocalMs = Date.now();
+    }
+
     const roundedPrice = roundToPrecision(price, info.precision);
-    const bucketTime = Math.floor(tradeTimeSec / tfSec) * tfSec;
+    let bucketTime = Math.floor(tradeTimeSec / tfSec) * tfSec;
+
+    // Clock-skew protection: never freeze on an old bucket if historical candle was anchored slightly ahead
+    if (bucketTime < currentBar.time && currentBar.time - bucketTime <= tfSec * 2) {
+      bucketTime = currentBar.time;
+    }
 
     if (bucketTime > currentBar.time) {
       currentBar = {
@@ -436,7 +613,7 @@ export function subscribeLiveTicks(
         close: roundedPrice,
         volume: qty,
       };
-    } else {
+    } else if (bucketTime === currentBar.time) {
       currentBar = {
         ...currentBar,
         high: Math.max(currentBar.high, roundedPrice),
@@ -444,9 +621,39 @@ export function subscribeLiveTicks(
         close: roundedPrice,
         volume: currentBar.volume + qty,
       };
+    } else {
+      // Extreme skew safeguard: jump forward to live server bucket
+      currentBar = {
+        time: bucketTime,
+        open: roundedPrice,
+        high: roundedPrice,
+        low: roundedPrice,
+        close: roundedPrice,
+        volume: qty,
+      };
     }
+
     onTick(currentBar, source);
   };
+
+  // Dedicated 500ms Auto-Rollover Watchdog:
+  // Guarantees a NEW candle opens the exact instant a 1s / 5s / 1m / 3m bucket ends!
+  rolloverTimer = window.setInterval(() => {
+    if (disposed || !hasReceivedLiveStream) return;
+    const nowServer = getServerNowSec();
+    const expectedBucket = Math.floor(nowServer / tfSec) * tfSec;
+    if (expectedBucket > currentBar.time && expectedBucket - currentBar.time <= tfSec * 4) {
+      currentBar = {
+        time: expectedBucket,
+        open: currentBar.close,
+        high: currentBar.close,
+        low: currentBar.close,
+        close: currentBar.close,
+        volume: 0,
+      };
+      onTick(currentBar, activeSource);
+    }
+  }, 450);
 
   const startSimulator = () => {
     if (disposed || simTimer !== null) return;
@@ -465,7 +672,7 @@ export function subscribeLiveTicks(
         (info.category === 'Crypto' ? 1.5 : info.category === 'IDX' ? 2500 : 120) *
           (0.2 + Math.random() * 1.8)
       );
-      processTrade(nextPrice, qty, Math.floor(Date.now() / 1000), 'simulated');
+      processTrade(nextPrice, qty, getServerNowSec(), 'simulated');
     }, intervalMs);
   };
 
@@ -509,12 +716,12 @@ export function subscribeLiveTicks(
               window.clearTimeout(wsHandshakeTimeout);
               wsHandshakeTimeout = null;
             }
-            processTrade(
-              msg.price,
-              msg.day_volume ? 10 : 5,
-              msg.timestamp ?? Math.floor(Date.now() / 1000),
-              'twelvedata'
-            );
+            const ts = msg.timestamp
+              ? msg.timestamp > 1e12
+                ? Math.floor(msg.timestamp / 1000)
+                : msg.timestamp
+              : getServerNowSec();
+            processTrade(msg.price, msg.day_volume ? 10 : 5, ts, 'twelvedata');
           }
         } catch {
           // ignore
@@ -527,6 +734,28 @@ export function subscribeLiveTicks(
       ws.onclose = () => {
         if (!disposed && !receivedPrice) startSimulator();
       };
+
+      // Twelve Data REST backup poll if WS goes quiet > 14s (respecting 8 calls/min free quota)
+      tdRestPollTimer = window.setInterval(async () => {
+        if (disposed || !receivedPrice) return;
+        if (Date.now() - lastLiveMsgLocalMs < 14000) return;
+        try {
+          const r = await fetch(
+            `${TWELVE_REST_BASE}/price?symbol=${encodeURIComponent(
+              info.twelveDataSymbol!
+            )}&apikey=${encodeURIComponent(tdKey)}`
+          );
+          if (r.ok) {
+            const j = (await r.json()) as { price?: string };
+            const p = Number(j.price);
+            if (Number.isFinite(p) && p > 0) {
+              processTrade(p, 5, getServerNowSec(), 'twelvedata');
+            }
+          }
+        } catch {
+          // ignore transient poll errors
+        }
+      }, 15000);
     } catch {
       startSimulator();
     }
@@ -590,6 +819,8 @@ export function subscribeLiveTicks(
     disposed = true;
     if (wsHandshakeTimeout !== null) window.clearTimeout(wsHandshakeTimeout);
     if (simTimer !== null) window.clearInterval(simTimer);
+    if (rolloverTimer !== null) window.clearInterval(rolloverTimer);
+    if (tdRestPollTimer !== null) window.clearInterval(tdRestPollTimer);
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       ws.close();
     }

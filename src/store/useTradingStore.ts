@@ -279,13 +279,11 @@ interface TradingStore {
   updatePaneScaleMode: (paneId: string, scaleMode: ScaleMode) => void;
   setPaneCompareSymbol: (paneId: string, compareSymbol: string | null) => void;
 
-  // Templates
   chartTemplates: ChartTemplate[];
   saveChartTemplate: (name: string, paneId: string) => void;
   applyChartTemplate: (paneId: string, templateId: string) => void;
   deleteChartTemplate: (templateId: string) => void;
 
-  // Backtester Chart Markers
   backtestTrades: BacktestTrade[];
   showBacktestOnChart: boolean;
   setBacktestOverlay: (trades: BacktestTrade[], visible: boolean) => void;
@@ -1146,15 +1144,27 @@ export const useTradingStore = create<TradingStore>()(
     }),
     {
       name: 'apexchart-pro-storage-v5',
+      version: 2,
+      migrate: (persistedState) => persistedState as TradingStore,
+      onRehydrateStorage: () => (state) => {
+        if (state && typeof document !== 'undefined') {
+          document.documentElement.classList.toggle('dark', state.theme === 'dark');
+        }
+      },
+      // Persist ALL workspace UI, sidebar visibility, drawing prefs, settings, & paper account!
       partialize: (state) => ({
         theme: state.theme,
         chartSettings: state.chartSettings,
         smartOverlays: state.smartOverlays,
         rsiDivConfig: state.rsiDivConfig,
         dataFeed: state.dataFeed,
+        rightSidebarTab: state.rightSidebarTab,
+        bottomPanelOpen: state.bottomPanelOpen,
+        bottomPanelTab: state.bottomPanelTab,
         panelSizes: state.panelSizes,
         chartTemplates: state.chartTemplates,
         layout: state.layout,
+        maximizedPaneId: state.maximizedPaneId,
         panes: state.panes,
         activePaneId: state.activePaneId,
         favoriteTimeframes: state.favoriteTimeframes,
@@ -1164,6 +1174,14 @@ export const useTradingStore = create<TradingStore>()(
         watchlist: state.watchlist,
         drawingsBySymbol: state.drawingsBySymbol,
         groupDefaultTools: state.groupDefaultTools,
+        drawingColor: state.drawingColor,
+        drawingLineWidth: state.drawingLineWidth,
+        drawingLineStyle: state.drawingLineStyle,
+        stayInDrawingMode: state.stayInDrawingMode,
+        magnetMode: state.magnetMode,
+        drawingsLocked: state.drawingsLocked,
+        drawingsVisible: state.drawingsVisible,
+        showBacktestOnChart: state.showBacktestOnChart,
         alerts: state.alerts,
         paperBalance: state.paperBalance,
         positions: state.positions,

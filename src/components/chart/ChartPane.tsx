@@ -6,6 +6,7 @@ import {
   IPriceLine,
   ISeriesApi,
   LineStyle,
+  LogicalRange,
   PriceScaleMode,
   TickMarkType,
   Time,
@@ -53,7 +54,12 @@ import {
   computeSupertrend,
   computeVWAP,
 } from '@/services/indicators';
-import { fetchHistoricalCandles, subscribeLiveTicks } from '@/services/marketData';
+import {
+  fetchHistoricalCandles,
+  fetchOlderCandles,
+  getServerNowSec,
+  subscribeLiveTicks,
+} from '@/services/marketData';
 import { useTradingStore } from '@/store/useTradingStore';
 import {
   Candle,
@@ -187,15 +193,20 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const hitTestDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
   const isExternalCrosshairRef = useRef(false);
 
-  // Coalesced tick refs for high-frequency WS performance
   const pendingTickRef = useRef<{ candle: Candle; source: FeedSourceType } | null>(null);
   const flushTimerRef = useRef<number | null>(null);
+
+  // Infinite Scroll-Left History Backfill refs
+  const loadingMoreRef = useRef(false);
+  const lastBackfillMsRef = useRef(0);
+  const pendingRangeShiftRef = useRef<{ prevRange: LogicalRange; addedCount: number } | null>(null);
 
   const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
   const [fullCandles, setFullCandles] = useState<Candle[]>([]);
   const [compareCandles, setCompareCandles] = useState<Candle[]>([]);
   const [dataSource, setDataSource] = useState<FeedSourceType>('simulated');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [hoveredBar, setHoveredBar] = useState<Candle | null>(null);
 
   const [legendExpanded, setLegendExpanded] = useState(true);
@@ -228,16 +239,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     return fullCandles;
   }, [fullCandles, isThisPaneInReplay, replay.isSelectingStart, replay.currentIndex]);
 
+  // Server-Synced Countdown & World Timezone Clock
   useEffect(() => {
     const tickClock = () => {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const nextClose = (Math.floor(nowSec / tfMeta.seconds) + 1) * tfMeta.seconds;
-      setCountdownText(formatCountdown(nextClose - nowSec));
-      const timeStr = formatTimeInOffset(nowSec, tzPreset.offsetMinutes, false, true);
+      const nowServerSec = getServerNowSec();
+      const nextClose = (Math.floor(nowServerSec / tfMeta.seconds) + 1) * tfMeta.seconds;
+      setCountdownText(formatCountdown(nextClose - nowServerSec));
+      const timeStr = formatTimeInOffset(nowServerSec, tzPreset.offsetMinutes, false, true);
       setClockText(`${timeStr} (${tzPreset.short})`);
     };
     tickClock();
-    const id = window.setInterval(tickClock, 1000);
+    const id = window.setInterval(tickClock, 500);
     return () => window.clearInterval(id);
   }, [tfMeta.seconds, tzPreset]);
 
@@ -251,7 +263,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     setLastPriceY(coord !== null ? Number(coord) : null);
   }, [displayCandles]);
 
-  // 1. Initialize Chart
+  // 1. Initialize Chart (attributionLogo: false removes TradingView logo!)
   useEffect(() => {
     const el = mainContainerRef.current;
     if (!el) return;
@@ -267,6 +279,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       width: el.clientWidth,
       height: el.clientHeight,
       layout: {
+        attributionLogo: false,
         background:
           chartSettings.bgType === 'gradient'
             ? {
@@ -336,7 +349,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     };
   }, [theme]);
 
-  // Apply ChartSettings updates live
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -350,6 +362,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
     chart.applyOptions({
       layout: {
+        attributionLogo: false,
         background:
           chartSettings.bgType === 'gradient'
             ? {
@@ -449,11 +462,12 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
   }, [theme, chartSettings, tzPreset, tfMeta.seconds, pane.scaleMode]);
 
-  // 2. Fetch Historical Candles + explicit Twelve Data warning toast
+  // 2. Fetch Deep Historical Candles
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setHoveredBar(null);
+    loadingMoreRef.current = false;
 
     fetchHistoricalCandles(pane.symbol, pane.timeframe, dataFeed).then(
       ({ candles, source, warning }) => {
@@ -496,7 +510,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     dataFeed.useGoldProxyWhenNoKey,
   ]);
 
-  // Fetch Compare Symbol Candles when active
   useEffect(() => {
     let cancelled = false;
     if (!pane.compareSymbol) {
@@ -517,7 +530,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, fullCandles.length, setReplayTotalBars]);
 
-  // 3. Coalesced Live Tick Stream (batches rapid WebSocket trades at 120ms for 60fps!)
+  // 3. Coalesced Live Tick Stream + Auto-Rollover Support (8,000-bar history capacity!)
   useEffect(() => {
     if (loading || fullCandles.length === 0 || isThisPaneInReplay) return;
     const lastCandle = fullCandles[fullCandles.length - 1];
@@ -539,7 +552,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           return copy;
         }
         if (tickCandle.time > tail.time) {
-          return [...prev.slice(-799), tickCandle];
+          return [...prev.slice(-7999), tickCandle];
         }
         return prev;
       });
@@ -590,7 +603,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, replay.isSelectingStart, displayCandles, pane.symbol]);
 
-  // 4. Main Series Creation
+  // 4. Main Series
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -690,7 +703,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showSymbolAxisLabel,
   ]);
 
-  // 5. Feed Data & Reuse Overlay Indicator Series (NO removeSeries/addLineSeries on live ticks!)
+  // 5. Feed Data & Reuse Overlay Series + Restore Scroll Position After Prepend Backfill
   useEffect(() => {
     const chart = chartRef.current;
     const series = mainSeriesRef.current;
@@ -713,6 +726,16 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           close: c.close,
         }))
       );
+    }
+
+    // Preserve exact viewport after prepending older candles
+    if (pendingRangeShiftRef.current) {
+      const { prevRange, addedCount } = pendingRangeShiftRef.current;
+      pendingRangeShiftRef.current = null;
+      chart.timeScale().setVisibleLogicalRange({
+        from: prevRange.from + addedCount,
+        to: prevRange.to + addedCount,
+      });
     }
 
     refreshLastPriceY();
@@ -738,7 +761,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       })),
     });
 
-    // Rebuild series instances ONLY if overlay config changed
     if (overlaySignatureRef.current !== nextSig) {
       for (const list of overlaySeriesRef.current.values()) {
         for (const s of list) {
@@ -827,7 +849,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       }
     }
 
-    // Update data on reused series
     for (const ind of overlays) {
       const seriesList = overlaySeriesRef.current.get(ind.id);
       if (!seriesList || seriesList.length === 0) continue;
@@ -932,7 +953,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     refreshLastPriceY,
   ]);
 
-  // 5B. Compare Symbol Overlay Series
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -957,9 +977,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         priceFormat: { type: 'percent', precision: 2, minMove: 0.01 },
         priceLineVisible: false,
       });
-      cs.priceScale().applyOptions({
-        scaleMargins: { top: 0.14, bottom: 0.16 },
-      });
+      cs.priceScale().applyOptions({ scaleMargins: { top: 0.14, bottom: 0.16 } });
       compareSeriesRef.current = cs;
     }
 
@@ -1079,7 +1097,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showHighLowLines,
   ]);
 
-  // 7. Crosshair & Replay Click
+  // 7. Crosshair, Scroll-Left Infinite Backfill Trigger & Replay Click
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -1100,10 +1118,49 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       }
     };
 
-    const onRange = () => {
+    const onRange = (range: LogicalRange | null) => {
       refreshLastPriceY();
       const pos = chart.timeScale().scrollPosition();
       setScrolledAway(pos < -6);
+
+      // Infinite Scroll-Left History Backfill
+      if (
+        range &&
+        range.from < 20 &&
+        !loading &&
+        !loadingMoreRef.current &&
+        !isThisPaneInReplay &&
+        fullCandles.length > 0 &&
+        fullCandles.length < 8000 &&
+        Date.now() - lastBackfillMsRef.current > 1200
+      ) {
+        loadingMoreRef.current = true;
+        lastBackfillMsRef.current = Date.now();
+        setLoadingMore(true);
+        const oldest = fullCandles[0];
+        const snapRange = { ...range };
+
+        fetchOlderCandles(pane.symbol, pane.timeframe, oldest, dataFeed)
+          .then((older) => {
+            if (older.length > 0) {
+              setFullCandles((prev) => {
+                const map = new Map<number, Candle>();
+                for (const c of older) map.set(c.time, c);
+                for (const c of prev) map.set(c.time, c);
+                const merged = Array.from(map.values()).sort((a, b) => a.time - b.time);
+                const added = merged.length - prev.length;
+                if (added > 0) {
+                  pendingRangeShiftRef.current = { prevRange: snapRange, addedCount: added };
+                }
+                return merged;
+              });
+            }
+          })
+          .finally(() => {
+            loadingMoreRef.current = false;
+            setLoadingMore(false);
+          });
+      }
     };
 
     const onClick = (param: { time?: Time }) => {
@@ -1130,10 +1187,14 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   }, [
     displayCandles,
     fullCandles,
+    loading,
     syncCrosshair,
     isThisPaneInReplay,
     replay.isSelectingStart,
     pane.id,
+    pane.symbol,
+    pane.timeframe,
+    dataFeed,
     setActivePaneId,
     setSyncedCrosshairTime,
     startReplayAt,
@@ -1158,7 +1219,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     isExternalCrosshairRef.current = false;
   }, [syncedCrosshairTime, syncCrosshair, isActive, displayCandles]);
 
-  // 8. Export Snapshot
+  // 8. Snapshot
   const prevSnapshotRef = useRef(snapshotCounter);
   useEffect(() => {
     if (snapshotCounter === prevSnapshotRef.current) return;
@@ -1239,7 +1300,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     const range = chart.timeScale().getVisibleLogicalRange();
     if (!range) return;
     const span = range.to - range.from;
-    const nextSpan = Math.max(12, Math.min(600, span * factor));
+    const nextSpan = Math.max(12, Math.min(800, span * factor));
     const delta = nextSpan - span;
     chart.timeScale().setVisibleLogicalRange({
       from: range.from - delta * 0.7,
@@ -1350,7 +1411,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   };
 
   const handleDrawHLineAtPrice = (price: number, type: 'hline' | 'hray' = 'hline') => {
-    const t = displayCandles[displayCandles.length - 1]?.time ?? Math.floor(Date.now() / 1000);
+    const t = displayCandles[displayCandles.length - 1]?.time ?? getServerNowSec();
     addDrawing({
       id: generateId('drw'),
       symbol: pane.symbol,
@@ -1398,7 +1459,9 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
   const subPaneIndicators = pane.indicators.filter((i) => i.placement === 'subpane');
   const overlayIndicators = pane.indicators.filter((i) => i.placement === 'overlay');
-  const hasRsiDivIndicator = pane.indicators.some((i) => i.type === 'RSI_DIV' && i.visible);
+  const hasRsiDivIndicator = pane.indicators.some(
+    (i) => (i.type === 'RSI_DIV' || i.type === 'RSI') && i.visible
+  );
   const isLeftScale = chartSettings.priceScalePosition === 'left';
 
   return (
@@ -1441,7 +1504,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           </div>
         )}
 
-        {/* Maximize / Restore Pane Toggle in Multi-Chart Grids */}
         {(isMultiPane || isMaximized) && (
           <button
             onClick={(e) => {
@@ -1514,6 +1576,12 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               </button>
             )}
 
+            {loadingMore && (
+              <span className="inline-flex items-center gap-1 rounded bg-[#2962FF]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2962FF]">
+                Loading older bars...
+              </span>
+            )}
+
             {pane.compareSymbol && (
               <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
                 <GitCompare className="h-3 w-3" />
@@ -1572,6 +1640,9 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                     </span>
                   </span>
                 )}
+                <span className="text-[10px] text-[#787B86]">
+                  ({displayCandles.length} bars)
+                </span>
               </div>
             )}
 

@@ -71,23 +71,24 @@ export function getTimezonePreset(id: string): TimezonePreset {
   return TIMEZONE_PRESETS.find((t) => t.id === id) ?? TIMEZONE_PRESETS[0];
 }
 
+// Upgraded defaultBars to 1,500–2,000+ candles for deep charting & backtesting
 export const TIMEFRAMES: TimeframeMeta[] = [
-  { id: '1s', label: '1s', seconds: 1, group: 'Seconds', binanceInterval: '1s', defaultBars: 360 },
-  { id: '5s', label: '5s', seconds: 5, group: 'Seconds', defaultBars: 360 },
-  { id: '15s', label: '15s', seconds: 15, group: 'Seconds', defaultBars: 360 },
-  { id: '30s', label: '30s', seconds: 30, group: 'Seconds', defaultBars: 360 },
-  { id: '1m', label: '1m', seconds: 60, group: 'Minutes', binanceInterval: '1m', twelveDataInterval: '1min', defaultBars: 420 },
-  { id: '3m', label: '3m', seconds: 180, group: 'Minutes', binanceInterval: '3m', defaultBars: 400 },
-  { id: '5m', label: '5m', seconds: 300, group: 'Minutes', binanceInterval: '5m', twelveDataInterval: '5min', defaultBars: 400 },
-  { id: '15m', label: '15m', seconds: 900, group: 'Minutes', binanceInterval: '15m', twelveDataInterval: '15min', defaultBars: 400 },
-  { id: '30m', label: '30m', seconds: 1800, group: 'Minutes', binanceInterval: '30m', twelveDataInterval: '30min', defaultBars: 380 },
-  { id: '45m', label: '45m', seconds: 2700, group: 'Minutes', twelveDataInterval: '45min', defaultBars: 360 },
-  { id: '1h', label: '1h', seconds: 3600, group: 'Hours', binanceInterval: '1h', twelveDataInterval: '1h', defaultBars: 380 },
-  { id: '2h', label: '2h', seconds: 7200, group: 'Hours', binanceInterval: '2h', twelveDataInterval: '2h', defaultBars: 360 },
-  { id: '4h', label: '4h', seconds: 14400, group: 'Hours', binanceInterval: '4h', twelveDataInterval: '4h', defaultBars: 360 },
-  { id: '1D', label: '1D', seconds: 86400, group: 'Days & Above', binanceInterval: '1d', twelveDataInterval: '1day', defaultBars: 365 },
-  { id: '1W', label: '1W', seconds: 604800, group: 'Days & Above', binanceInterval: '1w', twelveDataInterval: '1week', defaultBars: 260 },
-  { id: '1M', label: '1M', seconds: 2592000, group: 'Days & Above', binanceInterval: '1M', twelveDataInterval: '1month', defaultBars: 160 },
+  { id: '1s', label: '1s', seconds: 1, group: 'Seconds', binanceInterval: '1s', defaultBars: 1000 },
+  { id: '5s', label: '5s', seconds: 5, group: 'Seconds', defaultBars: 1000 },
+  { id: '15s', label: '15s', seconds: 15, group: 'Seconds', defaultBars: 1000 },
+  { id: '30s', label: '30s', seconds: 30, group: 'Seconds', defaultBars: 1000 },
+  { id: '1m', label: '1m', seconds: 60, group: 'Minutes', binanceInterval: '1m', twelveDataInterval: '1min', defaultBars: 1500 },
+  { id: '3m', label: '3m', seconds: 180, group: 'Minutes', binanceInterval: '3m', defaultBars: 1500 },
+  { id: '5m', label: '5m', seconds: 300, group: 'Minutes', binanceInterval: '5m', twelveDataInterval: '5min', defaultBars: 1500 },
+  { id: '15m', label: '15m', seconds: 900, group: 'Minutes', binanceInterval: '15m', twelveDataInterval: '15min', defaultBars: 1500 },
+  { id: '30m', label: '30m', seconds: 1800, group: 'Minutes', binanceInterval: '30m', twelveDataInterval: '30min', defaultBars: 1500 },
+  { id: '45m', label: '45m', seconds: 2700, group: 'Minutes', twelveDataInterval: '45min', defaultBars: 1500 },
+  { id: '1h', label: '1h', seconds: 3600, group: 'Hours', binanceInterval: '1h', twelveDataInterval: '1h', defaultBars: 1500 },
+  { id: '2h', label: '2h', seconds: 7200, group: 'Hours', binanceInterval: '2h', twelveDataInterval: '2h', defaultBars: 1500 },
+  { id: '4h', label: '4h', seconds: 14400, group: 'Hours', binanceInterval: '4h', twelveDataInterval: '4h', defaultBars: 1500 },
+  { id: '1D', label: '1D', seconds: 86400, group: 'Days & Above', binanceInterval: '1d', twelveDataInterval: '1day', defaultBars: 1200 },
+  { id: '1W', label: '1W', seconds: 604800, group: 'Days & Above', binanceInterval: '1w', twelveDataInterval: '1week', defaultBars: 520 },
+  { id: '1M', label: '1M', seconds: 2592000, group: 'Days & Above', binanceInterval: '1M', twelveDataInterval: '1month', defaultBars: 240 },
 ];
 
 export const TIMEFRAME_MAP: Record<TimeframeId, TimeframeMeta> = TIMEFRAMES.reduce(
@@ -435,7 +436,6 @@ export const SYMBOLS: SymbolInfo[] = [
   },
 ];
 
-// Dynamically supports ANY custom ticker typed by the user!
 export function getSymbolInfo(rawSymbol: string): SymbolInfo {
   const clean = rawSymbol.trim().toUpperCase().replace(/\s+/g, '');
   const found = SYMBOLS.find(
@@ -443,7 +443,6 @@ export function getSymbolInfo(rawSymbol: string): SymbolInfo {
   );
   if (found) return found;
 
-  // Crypto pairs (e.g. PEPEUSDT, SUIUSDT, LINKUSDT, BTCUSD)
   if (clean.endsWith('USDT') || clean.endsWith('USDC') || clean.endsWith('FDUSD')) {
     const base = clean.replace(/(USDT|USDC|FDUSD)$/, '');
     const isMicro = base === 'PEPE' || base === 'SHIB' || base === 'BONK' || base === 'FLOKI';
@@ -464,7 +463,6 @@ export function getSymbolInfo(rawSymbol: string): SymbolInfo {
     };
   }
 
-  // Indonesian IDX Equities (e.g. ADRO.JK, ASII.JK)
   if (clean.endsWith('.JK')) {
     const code = clean.replace('.JK', '');
     return {
@@ -483,7 +481,6 @@ export function getSymbolInfo(rawSymbol: string): SymbolInfo {
     };
   }
 
-  // 6-letter FX pairs (e.g. AUDUSD, USDCAD, EURJPY)
   if (/^[A-Z]{6}$/.test(clean)) {
     const b = clean.slice(0, 3);
     const q = clean.slice(3, 6);
@@ -505,7 +502,6 @@ export function getSymbolInfo(rawSymbol: string): SymbolInfo {
     };
   }
 
-  // Default US Stock / Custom Ticker
   return {
     symbol: clean,
     displaySymbol: clean,
@@ -664,40 +660,10 @@ export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
     name: 'RSI Divergence Hunter (Reg / Exag / Hid)',
     chartStyle: 'candles',
     indicators: [
-      {
-        type: 'EMA',
-        name: 'EMA',
-        placement: 'overlay',
-        visible: true,
-        color: '#2962FF',
-        params: { period: 50 },
-      },
-      {
-        type: 'EMA',
-        name: 'EMA',
-        placement: 'overlay',
-        visible: true,
-        color: '#F59E0B',
-        params: { period: 200 },
-      },
-      {
-        type: 'VOLUME',
-        name: 'Vol',
-        placement: 'overlay',
-        visible: true,
-        color: '#089981',
-        params: {},
-      },
-      {
-        type: 'RSI_DIV',
-        name: 'RSI Div Pro',
-        placement: 'subpane',
-        visible: true,
-        color: '#A855F7',
-        params: { period: 14 },
-        upperLevel: 70,
-        lowerLevel: 30,
-      },
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#2962FF', params: { period: 50 } },
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#F59E0B', params: { period: 200 } },
+      { type: 'VOLUME', name: 'Vol', placement: 'overlay', visible: true, color: '#089981', params: {} },
+      { type: 'RSI_DIV', name: 'RSI Div Pro', placement: 'subpane', visible: true, color: '#A855F7', params: { period: 14 }, upperLevel: 70, lowerLevel: 30 },
     ],
     smartOverlays: {
       showVPVR: false,
@@ -715,22 +681,8 @@ export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
     name: 'SMC / ICT Gold & FX Killzones',
     chartStyle: 'candles',
     indicators: [
-      {
-        type: 'VWAP',
-        name: 'VWAP',
-        placement: 'overlay',
-        visible: true,
-        color: '#EC4899',
-        params: {},
-      },
-      {
-        type: 'VOLUME',
-        name: 'Vol',
-        placement: 'overlay',
-        visible: true,
-        color: '#089981',
-        params: {},
-      },
+      { type: 'VWAP', name: 'VWAP', placement: 'overlay', visible: true, color: '#EC4899', params: {} },
+      { type: 'VOLUME', name: 'Vol', placement: 'overlay', visible: true, color: '#089981', params: {} },
     ],
     smartOverlays: {
       showVPVR: true,
@@ -748,32 +700,9 @@ export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
     name: 'EMA + Supertrend + MACD Momentum',
     chartStyle: 'heikin_ashi',
     indicators: [
-      {
-        type: 'EMA',
-        name: 'EMA',
-        placement: 'overlay',
-        visible: true,
-        color: '#2962FF',
-        params: { period: 21 },
-      },
-      {
-        type: 'SUPERTREND',
-        name: 'ST',
-        placement: 'overlay',
-        visible: true,
-        color: '#089981',
-        secondaryColor: '#F23645',
-        params: { period: 10, multiplier: 3 },
-      },
-      {
-        type: 'MACD',
-        name: 'MACD',
-        placement: 'subpane',
-        visible: true,
-        color: '#2962FF',
-        secondaryColor: '#F97316',
-        params: { fast: 12, slow: 26, signal: 9 },
-      },
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#2962FF', params: { period: 21 } },
+      { type: 'SUPERTREND', name: 'ST', placement: 'overlay', visible: true, color: '#089981', secondaryColor: '#F23645', params: { period: 10, multiplier: 3 } },
+      { type: 'MACD', name: 'MACD', placement: 'subpane', visible: true, color: '#2962FF', secondaryColor: '#F97316', params: { fast: 12, slow: 26, signal: 9 } },
     ],
     smartOverlays: {
       showVPVR: false,

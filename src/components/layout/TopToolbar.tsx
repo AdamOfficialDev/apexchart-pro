@@ -21,7 +21,6 @@ import {
   Sparkles,
   Star,
   Sun,
-  Unlock,
   Zap,
 } from 'lucide-react';
 import { getSymbolInfo, TIMEFRAMES } from '@/data/symbols';
@@ -127,40 +126,38 @@ export const TopToolbar: React.FC = () => {
       ref={navRef}
       className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
     >
+      {/* Left Cluster */}
       <div className="flex min-w-0 items-center gap-1">
-        <div className="hidden xl:flex items-center gap-1.5 pr-2">
+        {/* Brand Emblem (full title on wide screens, crisp icon on laptop) */}
+        <div className="hidden sm:flex shrink-0 items-center gap-1.5 pr-1">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#2962FF] to-[#00D4AA] text-white">
             <Sparkles className="h-3.5 w-3.5" />
           </div>
-          <span className="text-xs font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
+          <span className="hidden 2xl:inline whitespace-nowrap text-xs font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
             ApexChart
-          </span>
-          <span className="inline-flex items-center gap-0.5 rounded bg-[#089981]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
-            <Unlock className="h-2.5 w-2.5" />
-            V4
           </span>
         </div>
 
         {/* Symbol Search */}
         <button
           onClick={() => setSearchModalOpen(true)}
-          className="flex items-center gap-2 rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
         >
-          <Search className="h-3.5 w-3.5 text-[#787B86]" />
+          <Search className="h-3.5 w-3.5 shrink-0 text-[#787B86]" />
           <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
             {symbolInfo.displaySymbol}
           </span>
           {liveQuote && (
             <span
               className={cn(
-                'hidden sm:inline font-mono text-[11px] font-semibold tabular-nums',
+                'hidden md:inline font-mono text-[11px] font-semibold tabular-nums',
                 liveQuote.changePercent >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
               )}
             >
               {formatPrice(liveQuote.price, symbolInfo.precision)}
             </span>
           )}
-          <kbd className="hidden md:inline rounded border border-slate-200 px-1 py-[1px] font-mono text-[9px] text-[#787B86] dark:border-[#2A2E39]">
+          <kbd className="hidden 2xl:inline rounded border border-slate-200 px-1 py-[1px] font-mono text-[9px] text-[#787B86] dark:border-[#2A2E39]">
             ⌘K
           </kbd>
         </button>
@@ -170,7 +167,7 @@ export const TopToolbar: React.FC = () => {
           onClick={() => setCompareModalOpen(true)}
           title="Compare / Overlay Symbol (%)"
           className={cn(
-            'hidden sm:inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium transition',
+            'hidden sm:inline-flex shrink-0 items-center justify-center rounded p-1.5 transition',
             activePane.compareSymbol
               ? 'bg-amber-500/15 text-amber-400'
               : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
@@ -179,17 +176,17 @@ export const TopToolbar: React.FC = () => {
           <GitCompare className="h-3.5 w-3.5" />
         </button>
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+        <div className="h-5 w-px shrink-0 bg-slate-200 dark:bg-[#2A2E39]" />
 
         {/* All Timeframes */}
-        <div className="relative flex items-center gap-0.5">
-          <div className="hidden lg:flex items-center gap-0.5">
+        <div className="relative flex shrink-0 items-center gap-0.5">
+          <div className="hidden xl:flex items-center gap-0.5">
             {orderedFavorites.map((tf) => (
               <button
                 key={tf.id}
                 onClick={() => updatePaneTimeframe(activePane.id, tf.id)}
                 className={cn(
-                  'rounded px-1.5 py-1 font-mono text-[11px] font-medium transition',
+                  'shrink-0 whitespace-nowrap rounded px-1.5 py-1 font-mono text-[11px] font-medium transition',
                   activePane.timeframe === tf.id
                     ? 'bg-[#2962FF]/15 text-[#2962FF] font-bold'
                     : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
@@ -204,13 +201,15 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setOpenMenu(openMenu === 'tf' ? null : 'tf')}
             title="All Timeframes (Seconds to Monthly)"
             className={cn(
-              'flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium transition',
+              'flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-xs font-medium transition',
               openMenu === 'tf'
                 ? 'bg-[#2962FF]/15 text-[#2962FF]'
                 : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
             )}
           >
-            <span className="lg:hidden font-mono font-semibold">{activePane.timeframe}</span>
+            <span className="xl:hidden font-mono font-bold text-[#2962FF]">
+              {activePane.timeframe}
+            </span>
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
 
@@ -282,17 +281,17 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+        <div className="h-5 w-px shrink-0 bg-slate-200 dark:bg-[#2A2E39]" />
 
         {/* Chart Type */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
             title="Chart Style"
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+            className="flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
           >
-            <CandlestickChart className="h-4 w-4 text-[#2962FF]" />
-            <span className="hidden md:inline">
+            <CandlestickChart className="h-4 w-4 shrink-0 text-[#2962FF]" />
+            <span className="hidden 2xl:inline">
               {CHART_STYLES.find((c) => c.id === activePane.chartStyle)?.label}
             </span>
             <ChevronDown className="h-3 w-3 text-[#787B86]" />
@@ -322,33 +321,35 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-[#2A2E39]" />
+        <div className="h-5 w-px shrink-0 bg-slate-200 dark:bg-[#2A2E39]" />
 
+        {/* Unlimited Indicators */}
         <button
           onClick={() => setIndicatorsModalOpen(true)}
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+          title="Indicators & Strategies"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
         >
-          <Activity className="h-3.5 w-3.5 text-[#00D4AA]" />
-          <span className="hidden sm:inline">Indicators</span>
+          <Activity className="h-3.5 w-3.5 shrink-0 text-[#00D4AA]" />
+          <span className="hidden lg:inline">Indicators</span>
           <span className="rounded bg-[#2962FF]/15 px-1 font-mono text-[10px] font-bold text-[#2962FF]">
             {activePane.indicators.length}
           </span>
         </button>
 
-        {/* Smart AI + RSI Divergence Pro + Sessions Menu */}
-        <div className="relative">
+        {/* Smart AI + RSI Divergence Pro + Sessions */}
+        <div className="relative shrink-0">
           <button
             onClick={() => setOpenMenu(openMenu === 'smart' ? null : 'smart')}
             title="Smart AI Overlays, RSI Divergence Pro & Sessions"
             className={cn(
-              'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-semibold transition',
+              'flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition',
               activeSmartCount > 0 || openMenu === 'smart'
                 ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
                 : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
             )}
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Smart AI</span>
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden lg:inline">Smart AI</span>
             {activeSmartCount > 0 && (
               <span className="rounded bg-[#00D4AA] px-1 font-mono text-[10px] font-bold text-slate-950">
                 {activeSmartCount}
@@ -439,73 +440,75 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
-        {/* Chart Templates */}
+        {/* Templates */}
         <button
           onClick={() => setTemplatesModalOpen(true)}
           title="Chart & Indicator Templates"
-          className="hidden lg:inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+          className="hidden md:inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
         >
-          <Bookmark className="h-3.5 w-3.5 text-[#2962FF]" />
-          <span>Templates</span>
+          <Bookmark className="h-3.5 w-3.5 shrink-0 text-[#2962FF]" />
+          <span className="hidden 2xl:inline">Templates</span>
         </button>
 
+        {/* Replay */}
         <button
           onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
+          title="Bar Replay Mode"
           className={cn(
-            'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-semibold transition',
+            'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition',
             replay.enabled
               ? 'bg-amber-500 text-slate-950'
               : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
           )}
         >
-          <PlayCircle className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Replay</span>
+          <PlayCircle className="h-3.5 w-3.5 shrink-0" />
+          <span className="hidden md:inline">Replay</span>
         </button>
       </div>
 
       {/* Right Cluster */}
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           onClick={() => openChartSettingsTab('feeds')}
           title="Configure Live Data Feeds & Twelve Data API Key"
           className={cn(
-            'hidden md:inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold transition',
+            'hidden sm:inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-[11px] font-semibold transition',
             hasTdKey
               ? 'bg-[#089981]/15 text-[#089981]'
               : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
           )}
         >
-          <Database className="h-3 w-3" />
-          <span>{hasTdKey ? 'TD API Live' : 'Data Feeds'}</span>
+          <Database className="h-3 w-3 shrink-0" />
+          <span>{hasTdKey ? 'TD API' : 'Feeds'}</span>
         </button>
 
         <button
           onClick={() => updateChartSettings({ showQuickTrade: !chartSettings.showQuickTrade })}
           title="Toggle One-Click Buy/Sell Buttons"
           className={cn(
-            'hidden lg:inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition',
+            'hidden lg:inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition',
             chartSettings.showQuickTrade
               ? 'bg-[#2962FF]/15 text-[#2962FF]'
               : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]'
           )}
         >
-          <Zap className="h-3.5 w-3.5" />
-          <span>1-Click</span>
+          <Zap className="h-3.5 w-3.5 shrink-0" />
+          <span className="hidden 2xl:inline">1-Click</span>
         </button>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => setOpenMenu(openMenu === 'layout' ? null : 'layout')}
             title="Multi-Chart Layouts & Sync"
             className={cn(
-              'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition',
+              'flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium transition',
               layout !== '1x1'
                 ? 'bg-[#2962FF]/15 text-[#2962FF]'
                 : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
             )}
           >
-            <Grid2X2 className="h-3.5 w-3.5" />
-            <span className="hidden md:inline font-mono text-[11px]">{layout}</span>
+            <Grid2X2 className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline font-mono text-[11px]">{layout}</span>
             <ChevronDown className="h-3 w-3 text-[#787B86]" />
           </button>
 
@@ -578,7 +581,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={() => openChartSettingsTab('symbol')}
           title="Chart Settings"
-          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           <Settings2 className="h-4 w-4" />
         </button>
@@ -586,7 +589,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={triggerSnapshot}
           title="Export PNG Snapshot"
-          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           <Camera className="h-4 w-4" />
         </button>
@@ -594,7 +597,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={toggleTheme}
           title="Toggle Dark / Light Theme"
-          className="rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
@@ -602,7 +605,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={() => setShortcutsModalOpen(true)}
           title="Keyboard Shortcuts (?)"
-          className="hidden sm:inline-flex rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden md:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           <Keyboard className="h-4 w-4" />
         </button>
@@ -610,7 +613,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={toggleFullscreen}
           title="Fullscreen (Shift+F)"
-          className="hidden sm:inline-flex rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden md:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           <Maximize2 className="h-4 w-4" />
         </button>

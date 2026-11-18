@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 
 function loadPatchContent() {
   const cwd = process.cwd();
-  const candidates = ['v4-bundle.txt', 'v3-bundle.txt', 'v2-bundle.txt', 'patch-bundle.txt', 'patch.txt'];
+  const candidates = ['v41-bundle.txt', 'v4-bundle.txt', 'v3-bundle.txt', 'patch-bundle.txt'];
   for (const name of candidates) {
     const p = path.join(cwd, name);
     if (fs.existsSync(p)) {
@@ -16,9 +16,9 @@ function loadPatchContent() {
 
   const files = fs.readdirSync(cwd);
   const prefixes = [
+    /^v41[-._]?part\d+\.txt$/i,
     /^v4[-._]?part\d+\.txt$/i,
     /^v3[-._]?part\d+\.txt$/i,
-    /^v2[-._]?part\d+\.txt$/i,
     /^patch[-._]?part\d+\.txt$/i,
   ];
   for (const regex of prefixes) {
@@ -31,7 +31,7 @@ function loadPatchContent() {
     }
   }
 
-  console.error('❌ File v4-bundle.txt atau v4-part*.txt tidak ditemukan!');
+  console.error('❌ File v41-bundle.txt atau v41-part*.txt tidak ditemukan!');
   process.exit(1);
 }
 
@@ -58,7 +58,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('🚀 ApexChart Pro V4 — Applying Full Engine, RSI Divergence Pro & Backtester...\n');
+  console.log('🔧 ApexChart Pro V4.1 — Applying Bugfixes & Persistence Patch...\n');
   const raw = loadPatchContent();
   const entries = extractFiles(raw);
 
@@ -83,12 +83,12 @@ function main() {
   console.log('\n🔍 Memeriksa TypeScript via pnpm typecheck...');
   try {
     execSync('pnpm typecheck', { cwd, stdio: 'inherit' });
-    console.log('\n✅ V4 Upgrade berhasil diterapkan & lolos TypeScript check!');
+    console.log('\n✅ V4.1 Patch berhasil diterapkan & lolos TypeScript check!');
   } catch {
     console.warn('\n⚠️  Typecheck selesai dengan peringatan/error. Cek output di atas.');
   }
 
-  console.log('\n🔥 Jalankan `pnpm dev` untuk mencoba ApexChart Pro V4!\n');
+  console.log('\n🔥 Jalankan `pnpm dev` untuk melihat hasilnya!\n');
 }
 
 main();

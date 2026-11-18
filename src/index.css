@@ -34,7 +34,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Crisp TradingView-style thin scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -53,7 +52,24 @@ body {
   background: rgba(120, 123, 134, 0.5);
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .glass-panel {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+}
+
+/* Remove TradingView attribution watermark cleanly */
+.tv-lightweight-charts a[href*="tradingview.com"],
+a#tv-attr-logo {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }

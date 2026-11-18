@@ -128,7 +128,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     return null;
   }, [indicator, isRsiKind, candles, isTimeframeVisible, tfMeta.seconds]);
 
-  // Compute RSI Divergences for RSI Sub-Pane lines
   const rsiDivs = useMemo(() => {
     if (
       !isRsiKind ||
@@ -174,7 +173,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     return '—';
   }, [computed, indicator.visible, isTimeframeVisible]);
 
-  // Initialize sub-pane chart
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -185,6 +183,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       width: el.clientWidth,
       height: el.clientHeight,
       layout: {
+        attributionLogo: false,
         background: { type: ColorType.Solid, color: isDark ? bgColorDark : '#FFFFFF' },
         textColor: isDark ? '#787B86' : '#475569',
         fontFamily: '"JetBrains Mono", monospace',
@@ -261,7 +260,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     };
   }, [mainChart]);
 
-  // Reuse indicator series when structural signature hasn't changed!
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -384,7 +382,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       }
     }
 
-    // Update data cleanly on reused series
     if (computed.kind === 'RSI' || computed.kind === 'ATR') {
       (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
         computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
@@ -418,7 +415,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     }
   }, [computed, indicator, mainChart, isTimeframeVisible]);
 
-  // Draw RSI Divergence connecting lines on RSI Sub-Pane canvas!
   const drawRsiDivLines = useCallback(() => {
     const canvas = divCanvasRef.current;
     const chart = chartRef.current;
@@ -493,7 +489,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     };
   }, [drawRsiDivLines]);
 
-  // Vertical Drag-to-Resize Handle on top border of sub-pane
   const startResizeDrag = (e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
@@ -522,7 +517,6 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       style={{ height: subPaneHeight }}
       className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
     >
-      {/* Drag Handle to resize Sub-Pane height */}
       <div
         onMouseDown={startResizeDrag}
         title="Drag to resize indicator height"

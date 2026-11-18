@@ -1,0 +1,2039 @@
+<<<=== FILE: src/index.css ===>>>
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-app: #f0f3fa;
+  --bg-panel: #ffffff;
+  --bg-elevated: #f8fafd;
+  --border-hairline: #e0e3eb;
+  --text-primary: #131722;
+  --text-muted: #787b86;
+}
+
+html.dark {
+  --bg-app: #0c0f17;
+  --bg-panel: #131722;
+  --bg-elevated: #1e222d;
+  --border-hairline: #2a2e39;
+  --text-primary: #d1d4dc;
+  --text-muted: #787b86;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Trebuchet MS', sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 123, 134, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 123, 134, 0.5);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.glass-panel {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Remove TradingView attribution watermark cleanly */
+.tv-lightweight-charts a[href*="tradingview.com"],
+a#tv-attr-logo {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/data/symbols.ts ===>>>
+import {
+  ChartTemplate,
+  DrawingToolMeta,
+  FibLevelItem,
+  IndicatorCatalogItem,
+  SymbolInfo,
+  TimeframeGroup,
+  TimeframeId,
+  TimeframeMeta,
+  TimeframeVisibility,
+  TimezonePreset,
+} from '@/types/trading';
+
+export const DEFAULT_FIB_RETRACE_LEVELS: FibLevelItem[] = [
+  { level: 0, color: '#787B86', enabled: true },
+  { level: 0.236, color: '#F23645', enabled: true },
+  { level: 0.382, color: '#F59E0B', enabled: true },
+  { level: 0.5, color: '#089981', enabled: true },
+  { level: 0.618, color: '#00D4AA', enabled: true },
+  { level: 0.705, color: '#38BDF8', enabled: false },
+  { level: 0.786, color: '#2962FF', enabled: true },
+  { level: 0.886, color: '#6366F1', enabled: false },
+  { level: 1, color: '#8B5CF6', enabled: true },
+  { level: 1.272, color: '#EC4899', enabled: true },
+  { level: 1.618, color: '#F59E0B', enabled: true },
+  { level: 2.618, color: '#F23645', enabled: false },
+];
+
+export const DEFAULT_FIB_EXT_LEVELS: FibLevelItem[] = [
+  { level: 0, color: '#787B86', enabled: true },
+  { level: 0.382, color: '#F59E0B', enabled: true },
+  { level: 0.5, color: '#089981', enabled: true },
+  { level: 0.618, color: '#00D4AA', enabled: true },
+  { level: 1.0, color: '#2962FF', enabled: true },
+  { level: 1.272, color: '#8B5CF6', enabled: true },
+  { level: 1.618, color: '#EC4899', enabled: true },
+  { level: 2.0, color: '#F23645', enabled: true },
+  { level: 2.618, color: '#F59E0B', enabled: true },
+];
+
+export const DEFAULT_VISIBILITY: TimeframeVisibility = {
+  seconds: true,
+  minutes: true,
+  hours: true,
+  days: true,
+};
+
+export function isVisibleOnTimeframeGroup(
+  vis: TimeframeVisibility | undefined,
+  group: TimeframeGroup
+): boolean {
+  if (!vis) return true;
+  if (group === 'Seconds') return vis.seconds;
+  if (group === 'Minutes') return vis.minutes;
+  if (group === 'Hours') return vis.hours;
+  return vis.days;
+}
+
+export const TIMEZONE_PRESETS: TimezonePreset[] = [
+  { id: 'local', label: 'Browser Local Time', short: 'LOCAL', offsetMinutes: 'local' },
+  { id: 'WIB', label: 'Jakarta / WIB (UTC+7)', short: 'WIB', offsetMinutes: 420 },
+  { id: 'WITA', label: 'Makassar / WITA (UTC+8)', short: 'WITA', offsetMinutes: 480 },
+  { id: 'WIT', label: 'Jayapura / WIT (UTC+9)', short: 'WIT', offsetMinutes: 540 },
+  { id: 'UTC', label: 'UTC (Universal)', short: 'UTC', offsetMinutes: 0 },
+  { id: 'NY', label: 'New York / EST (UTC-5)', short: 'NY', offsetMinutes: -300 },
+  { id: 'LON', label: 'London / GMT (UTC+0)', short: 'LON', offsetMinutes: 0 },
+  { id: 'TYO', label: 'Tokyo / JST (UTC+9)', short: 'TYO', offsetMinutes: 540 },
+];
+
+export function getTimezonePreset(id: string): TimezonePreset {
+  return TIMEZONE_PRESETS.find((t) => t.id === id) ?? TIMEZONE_PRESETS[0];
+}
+
+// Upgraded defaultBars to 1,500–2,000+ candles for deep charting & backtesting
+export const TIMEFRAMES: TimeframeMeta[] = [
+  { id: '1s', label: '1s', seconds: 1, group: 'Seconds', binanceInterval: '1s', defaultBars: 1000 },
+  { id: '5s', label: '5s', seconds: 5, group: 'Seconds', defaultBars: 1000 },
+  { id: '15s', label: '15s', seconds: 15, group: 'Seconds', defaultBars: 1000 },
+  { id: '30s', label: '30s', seconds: 30, group: 'Seconds', defaultBars: 1000 },
+  { id: '1m', label: '1m', seconds: 60, group: 'Minutes', binanceInterval: '1m', twelveDataInterval: '1min', defaultBars: 1500 },
+  { id: '3m', label: '3m', seconds: 180, group: 'Minutes', binanceInterval: '3m', defaultBars: 1500 },
+  { id: '5m', label: '5m', seconds: 300, group: 'Minutes', binanceInterval: '5m', twelveDataInterval: '5min', defaultBars: 1500 },
+  { id: '15m', label: '15m', seconds: 900, group: 'Minutes', binanceInterval: '15m', twelveDataInterval: '15min', defaultBars: 1500 },
+  { id: '30m', label: '30m', seconds: 1800, group: 'Minutes', binanceInterval: '30m', twelveDataInterval: '30min', defaultBars: 1500 },
+  { id: '45m', label: '45m', seconds: 2700, group: 'Minutes', twelveDataInterval: '45min', defaultBars: 1500 },
+  { id: '1h', label: '1h', seconds: 3600, group: 'Hours', binanceInterval: '1h', twelveDataInterval: '1h', defaultBars: 1500 },
+  { id: '2h', label: '2h', seconds: 7200, group: 'Hours', binanceInterval: '2h', twelveDataInterval: '2h', defaultBars: 1500 },
+  { id: '4h', label: '4h', seconds: 14400, group: 'Hours', binanceInterval: '4h', twelveDataInterval: '4h', defaultBars: 1500 },
+  { id: '1D', label: '1D', seconds: 86400, group: 'Days & Above', binanceInterval: '1d', twelveDataInterval: '1day', defaultBars: 1200 },
+  { id: '1W', label: '1W', seconds: 604800, group: 'Days & Above', binanceInterval: '1w', twelveDataInterval: '1week', defaultBars: 520 },
+  { id: '1M', label: '1M', seconds: 2592000, group: 'Days & Above', binanceInterval: '1M', twelveDataInterval: '1month', defaultBars: 240 },
+];
+
+export const TIMEFRAME_MAP: Record<TimeframeId, TimeframeMeta> = TIMEFRAMES.reduce(
+  (acc, tf) => {
+    acc[tf.id] = tf;
+    return acc;
+  },
+  {} as Record<TimeframeId, TimeframeMeta>
+);
+
+export const SYMBOLS: SymbolInfo[] = [
+  {
+    symbol: 'BTCUSDT',
+    displaySymbol: 'BTC/USDT',
+    name: 'Bitcoin / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 84250,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.024,
+    binanceSymbol: 'BTCUSDT',
+    twelveDataSymbol: 'BTC/USD',
+    currency: 'USDT',
+    description: 'Bitcoin spot market benchmark against Tether USD.',
+  },
+  {
+    symbol: 'ETHUSDT',
+    displaySymbol: 'ETH/USDT',
+    name: 'Ethereum / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 2180,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.031,
+    binanceSymbol: 'ETHUSDT',
+    twelveDataSymbol: 'ETH/USD',
+    currency: 'USDT',
+    description: 'Ethereum smart contract ecosystem native token.',
+  },
+  {
+    symbol: 'SOLUSDT',
+    displaySymbol: 'SOL/USDT',
+    name: 'Solana / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 138.4,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.042,
+    binanceSymbol: 'SOLUSDT',
+    twelveDataSymbol: 'SOL/USD',
+    currency: 'USDT',
+    description: 'High-throughput Layer-1 blockchain asset.',
+  },
+  {
+    symbol: 'BNBUSDT',
+    displaySymbol: 'BNB/USDT',
+    name: 'BNB / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 612.5,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.025,
+    binanceSymbol: 'BNBUSDT',
+    twelveDataSymbol: 'BNB/USD',
+    currency: 'USDT',
+    description: 'BNB Chain native exchange & utility asset.',
+  },
+  {
+    symbol: 'XRPUSDT',
+    displaySymbol: 'XRP/USDT',
+    name: 'Ripple / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 2.34,
+    precision: 4,
+    minMove: 0.0001,
+    volatility: 0.038,
+    binanceSymbol: 'XRPUSDT',
+    twelveDataSymbol: 'XRP/USD',
+    currency: 'USDT',
+    description: 'Cross-border settlement digital asset.',
+  },
+  {
+    symbol: 'DOGEUSDT',
+    displaySymbol: 'DOGE/USDT',
+    name: 'Dogecoin / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 0.1785,
+    precision: 5,
+    minMove: 0.00001,
+    volatility: 0.052,
+    binanceSymbol: 'DOGEUSDT',
+    twelveDataSymbol: 'DOGE/USD',
+    currency: 'USDT',
+    description: 'Community-driven proof-of-work cryptocurrency.',
+  },
+  {
+    symbol: 'AVAXUSDT',
+    displaySymbol: 'AVAX/USDT',
+    name: 'Avalanche / TetherUS',
+    category: 'Crypto',
+    exchange: 'BINANCE',
+    basePrice: 21.65,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.044,
+    binanceSymbol: 'AVAXUSDT',
+    twelveDataSymbol: 'AVAX/USD',
+    currency: 'USDT',
+    description: 'Avalanche subnet smart-contract platform.',
+  },
+  {
+    symbol: 'XAUUSD',
+    displaySymbol: 'XAU/USD',
+    name: 'Gold Spot / U.S. Dollar',
+    category: 'Commodities',
+    exchange: 'SPOT/GOLD',
+    basePrice: 2985.4,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.011,
+    binanceSymbol: 'PAXGUSDT',
+    twelveDataSymbol: 'XAU/USD',
+    currency: 'USD',
+    description: 'Spot Gold bullion (1 Troy Oz). Live via Twelve Data API or 24/7 Gold Proxy (PAXG).',
+  },
+  {
+    symbol: 'USOIL',
+    displaySymbol: 'WTI/USD',
+    name: 'Crude Oil WTI Futures',
+    category: 'Commodities',
+    exchange: 'NYMEX',
+    basePrice: 68.45,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.019,
+    twelveDataSymbol: 'WTI/USD',
+    currency: 'USD',
+    description: 'West Texas Intermediate benchmark crude oil.',
+  },
+  {
+    symbol: 'EURUSD',
+    displaySymbol: 'EUR/USD',
+    name: 'Euro / U.S. Dollar',
+    category: 'Forex',
+    exchange: 'FX',
+    basePrice: 1.0842,
+    precision: 5,
+    minMove: 0.00001,
+    volatility: 0.0052,
+    twelveDataSymbol: 'EUR/USD',
+    fxPair: ['EUR', 'USD'],
+    currency: 'USD',
+    description: 'Most liquid global major currency pair.',
+  },
+  {
+    symbol: 'GBPUSD',
+    displaySymbol: 'GBP/USD',
+    name: 'British Pound / U.S. Dollar',
+    category: 'Forex',
+    exchange: 'FX',
+    basePrice: 1.2935,
+    precision: 5,
+    minMove: 0.00001,
+    volatility: 0.0061,
+    twelveDataSymbol: 'GBP/USD',
+    fxPair: ['GBP', 'USD'],
+    currency: 'USD',
+    description: 'Major UK sterling to US dollar pair.',
+  },
+  {
+    symbol: 'USDJPY',
+    displaySymbol: 'USD/JPY',
+    name: 'U.S. Dollar / Japanese Yen',
+    category: 'Forex',
+    exchange: 'FX',
+    basePrice: 149.65,
+    precision: 3,
+    minMove: 0.001,
+    volatility: 0.0068,
+    twelveDataSymbol: 'USD/JPY',
+    fxPair: ['USD', 'JPY'],
+    currency: 'JPY',
+    description: 'Major USD carry-trade benchmark pair.',
+  },
+  {
+    symbol: 'USDIDR',
+    displaySymbol: 'USD/IDR',
+    name: 'U.S. Dollar / Indonesian Rupiah',
+    category: 'Forex',
+    exchange: 'IDC',
+    basePrice: 16480,
+    precision: 0,
+    minMove: 1,
+    volatility: 0.0045,
+    twelveDataSymbol: 'USD/IDR',
+    fxPair: ['USD', 'IDR'],
+    currency: 'IDR',
+    description: 'US Dollar against Indonesian Rupiah spot rate.',
+  },
+  {
+    symbol: 'NVDA',
+    displaySymbol: 'NVDA',
+    name: 'NVIDIA Corporation',
+    category: 'Stocks',
+    exchange: 'NASDAQ',
+    basePrice: 121.6,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.028,
+    twelveDataSymbol: 'NVDA',
+    currency: 'USD',
+    description: 'Semiconductor & AI accelerated computing leader.',
+  },
+  {
+    symbol: 'AAPL',
+    displaySymbol: 'AAPL',
+    name: 'Apple Inc.',
+    category: 'Stocks',
+    exchange: 'NASDAQ',
+    basePrice: 224.8,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.015,
+    twelveDataSymbol: 'AAPL',
+    currency: 'USD',
+    description: 'Consumer hardware, silicon, and ecosystem giant.',
+  },
+  {
+    symbol: 'TSLA',
+    displaySymbol: 'TSLA',
+    name: 'Tesla, Inc.',
+    category: 'Stocks',
+    exchange: 'NASDAQ',
+    basePrice: 254.3,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.036,
+    twelveDataSymbol: 'TSLA',
+    currency: 'USD',
+    description: 'Electric vehicles, autonomy, and energy storage.',
+  },
+  {
+    symbol: 'SPY',
+    displaySymbol: 'SPY',
+    name: 'SPDR S&P 500 ETF Trust',
+    category: 'Stocks',
+    exchange: 'NYSE',
+    basePrice: 571.2,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.01,
+    twelveDataSymbol: 'SPY',
+    currency: 'USD',
+    description: 'Benchmark US large-cap equity market ETF.',
+  },
+  {
+    symbol: 'NDX',
+    displaySymbol: 'NDX',
+    name: 'Nasdaq 100 Index',
+    category: 'Stocks',
+    exchange: 'NASDAQ',
+    basePrice: 20125.5,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.013,
+    twelveDataSymbol: 'NDX',
+    currency: 'USD',
+    description: 'Top 100 non-financial Nasdaq technology companies.',
+  },
+  {
+    symbol: 'BBCA.JK',
+    displaySymbol: 'BBCA',
+    name: 'Bank Central Asia Tbk',
+    category: 'IDX',
+    exchange: 'IDX',
+    basePrice: 8950,
+    precision: 0,
+    minMove: 25,
+    volatility: 0.014,
+    twelveDataSymbol: 'BBCA:IDX',
+    currency: 'IDR',
+    description: 'Indonesia largest private commercial bank by market cap.',
+  },
+  {
+    symbol: 'BBRI.JK',
+    displaySymbol: 'BBRI',
+    name: 'Bank Rakyat Indonesia Tbk',
+    category: 'IDX',
+    exchange: 'IDX',
+    basePrice: 3980,
+    precision: 0,
+    minMove: 10,
+    volatility: 0.018,
+    twelveDataSymbol: 'BBRI:IDX',
+    currency: 'IDR',
+    description: 'Leading Indonesian microfinance and state-owned bank.',
+  },
+  {
+    symbol: 'BMRI.JK',
+    displaySymbol: 'BMRI',
+    name: 'Bank Mandiri (Persero) Tbk',
+    category: 'IDX',
+    exchange: 'IDX',
+    basePrice: 4920,
+    precision: 0,
+    minMove: 25,
+    volatility: 0.017,
+    twelveDataSymbol: 'BMRI:IDX',
+    currency: 'IDR',
+    description: 'Major corporate and retail banking group in Indonesia.',
+  },
+  {
+    symbol: 'TLKM.JK',
+    displaySymbol: 'TLKM',
+    name: 'Telkom Indonesia (Persero)',
+    category: 'IDX',
+    exchange: 'IDX',
+    basePrice: 2510,
+    precision: 0,
+    minMove: 10,
+    volatility: 0.016,
+    twelveDataSymbol: 'TLKM:IDX',
+    currency: 'IDR',
+    description: 'National telecommunications and digital infrastructure provider.',
+  },
+  {
+    symbol: 'GOTO.JK',
+    displaySymbol: 'GOTO',
+    name: 'GoTo Gojek Tokopedia Tbk',
+    category: 'IDX',
+    exchange: 'IDX',
+    basePrice: 82,
+    precision: 0,
+    minMove: 1,
+    volatility: 0.035,
+    twelveDataSymbol: 'GOTO:IDX',
+    currency: 'IDR',
+    description: 'Indonesian digital ecosystem & on-demand technology giant.',
+  },
+];
+
+export function getSymbolInfo(rawSymbol: string): SymbolInfo {
+  const clean = rawSymbol.trim().toUpperCase().replace(/\s+/g, '');
+  const found = SYMBOLS.find(
+    (s) => s.symbol.toUpperCase() === clean || s.displaySymbol.toUpperCase() === clean
+  );
+  if (found) return found;
+
+  if (clean.endsWith('USDT') || clean.endsWith('USDC') || clean.endsWith('FDUSD')) {
+    const base = clean.replace(/(USDT|USDC|FDUSD)$/, '');
+    const isMicro = base === 'PEPE' || base === 'SHIB' || base === 'BONK' || base === 'FLOKI';
+    return {
+      symbol: clean,
+      displaySymbol: `${base}/USDT`,
+      name: `${base} / TetherUS (Custom)`,
+      category: 'Crypto',
+      exchange: 'BINANCE',
+      basePrice: isMicro ? 0.000012 : 12.5,
+      precision: isMicro ? 8 : 4,
+      minMove: isMicro ? 0.00000001 : 0.0001,
+      volatility: 0.045,
+      binanceSymbol: clean,
+      twelveDataSymbol: `${base}/USD`,
+      currency: 'USDT',
+      description: `Live Binance spot pair ${base}/USDT.`,
+    };
+  }
+
+  if (clean.endsWith('.JK')) {
+    const code = clean.replace('.JK', '');
+    return {
+      symbol: clean,
+      displaySymbol: code,
+      name: `${code} Tbk (IDX)`,
+      category: 'IDX',
+      exchange: 'IDX',
+      basePrice: 2500,
+      precision: 0,
+      minMove: 10,
+      volatility: 0.02,
+      twelveDataSymbol: `${code}:IDX`,
+      currency: 'IDR',
+      description: `Indonesian Equity ${code} on IDX.`,
+    };
+  }
+
+  if (/^[A-Z]{6}$/.test(clean)) {
+    const b = clean.slice(0, 3);
+    const q = clean.slice(3, 6);
+    const isJpy = q === 'JPY';
+    return {
+      symbol: clean,
+      displaySymbol: `${b}/${q}`,
+      name: `${b} / ${q} Spot FX`,
+      category: 'Forex',
+      exchange: 'FX',
+      basePrice: isJpy ? 150 : 1.1,
+      precision: isJpy ? 3 : 5,
+      minMove: isJpy ? 0.001 : 0.00001,
+      volatility: 0.006,
+      twelveDataSymbol: `${b}/${q}`,
+      fxPair: [b, q],
+      currency: q,
+      description: `Foreign exchange spot pair ${b}/${q}.`,
+    };
+  }
+
+  return {
+    symbol: clean,
+    displaySymbol: clean,
+    name: `${clean} (Custom Instrument)`,
+    category: 'Stocks',
+    exchange: 'CUSTOM',
+    basePrice: 150,
+    precision: 2,
+    minMove: 0.01,
+    volatility: 0.022,
+    twelveDataSymbol: clean,
+    currency: 'USD',
+    description: `Custom instrument ${clean}.`,
+  };
+}
+
+export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
+  {
+    type: 'RSI_DIV',
+    name: 'RSI Divergence Pro (Reg / Exag / Hid)',
+    shortName: 'RSI Div Pro',
+    category: 'Momentum',
+    placement: 'subpane',
+    description: 'Regular & Exaggerated trendline breakouts + Hidden Golden Ratio Fib setups.',
+    defaultColor: '#A855F7',
+    defaultParams: { period: 14 },
+    defaultUpperLevel: 70,
+    defaultLowerLevel: 30,
+  },
+  {
+    type: 'EMA',
+    name: 'Exponential Moving Average',
+    shortName: 'EMA',
+    category: 'Trend',
+    placement: 'overlay',
+    description: 'Weighted moving average giving greater emphasis to recent price action.',
+    defaultColor: '#2962FF',
+    defaultParams: { period: 21 },
+  },
+  {
+    type: 'SMA',
+    name: 'Simple Moving Average',
+    shortName: 'SMA',
+    category: 'Trend',
+    placement: 'overlay',
+    description: 'Equal-weighted arithmetic average over N lookback bars.',
+    defaultColor: '#F59E0B',
+    defaultParams: { period: 50 },
+  },
+  {
+    type: 'BB',
+    name: 'Bollinger Bands',
+    shortName: 'BB',
+    category: 'Volatility',
+    placement: 'overlay',
+    description: 'Volatility envelope using SMA ± standard deviation bands.',
+    defaultColor: '#06B6D4',
+    secondaryColor: '#64748B',
+    defaultParams: { period: 20, stdDev: 2 },
+  },
+  {
+    type: 'VWAP',
+    name: 'Volume Weighted Avg Price',
+    shortName: 'VWAP',
+    category: 'Volume',
+    placement: 'overlay',
+    description: 'Intraday institutional benchmark weighted by traded volume.',
+    defaultColor: '#EC4899',
+    defaultParams: {},
+  },
+  {
+    type: 'SUPERTREND',
+    name: 'Supertrend',
+    shortName: 'ST',
+    category: 'Trend',
+    placement: 'overlay',
+    description: 'ATR-based trend-following trailing stop and direction indicator.',
+    defaultColor: '#089981',
+    secondaryColor: '#F23645',
+    defaultParams: { period: 10, multiplier: 3 },
+  },
+  {
+    type: 'DONCHIAN',
+    name: 'Donchian Channels',
+    shortName: 'DC',
+    category: 'Volatility',
+    placement: 'overlay',
+    description: 'Highest high & lowest low breakout channels over N periods.',
+    defaultColor: '#8B5CF6',
+    secondaryColor: '#6366F1',
+    defaultParams: { period: 20 },
+  },
+  {
+    type: 'VOLUME',
+    name: 'Volume Histogram',
+    shortName: 'Vol',
+    category: 'Volume',
+    placement: 'overlay',
+    description: 'Color-coded bar volume overlaid at bottom of price pane.',
+    defaultColor: '#089981',
+    secondaryColor: '#F23645',
+    defaultParams: {},
+  },
+  {
+    type: 'RSI',
+    name: 'Relative Strength Index',
+    shortName: 'RSI',
+    category: 'Momentum',
+    placement: 'subpane',
+    description: 'Momentum oscillator (0–100) highlighting overbought/oversold zones.',
+    defaultColor: '#A855F7',
+    defaultParams: { period: 14 },
+    defaultUpperLevel: 70,
+    defaultLowerLevel: 30,
+  },
+  {
+    type: 'MACD',
+    name: 'MACD (12, 26, 9)',
+    shortName: 'MACD',
+    category: 'Momentum',
+    placement: 'subpane',
+    description: 'Trend-following momentum convergence/divergence & histogram.',
+    defaultColor: '#2962FF',
+    secondaryColor: '#F97316',
+    tertiaryColor: '#089981',
+    defaultParams: { fast: 12, slow: 26, signal: 9 },
+  },
+  {
+    type: 'STOCH',
+    name: 'Stochastic Oscillator',
+    shortName: 'Stoch',
+    category: 'Momentum',
+    placement: 'subpane',
+    description: '%K & %D momentum comparison against high-low price range.',
+    defaultColor: '#0EA5E9',
+    secondaryColor: '#F23645',
+    defaultParams: { kPeriod: 14, dPeriod: 3, smooth: 3 },
+    defaultUpperLevel: 80,
+    defaultLowerLevel: 20,
+  },
+  {
+    type: 'ATR',
+    name: 'Average True Range',
+    shortName: 'ATR',
+    category: 'Volatility',
+    placement: 'subpane',
+    description: 'Measures market volatility and average candle expansion.',
+    defaultColor: '#EAB308',
+    defaultParams: { period: 14 },
+  },
+];
+
+export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
+  {
+    id: 'tpl_rsi_div_hunter',
+    name: 'RSI Divergence Hunter (Reg / Exag / Hid)',
+    chartStyle: 'candles',
+    indicators: [
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#2962FF', params: { period: 50 } },
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#F59E0B', params: { period: 200 } },
+      { type: 'VOLUME', name: 'Vol', placement: 'overlay', visible: true, color: '#089981', params: {} },
+      { type: 'RSI_DIV', name: 'RSI Div Pro', placement: 'subpane', visible: true, color: '#A855F7', params: { period: 14 }, upperLevel: 70, lowerLevel: 30 },
+    ],
+    smartOverlays: {
+      showVPVR: false,
+      showMarketStructure: true,
+      showFVG: false,
+      showAutoSR: true,
+      showAutoTrendlines: false,
+      showRSIDivergence: true,
+      showSessions: false,
+      showDailyOpen: false,
+    },
+  },
+  {
+    id: 'tpl_smc_gold_scalp',
+    name: 'SMC / ICT Gold & FX Killzones',
+    chartStyle: 'candles',
+    indicators: [
+      { type: 'VWAP', name: 'VWAP', placement: 'overlay', visible: true, color: '#EC4899', params: {} },
+      { type: 'VOLUME', name: 'Vol', placement: 'overlay', visible: true, color: '#089981', params: {} },
+    ],
+    smartOverlays: {
+      showVPVR: true,
+      showMarketStructure: true,
+      showFVG: true,
+      showAutoSR: false,
+      showAutoTrendlines: false,
+      showRSIDivergence: true,
+      showSessions: true,
+      showDailyOpen: true,
+    },
+  },
+  {
+    id: 'tpl_momentum_swing',
+    name: 'EMA + Supertrend + MACD Momentum',
+    chartStyle: 'heikin_ashi',
+    indicators: [
+      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#2962FF', params: { period: 21 } },
+      { type: 'SUPERTREND', name: 'ST', placement: 'overlay', visible: true, color: '#089981', secondaryColor: '#F23645', params: { period: 10, multiplier: 3 } },
+      { type: 'MACD', name: 'MACD', placement: 'subpane', visible: true, color: '#2962FF', secondaryColor: '#F97316', params: { fast: 12, slow: 26, signal: 9 } },
+    ],
+    smartOverlays: {
+      showVPVR: false,
+      showMarketStructure: false,
+      showFVG: false,
+      showAutoSR: true,
+      showAutoTrendlines: true,
+      showRSIDivergence: false,
+      showSessions: false,
+      showDailyOpen: false,
+    },
+  },
+];
+
+export const DRAWING_TOOLS_CATALOG: DrawingToolMeta[] = [
+  { id: 'cursor', label: 'Crosshair / Select', group: 'cursors', pointsRequired: 0, description: 'Inspect candles or select and drag drawings' },
+  { id: 'eraser', label: 'Eraser', group: 'cursors', pointsRequired: 1, description: 'Click any drawing to remove it instantly' },
+  { id: 'trendline', label: 'Trend Line', group: 'lines', shortcut: 'Alt+T', pointsRequired: 2, description: '2-point diagonal line' },
+  { id: 'ray', label: 'Ray', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely forward' },
+  { id: 'extended_line', label: 'Extended Line', group: 'lines', pointsRequired: 2, description: 'Line extending infinitely in both directions' },
+  { id: 'info_line', label: 'Info Line', group: 'lines', pointsRequired: 2, description: 'Trendline with permanent price %, angle, and bar readout' },
+  { id: 'hline', label: 'Horizontal Line', group: 'lines', shortcut: 'Alt+H', pointsRequired: 1, description: 'Full-width support/resistance price level' },
+  { id: 'hray', label: 'Horizontal Ray', group: 'lines', pointsRequired: 1, description: 'Horizontal level extending right from anchor' },
+  { id: 'vline', label: 'Vertical Line', group: 'lines', shortcut: 'Alt+V', pointsRequired: 1, description: 'Vertical timestamp marker' },
+  { id: 'cross_line', label: 'Cross Line', group: 'lines', pointsRequired: 1, description: 'Simultaneous horizontal & vertical reference cross' },
+  { id: 'channel', label: 'Parallel Channel', group: 'lines', pointsRequired: 3, description: '3-point parallel trend channel with midline' },
+  { id: 'regression_channel', label: 'Regression Trend', group: 'lines', pointsRequired: 2, description: 'Statistical OLS Linear Regression ±2σ channel' },
+  { id: 'fib', label: 'Fib Retracement', group: 'fib_gann', shortcut: 'Alt+F', pointsRequired: 2, description: 'Standard & custom Fibonacci retracement levels' },
+  { id: 'fib_ext', label: 'Trend-Based Fib Extension', group: 'fib_gann', pointsRequired: 3, description: '3-point A-B-C projection up to 2.618' },
+  { id: 'fib_channel', label: 'Fib Channel', group: 'fib_gann', pointsRequired: 3, description: 'Diagonal Fibonacci parallel channels' },
+  { id: 'fib_timezone', label: 'Fib Time Zones', group: 'fib_gann', pointsRequired: 2, description: 'Vertical Fibonacci sequence time intervals (1,2,3,5,8,13,21)' },
+  { id: 'fib_fan', label: 'Fib Speed Resistance Fan', group: 'fib_gann', pointsRequired: 2, description: 'Diagonal speed/time Fibonacci fan rays' },
+  { id: 'fib_arc', label: 'Fib Circles / Arcs', group: 'fib_gann', pointsRequired: 2, description: 'Concentric Fibonacci ratio resistance arcs' },
+  { id: 'pitchfork', label: "Andrews' Pitchfork", group: 'fib_gann', pointsRequired: 3, description: '3-point median line & parallel channel prongs' },
+  { id: 'gann_box', label: 'Gann Box', group: 'fib_gann', pointsRequired: 2, description: 'Price-time square proportions & Gann diagonals' },
+  { id: 'xabcd', label: 'XABCD Harmonic Pattern', group: 'patterns', pointsRequired: 5, description: '5-point harmonic pattern with live Fib leg ratios' },
+  { id: 'abcd', label: 'ABCD Pattern', group: 'patterns', pointsRequired: 4, description: '4-point harmonic AB=CD wave with ratios' },
+  { id: 'elliott_impulse', label: 'Elliott Impulse Wave (12345)', group: 'patterns', pointsRequired: 6, description: '6-point 0-1-2-3-4-5 Elliott impulse structure' },
+  { id: 'elliott_abc', label: 'Elliott Correction (ABC)', group: 'patterns', pointsRequired: 4, description: '4-point 0-A-B-C corrective wave' },
+  { id: 'head_shoulders', label: 'Head & Shoulders', group: 'patterns', pointsRequired: 7, description: '7-point reversal pattern with neckline' },
+  { id: 'long_pos', label: 'Long Position (R:R)', group: 'forecast', shortcut: 'Alt+L', pointsRequired: 1, description: 'Entry / TP / SL risk-reward box' },
+  { id: 'short_pos', label: 'Short Position (R:R)', group: 'forecast', shortcut: 'Alt+S', pointsRequired: 1, description: 'Short Entry / TP / SL risk-reward box' },
+  { id: 'date_price_range', label: 'Date & Price Range', group: 'forecast', pointsRequired: 2, description: 'Persistent measurement box with bars & volume' },
+  { id: 'bar_pattern', label: 'Bars Pattern (Ghost Copy)', group: 'forecast', pointsRequired: 3, description: 'Copy historical candle sequence & project forward' },
+  { id: 'rect', label: 'Rectangle Zone', group: 'shapes', shortcut: 'Alt+R', pointsRequired: 2, description: 'Supply/demand box with midline' },
+  { id: 'rotated_rect', label: 'Rotated Rectangle', group: 'shapes', pointsRequired: 3, description: 'Angled channel/box zone' },
+  { id: 'ellipse', label: 'Ellipse / Circle', group: 'shapes', pointsRequired: 2, description: 'Elliptical highlight zone' },
+  { id: 'triangle', label: 'Triangle', group: 'shapes', pointsRequired: 3, description: '3-point shaded triangle' },
+  { id: 'arc', label: 'Curved Arc', group: 'shapes', pointsRequired: 3, description: '3-point smooth Bezier curve' },
+  { id: 'polyline', label: 'Polyline Path', group: 'shapes', pointsRequired: 0, description: 'Multi-click path (double-click to finish)' },
+  { id: 'brush', label: 'Brush', group: 'annotations', pointsRequired: 0, description: 'Freehand drawing brush' },
+  { id: 'highlighter', label: 'Highlighter', group: 'annotations', pointsRequired: 0, description: 'Wide translucent marker stroke' },
+  { id: 'arrow_marker', label: 'Arrow', group: 'annotations', pointsRequired: 2, description: 'Directional pointer arrow' },
+  { id: 'text', label: 'Text Note', group: 'annotations', pointsRequired: 1, description: 'Text annotation label' },
+  { id: 'callout', label: 'Callout', group: 'annotations', pointsRequired: 2, description: 'Anchor pointer with speech bubble note' },
+  { id: 'price_label', label: 'Price Label', group: 'annotations', pointsRequired: 1, description: 'Sticky exact price callout tag' },
+  { id: 'ruler', label: 'Measure Ruler', group: 'measure', pointsRequired: 2, description: 'Measure price change, % & bar duration' },
+];
+<<<=== END FILE ===>>>
+
+<<<=== FILE: src/store/useTradingStore.ts ===>>>
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import {
+  DEFAULT_CHART_TEMPLATES,
+  INDICATOR_CATALOG,
+  getSymbolInfo,
+} from '@/data/symbols';
+import { generateId } from '@/lib/utils';
+import {
+  BacktestTrade,
+  ChartPaneConfig,
+  ChartSettings,
+  ChartStyleType,
+  ChartTemplate,
+  ClosedTrade,
+  DataFeedConfig,
+  DrawingObject,
+  DrawingToolGroupId,
+  DrawingToolType,
+  FeedSourceType,
+  IndicatorConfig,
+  IndicatorType,
+  LayoutType,
+  LiveQuote,
+  OrderSide,
+  PaperPosition,
+  PendingOrder,
+  PriceAlert,
+  RSIDivergenceConfig,
+  ReplayState,
+  ScaleMode,
+  SmartOverlaySettings,
+  TimeframeId,
+  ToastMessage,
+} from '@/types/trading';
+
+export type RightSidebarTab = 'watchlist' | 'orderbook' | 'alerts' | 'technicals' | 'objects' | null;
+export type BottomPanelTab = 'positions' | 'orders' | 'history' | 'trade' | 'backtest';
+
+export const DEFAULT_CHART_SETTINGS: ChartSettings = {
+  upColor: '#089981',
+  downColor: '#F23645',
+  wickUpColor: '#089981',
+  wickDownColor: '#F23645',
+  borderUpColor: '#089981',
+  borderDownColor: '#F23645',
+  showWicks: true,
+  showBorders: false,
+  showLastPriceLine: true,
+  lastPriceLineStyle: 'dotted',
+  showHighLowLines: false,
+  showPrevCloseLine: false,
+  showCountdown: true,
+  precisionOverride: 'auto',
+
+  showStatusSymbol: true,
+  showStatusFeedBadge: true,
+  showStatusOHLC: true,
+  showStatusBarChange: true,
+  showStatusVolume: true,
+  showIndicatorTitles: true,
+  showIndicatorArgs: true,
+
+  priceScalePosition: 'right',
+  invertScale: false,
+  scaleFontSize: 11,
+  scaleMarginTop: 12,
+  scaleMarginBottom: 16,
+  showSymbolAxisLabel: false,
+
+  bgType: 'solid',
+  bgColorDark: '#131722',
+  bgColorDarkBottom: '#0B0E14',
+  bgColorLight: '#FFFFFF',
+  bgColorLightBottom: '#F0F3FA',
+  showGrid: true,
+  gridStyle: 'both',
+  gridLineStyle: 'solid',
+  gridOpacity: 55,
+  gridColorDark: '#2A2E39',
+  crosshairStyle: 'dashed',
+  crosshairColor: '#94A3B8',
+  crosshairWidth: 1,
+  showWatermark: true,
+  watermarkOpacity: 5,
+  rightOffset: 10,
+  barSpacing: 8,
+
+  showQuickTrade: true,
+  showPositionsOnChart: true,
+  showOrdersOnChart: true,
+  showAlertsOnChart: true,
+  playAlertSound: true,
+  defaultRiskPercent: 1,
+  timezone: 'local',
+};
+
+export const DEFAULT_SMART_OVERLAYS: SmartOverlaySettings = {
+  showVPVR: false,
+  showMarketStructure: false,
+  showFVG: false,
+  showAutoSR: false,
+  showAutoTrendlines: false,
+  showRSIDivergence: true,
+  showSessions: false,
+  showDailyOpen: false,
+};
+
+export const DEFAULT_RSI_DIV_CONFIG: RSIDivergenceConfig = {
+  rsiPeriod: 14,
+  pivotLeft: 4,
+  pivotRight: 3,
+  enableRegular: true,
+  enableExaggerated: true,
+  enableHidden: true,
+  doubleTopTolerancePct: 0.35,
+  goldenRatioMin: 0.5,
+  goldenRatioTarget: 0.618,
+  goldenRatioMax: 0.65,
+};
+
+export const DEFAULT_DATA_FEED: DataFeedConfig = {
+  twelveDataApiKey: '',
+  preferTwelveData: false,
+  useGoldProxyWhenNoKey: true,
+};
+
+function createIndicatorInstance(
+  type: IndicatorType,
+  overrideParams?: Record<string, number>,
+  overrideColor?: string
+): IndicatorConfig {
+  const meta = INDICATOR_CATALOG.find((i) => i.type === type) ?? INDICATOR_CATALOG[0];
+  return {
+    id: generateId('ind'),
+    type: meta.type,
+    name: meta.shortName,
+    placement: meta.placement,
+    visible: true,
+    color: overrideColor ?? meta.defaultColor,
+    secondaryColor: meta.secondaryColor,
+    tertiaryColor: meta.tertiaryColor,
+    lineWidth: 2,
+    lineStyle: 'solid',
+    source: 'close',
+    offset: 0,
+    upperLevel: meta.defaultUpperLevel,
+    lowerLevel: meta.defaultLowerLevel,
+    showBands: true,
+    showLastValue: true,
+    visibility: { seconds: true, minutes: true, hours: true, days: true },
+    params: { ...meta.defaultParams, ...(overrideParams ?? {}) },
+  };
+}
+
+const DEFAULT_PANES: ChartPaneConfig[] = [
+  {
+    id: 'pane-1',
+    symbol: 'BTCUSDT',
+    timeframe: '15m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    compareSymbol: null,
+    indicators: [
+      createIndicatorInstance('EMA', { period: 21 }, '#2962FF'),
+      createIndicatorInstance('EMA', { period: 55 }, '#F59E0B'),
+      createIndicatorInstance('VOLUME'),
+      createIndicatorInstance('RSI_DIV', { period: 14 }, '#A855F7'),
+    ],
+  },
+  {
+    id: 'pane-2',
+    symbol: 'XAUUSD',
+    timeframe: '15m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    compareSymbol: null,
+    indicators: [
+      createIndicatorInstance('EMA', { period: 21 }, '#06B6D4'),
+      createIndicatorInstance('VOLUME'),
+    ],
+  },
+  {
+    id: 'pane-3',
+    symbol: 'ETHUSDT',
+    timeframe: '1h',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    compareSymbol: null,
+    indicators: [createIndicatorInstance('VWAP'), createIndicatorInstance('VOLUME')],
+  },
+  {
+    id: 'pane-4',
+    symbol: 'SOLUSDT',
+    timeframe: '5m',
+    chartStyle: 'candles',
+    scaleMode: 'normal',
+    compareSymbol: null,
+    indicators: [createIndicatorInstance('BB', { period: 20, stdDev: 2 }), createIndicatorInstance('VOLUME')],
+  },
+];
+
+const DEFAULT_REPLAY: ReplayState = {
+  enabled: false,
+  isSelectingStart: false,
+  isPlaying: false,
+  speed: 1,
+  currentIndex: 0,
+  totalBars: 0,
+  currentTimestamp: null,
+  paneId: null,
+};
+
+interface TradingStore {
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
+  chartSettings: ChartSettings;
+  updateChartSettings: (patch: Partial<ChartSettings>) => void;
+  resetChartSettings: () => void;
+  smartOverlays: SmartOverlaySettings;
+  updateSmartOverlays: (patch: Partial<SmartOverlaySettings>) => void;
+  rsiDivConfig: RSIDivergenceConfig;
+  updateRsiDivConfig: (patch: Partial<RSIDivergenceConfig>) => void;
+  resetRsiDivConfig: () => void;
+  dataFeed: DataFeedConfig;
+  updateDataFeed: (patch: Partial<DataFeedConfig>) => void;
+
+  rightSidebarTab: RightSidebarTab;
+  setRightSidebarTab: (tab: RightSidebarTab) => void;
+  bottomPanelOpen: boolean;
+  setBottomPanelOpen: (open: boolean) => void;
+  bottomPanelTab: BottomPanelTab;
+  setBottomPanelTab: (tab: BottomPanelTab) => void;
+  panelSizes: { rightWidth: number; bottomHeight: number; subPaneHeight: number };
+  updatePanelSizes: (patch: Partial<{ rightWidth: number; bottomHeight: number; subPaneHeight: number }>) => void;
+
+  searchModalOpen: boolean;
+  setSearchModalOpen: (open: boolean) => void;
+  indicatorsModalOpen: boolean;
+  setIndicatorsModalOpen: (open: boolean) => void;
+  shortcutsModalOpen: boolean;
+  setShortcutsModalOpen: (open: boolean) => void;
+  compareModalOpen: boolean;
+  setCompareModalOpen: (open: boolean) => void;
+  templatesModalOpen: boolean;
+  setTemplatesModalOpen: (open: boolean) => void;
+  chartSettingsModalOpen: boolean;
+  setChartSettingsModalOpen: (open: boolean) => void;
+  chartSettingsInitialTab: 'symbol' | 'status' | 'scales' | 'canvas' | 'trading' | 'feeds';
+  openChartSettingsTab: (tab: 'symbol' | 'status' | 'scales' | 'canvas' | 'trading' | 'feeds') => void;
+  editingDrawingId: string | null;
+  setEditingDrawingId: (id: string | null) => void;
+  editingIndicatorId: string | null;
+  setEditingIndicatorId: (id: string | null) => void;
+  snapshotRequestCounter: number;
+  triggerSnapshot: () => void;
+
+  layout: LayoutType;
+  setLayout: (layout: LayoutType) => void;
+  maximizedPaneId: string | null;
+  setMaximizedPaneId: (id: string | null) => void;
+  panes: ChartPaneConfig[];
+  activePaneId: string;
+  setActivePaneId: (paneId: string) => void;
+  favoriteTimeframes: TimeframeId[];
+  toggleFavoriteTimeframe: (tf: TimeframeId) => void;
+  syncCrosshair: boolean;
+  setSyncCrosshair: (sync: boolean) => void;
+  syncSymbol: boolean;
+  setSyncSymbol: (sync: boolean) => void;
+  syncTimeframe: boolean;
+  setSyncTimeframe: (sync: boolean) => void;
+  syncedCrosshairTime: number | null;
+  setSyncedCrosshairTime: (time: number | null) => void;
+
+  updatePaneSymbol: (paneId: string, symbol: string) => void;
+  updatePaneTimeframe: (paneId: string, timeframe: TimeframeId) => void;
+  updatePaneChartStyle: (paneId: string, chartStyle: ChartStyleType) => void;
+  updatePaneScaleMode: (paneId: string, scaleMode: ScaleMode) => void;
+  setPaneCompareSymbol: (paneId: string, compareSymbol: string | null) => void;
+
+  chartTemplates: ChartTemplate[];
+  saveChartTemplate: (name: string, paneId: string) => void;
+  applyChartTemplate: (paneId: string, templateId: string) => void;
+  deleteChartTemplate: (templateId: string) => void;
+
+  backtestTrades: BacktestTrade[];
+  showBacktestOnChart: boolean;
+  setBacktestOverlay: (trades: BacktestTrade[], visible: boolean) => void;
+
+  addIndicator: (paneId: string, type: IndicatorType) => void;
+  removeIndicator: (paneId: string, indicatorId: string) => void;
+  toggleIndicatorVisibility: (paneId: string, indicatorId: string) => void;
+  updateIndicator: (paneId: string, indicatorId: string, patch: Partial<IndicatorConfig>) => void;
+
+  activeDrawingTool: DrawingToolType;
+  setActiveDrawingTool: (tool: DrawingToolType) => void;
+  groupDefaultTools: Record<DrawingToolGroupId, DrawingToolType>;
+  setGroupTool: (group: DrawingToolGroupId, tool: DrawingToolType) => void;
+  drawingColor: string;
+  setDrawingColor: (color: string) => void;
+  drawingLineWidth: number;
+  setDrawingLineWidth: (width: number) => void;
+  drawingLineStyle: 'solid' | 'dashed' | 'dotted';
+  setDrawingLineStyle: (style: 'solid' | 'dashed' | 'dotted') => void;
+  stayInDrawingMode: boolean;
+  toggleStayInDrawingMode: () => void;
+  magnetMode: boolean;
+  toggleMagnetMode: () => void;
+  drawingsLocked: boolean;
+  toggleDrawingsLocked: () => void;
+  drawingsVisible: boolean;
+  toggleDrawingsVisible: () => void;
+  selectedDrawingId: string | null;
+  setSelectedDrawingId: (id: string | null) => void;
+  drawingsBySymbol: Record<string, DrawingObject[]>;
+  redoBySymbol: Record<string, DrawingObject[]>;
+  addDrawing: (drawing: DrawingObject) => void;
+  updateDrawing: (symbol: string, id: string, patch: Partial<DrawingObject>) => void;
+  duplicateDrawing: (symbol: string, id: string) => void;
+  removeDrawing: (symbol: string, id: string) => void;
+  clearDrawingsForSymbol: (symbol: string) => void;
+  undoDrawing: (symbol: string) => void;
+  redoDrawing: (symbol: string) => void;
+
+  replay: ReplayState;
+  enterReplayMode: (paneId: string) => void;
+  startReplayAt: (paneId: string, index: number, totalBars: number, timestamp: number | null) => void;
+  setReplaySelectMode: (selecting: boolean) => void;
+  toggleReplayPlay: () => void;
+  stepReplayForward: () => void;
+  stepReplayBackward: () => void;
+  setReplaySpeed: (speed: 0.5 | 1 | 2 | 5 | 10) => void;
+  setReplayIndex: (index: number, timestamp?: number | null) => void;
+  setReplayTotalBars: (totalBars: number) => void;
+  exitReplayMode: () => void;
+
+  watchlist: string[];
+  toggleWatchlistSymbol: (symbol: string) => void;
+  quotes: Record<string, LiveQuote>;
+  updateQuote: (
+    symbol: string,
+    price: number,
+    source?: FeedSourceType,
+    volume?: number,
+    overrideChangePct?: number
+  ) => void;
+
+  alerts: PriceAlert[];
+  addAlert: (alert: Omit<PriceAlert, 'id' | 'active' | 'createdAt'>) => void;
+  updateAlertPrice: (id: string, price: number) => void;
+  toggleAlert: (id: string) => void;
+  removeAlert: (id: string) => void;
+  markAlertTriggered: (id: string) => void;
+
+  paperBalance: number;
+  positions: PaperPosition[];
+  pendingOrders: PendingOrder[];
+  closedTrades: ClosedTrade[];
+  placeMarketOrder: (params: {
+    symbol: string;
+    side: OrderSide;
+    quantity: number;
+    price: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => void;
+  placeLimitOrder: (params: {
+    symbol: string;
+    side: OrderSide;
+    quantity: number;
+    limitPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => void;
+  cancelPendingOrder: (id: string) => void;
+  closePosition: (id: string, exitPrice: number, reason?: 'manual' | 'sl' | 'tp') => void;
+  updatePositionTPSL: (id: string, stopLoss?: number, takeProfit?: number) => void;
+  processMarketPriceForPaperTrading: (
+    symbol: string,
+    high: number,
+    low: number,
+    close: number
+  ) => void;
+  resetPaperAccount: () => void;
+
+  toasts: ToastMessage[];
+  addToast: (toast: Omit<ToastMessage, 'id' | 'createdAt'>) => void;
+  removeToast: (id: string) => void;
+}
+
+export const useTradingStore = create<TradingStore>()(
+  persist(
+    (set, get) => ({
+      theme: 'dark',
+      toggleTheme: () =>
+        set((state) => {
+          const next = state.theme === 'dark' ? 'light' : 'dark';
+          if (typeof document !== 'undefined') {
+            document.documentElement.classList.toggle('dark', next === 'dark');
+          }
+          return { theme: next };
+        }),
+
+      chartSettings: DEFAULT_CHART_SETTINGS,
+      updateChartSettings: (patch) =>
+        set((state) => ({
+          chartSettings: { ...state.chartSettings, ...patch },
+        })),
+      resetChartSettings: () => set({ chartSettings: DEFAULT_CHART_SETTINGS }),
+
+      smartOverlays: DEFAULT_SMART_OVERLAYS,
+      updateSmartOverlays: (patch) =>
+        set((state) => ({
+          smartOverlays: { ...state.smartOverlays, ...patch },
+        })),
+
+      rsiDivConfig: DEFAULT_RSI_DIV_CONFIG,
+      updateRsiDivConfig: (patch) =>
+        set((state) => ({
+          rsiDivConfig: { ...state.rsiDivConfig, ...patch },
+        })),
+      resetRsiDivConfig: () => set({ rsiDivConfig: DEFAULT_RSI_DIV_CONFIG }),
+
+      dataFeed: DEFAULT_DATA_FEED,
+      updateDataFeed: (patch) =>
+        set((state) => ({
+          dataFeed: { ...state.dataFeed, ...patch },
+        })),
+
+      rightSidebarTab: 'watchlist',
+      setRightSidebarTab: (tab) => set({ rightSidebarTab: tab }),
+      bottomPanelOpen: false,
+      setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
+      bottomPanelTab: 'positions',
+      setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+      panelSizes: { rightWidth: 288, bottomHeight: 256, subPaneHeight: 112 },
+      updatePanelSizes: (patch) =>
+        set((state) => ({
+          panelSizes: { ...state.panelSizes, ...patch },
+        })),
+
+      searchModalOpen: false,
+      setSearchModalOpen: (open) => set({ searchModalOpen: open }),
+      indicatorsModalOpen: false,
+      setIndicatorsModalOpen: (open) => set({ indicatorsModalOpen: open }),
+      shortcutsModalOpen: false,
+      setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+      compareModalOpen: false,
+      setCompareModalOpen: (open) => set({ compareModalOpen: open }),
+      templatesModalOpen: false,
+      setTemplatesModalOpen: (open) => set({ templatesModalOpen: open }),
+      chartSettingsModalOpen: false,
+      setChartSettingsModalOpen: (open) => set({ chartSettingsModalOpen: open }),
+      chartSettingsInitialTab: 'symbol',
+      openChartSettingsTab: (tab) =>
+        set({ chartSettingsInitialTab: tab, chartSettingsModalOpen: true }),
+      editingDrawingId: null,
+      setEditingDrawingId: (editingDrawingId) => set({ editingDrawingId }),
+      editingIndicatorId: null,
+      setEditingIndicatorId: (editingIndicatorId) => set({ editingIndicatorId }),
+      snapshotRequestCounter: 0,
+      triggerSnapshot: () =>
+        set((s) => ({ snapshotRequestCounter: s.snapshotRequestCounter + 1 })),
+
+      layout: '1x1',
+      setLayout: (layout) => set({ layout, maximizedPaneId: null }),
+      maximizedPaneId: null,
+      setMaximizedPaneId: (maximizedPaneId) => set({ maximizedPaneId }),
+      panes: DEFAULT_PANES,
+      activePaneId: 'pane-1',
+      setActivePaneId: (paneId) => set({ activePaneId: paneId }),
+
+      favoriteTimeframes: ['1s', '5s', '1m', '5m', '15m', '1h', '4h', '1D'],
+      toggleFavoriteTimeframe: (tf) =>
+        set((state) => {
+          const exists = state.favoriteTimeframes.includes(tf);
+          if (exists && state.favoriteTimeframes.length <= 2) return state;
+          const next = exists
+            ? state.favoriteTimeframes.filter((t) => t !== tf)
+            : [...state.favoriteTimeframes, tf];
+          return { favoriteTimeframes: next };
+        }),
+
+      syncCrosshair: true,
+      setSyncCrosshair: (syncCrosshair) => set({ syncCrosshair }),
+      syncSymbol: false,
+      setSyncSymbol: (syncSymbol) => set({ syncSymbol }),
+      syncTimeframe: false,
+      setSyncTimeframe: (syncTimeframe) => set({ syncTimeframe }),
+      syncedCrosshairTime: null,
+      setSyncedCrosshairTime: (syncedCrosshairTime) => set({ syncedCrosshairTime }),
+
+      updatePaneSymbol: (paneId, symbol) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            state.syncSymbol || p.id === paneId ? { ...p, symbol } : p
+          ),
+        })),
+
+      updatePaneTimeframe: (paneId, timeframe) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            state.syncTimeframe || p.id === paneId ? { ...p, timeframe } : p
+          ),
+        })),
+
+      updatePaneChartStyle: (paneId, chartStyle) =>
+        set((state) => ({
+          panes: state.panes.map((p) => (p.id === paneId ? { ...p, chartStyle } : p)),
+        })),
+
+      updatePaneScaleMode: (paneId, scaleMode) =>
+        set((state) => ({
+          panes: state.panes.map((p) => (p.id === paneId ? { ...p, scaleMode } : p)),
+        })),
+
+      setPaneCompareSymbol: (paneId, compareSymbol) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId ? { ...p, compareSymbol } : p
+          ),
+        })),
+
+      chartTemplates: DEFAULT_CHART_TEMPLATES,
+      saveChartTemplate: (name, paneId) => {
+        const pane = get().panes.find((p) => p.id === paneId);
+        if (!pane || !name.trim()) return;
+        const tpl: ChartTemplate = {
+          id: generateId('tpl'),
+          name: name.trim(),
+          chartStyle: pane.chartStyle,
+          indicators: pane.indicators.map(({ id: _id, ...rest }) => ({ ...rest })),
+          smartOverlays: { ...get().smartOverlays },
+        };
+        set((state) => ({
+          chartTemplates: [tpl, ...state.chartTemplates],
+        }));
+        get().addToast({ title: `Template Saved: ${tpl.name}`, variant: 'success' });
+      },
+
+      applyChartTemplate: (paneId, templateId) => {
+        const tpl = get().chartTemplates.find((t) => t.id === templateId);
+        if (!tpl) return;
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  chartStyle: tpl.chartStyle,
+                  indicators: tpl.indicators.map((ind) => ({
+                    ...ind,
+                    id: generateId('ind'),
+                  })),
+                }
+              : p
+          ),
+          smartOverlays: { ...tpl.smartOverlays },
+        }));
+        get().addToast({ title: `Template Applied: ${tpl.name}`, variant: 'info' });
+      },
+
+      deleteChartTemplate: (templateId) =>
+        set((state) => ({
+          chartTemplates: state.chartTemplates.filter((t) => t.id !== templateId),
+        })),
+
+      backtestTrades: [],
+      showBacktestOnChart: false,
+      setBacktestOverlay: (backtestTrades, showBacktestOnChart) =>
+        set({ backtestTrades, showBacktestOnChart }),
+
+      addIndicator: (paneId, type) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? { ...p, indicators: [...p.indicators, createIndicatorInstance(type)] }
+              : p
+          ),
+        })),
+
+      removeIndicator: (paneId, indicatorId) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? { ...p, indicators: p.indicators.filter((ind) => ind.id !== indicatorId) }
+              : p
+          ),
+        })),
+
+      toggleIndicatorVisibility: (paneId, indicatorId) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  indicators: p.indicators.map((ind) =>
+                    ind.id === indicatorId ? { ...ind, visible: !ind.visible } : ind
+                  ),
+                }
+              : p
+          ),
+        })),
+
+      updateIndicator: (paneId, indicatorId, patch) =>
+        set((state) => ({
+          panes: state.panes.map((p) =>
+            p.id === paneId
+              ? {
+                  ...p,
+                  indicators: p.indicators.map((ind) =>
+                    ind.id === indicatorId ? { ...ind, ...patch } : ind
+                  ),
+                }
+              : p
+          ),
+        })),
+
+      activeDrawingTool: 'cursor',
+      setActiveDrawingTool: (activeDrawingTool) => set({ activeDrawingTool }),
+      groupDefaultTools: {
+        cursors: 'cursor',
+        lines: 'trendline',
+        fib_gann: 'fib',
+        patterns: 'xabcd',
+        forecast: 'long_pos',
+        shapes: 'rect',
+        annotations: 'brush',
+        measure: 'ruler',
+      },
+      setGroupTool: (group, tool) =>
+        set((state) => ({
+          groupDefaultTools: { ...state.groupDefaultTools, [group]: tool },
+          activeDrawingTool: tool,
+        })),
+
+      drawingColor: '#2962FF',
+      setDrawingColor: (drawingColor) => set({ drawingColor }),
+      drawingLineWidth: 2,
+      setDrawingLineWidth: (drawingLineWidth) => set({ drawingLineWidth }),
+      drawingLineStyle: 'solid',
+      setDrawingLineStyle: (drawingLineStyle) => set({ drawingLineStyle }),
+      stayInDrawingMode: false,
+      toggleStayInDrawingMode: () => set((s) => ({ stayInDrawingMode: !s.stayInDrawingMode })),
+      magnetMode: false,
+      toggleMagnetMode: () => set((s) => ({ magnetMode: !s.magnetMode })),
+      drawingsLocked: false,
+      toggleDrawingsLocked: () => set((s) => ({ drawingsLocked: !s.drawingsLocked })),
+      drawingsVisible: true,
+      toggleDrawingsVisible: () => set((s) => ({ drawingsVisible: !s.drawingsVisible })),
+      selectedDrawingId: null,
+      setSelectedDrawingId: (selectedDrawingId) => set({ selectedDrawingId }),
+      drawingsBySymbol: {},
+      redoBySymbol: {},
+
+      addDrawing: (drawing) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[drawing.symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [drawing.symbol]: [...list, drawing],
+            },
+            redoBySymbol: {
+              ...state.redoBySymbol,
+              [drawing.symbol]: [],
+            },
+            selectedDrawingId: drawing.id,
+          };
+        }),
+
+      updateDrawing: (symbol, id, patch) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+            },
+          };
+        }),
+
+      duplicateDrawing: (symbol, id) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          const src = list.find((d) => d.id === id);
+          if (!src) return state;
+          const clone: DrawingObject = {
+            ...src,
+            id: generateId('drw'),
+            locked: false,
+            points: src.points.map((pt) => ({
+              time: pt.time,
+              price: pt.price * 1.003,
+            })),
+            createdAt: Date.now(),
+          };
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: [...list, clone],
+            },
+            selectedDrawingId: clone.id,
+          };
+        }),
+
+      removeDrawing: (symbol, id) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          const removed = list.find((d) => d.id === id);
+          const redo = state.redoBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.filter((d) => d.id !== id),
+            },
+            redoBySymbol: removed
+              ? { ...state.redoBySymbol, [symbol]: [removed, ...redo].slice(0, 25) }
+              : state.redoBySymbol,
+            selectedDrawingId: state.selectedDrawingId === id ? null : state.selectedDrawingId,
+          };
+        }),
+
+      clearDrawingsForSymbol: (symbol) =>
+        set((state) => ({
+          drawingsBySymbol: { ...state.drawingsBySymbol, [symbol]: [] },
+          redoBySymbol: { ...state.redoBySymbol, [symbol]: [] },
+          selectedDrawingId: null,
+        })),
+
+      undoDrawing: (symbol) =>
+        set((state) => {
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          if (list.length === 0) return state;
+          const last = list[list.length - 1];
+          const redo = state.redoBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: list.slice(0, -1),
+            },
+            redoBySymbol: {
+              ...state.redoBySymbol,
+              [symbol]: [last, ...redo].slice(0, 25),
+            },
+            selectedDrawingId: null,
+          };
+        }),
+
+      redoDrawing: (symbol) =>
+        set((state) => {
+          const redo = state.redoBySymbol[symbol] ?? [];
+          if (redo.length === 0) return state;
+          const [restored, ...rest] = redo;
+          const list = state.drawingsBySymbol[symbol] ?? [];
+          return {
+            drawingsBySymbol: {
+              ...state.drawingsBySymbol,
+              [symbol]: [...list, restored],
+            },
+            redoBySymbol: {
+              ...state.redoBySymbol,
+              [symbol]: rest,
+            },
+            selectedDrawingId: restored.id,
+          };
+        }),
+
+      replay: DEFAULT_REPLAY,
+      enterReplayMode: (paneId) =>
+        set({
+          replay: {
+            enabled: true,
+            isSelectingStart: true,
+            isPlaying: false,
+            speed: 1,
+            currentIndex: 0,
+            totalBars: 0,
+            currentTimestamp: null,
+            paneId,
+          },
+        }),
+
+      startReplayAt: (paneId, index, totalBars, timestamp) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            enabled: true,
+            isSelectingStart: false,
+            isPlaying: false,
+            paneId,
+            totalBars,
+            currentIndex: Math.max(5, Math.min(index, Math.max(5, totalBars - 2))),
+            currentTimestamp: timestamp,
+          },
+        })),
+
+      setReplaySelectMode: (isSelectingStart) =>
+        set((state) => ({
+          replay: { ...state.replay, isSelectingStart, isPlaying: false },
+        })),
+
+      toggleReplayPlay: () =>
+        set((state) => {
+          if (!state.replay.enabled) return state;
+          if (state.replay.isSelectingStart) {
+            const fallbackIdx = Math.max(10, Math.floor(state.replay.totalBars * 0.6));
+            return {
+              replay: {
+                ...state.replay,
+                isSelectingStart: false,
+                currentIndex: state.replay.currentIndex || fallbackIdx,
+                isPlaying: true,
+              },
+            };
+          }
+          if (state.replay.currentIndex >= state.replay.totalBars - 1) {
+            return { replay: { ...state.replay, isPlaying: false } };
+          }
+          return {
+            replay: { ...state.replay, isPlaying: !state.replay.isPlaying },
+          };
+        }),
+
+      stepReplayForward: () =>
+        set((state) => {
+          if (!state.replay.enabled || state.replay.totalBars === 0) return state;
+          const next = Math.min(state.replay.totalBars - 1, state.replay.currentIndex + 1);
+          return {
+            replay: {
+              ...state.replay,
+              isSelectingStart: false,
+              currentIndex: next,
+              isPlaying: next >= state.replay.totalBars - 1 ? false : state.replay.isPlaying,
+            },
+          };
+        }),
+
+      stepReplayBackward: () =>
+        set((state) => {
+          if (!state.replay.enabled || state.replay.totalBars === 0) return state;
+          const prev = Math.max(5, state.replay.currentIndex - 1);
+          return {
+            replay: { ...state.replay, isSelectingStart: false, isPlaying: false, currentIndex: prev },
+          };
+        }),
+
+      setReplaySpeed: (speed) =>
+        set((state) => ({ replay: { ...state.replay, speed } })),
+
+      setReplayIndex: (index, timestamp) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            currentIndex: Math.max(5, Math.min(index, Math.max(5, state.replay.totalBars - 1))),
+            currentTimestamp: timestamp !== undefined ? timestamp : state.replay.currentTimestamp,
+          },
+        })),
+
+      setReplayTotalBars: (totalBars) =>
+        set((state) => ({
+          replay: {
+            ...state.replay,
+            totalBars,
+            currentIndex:
+              state.replay.currentIndex > 0
+                ? Math.min(state.replay.currentIndex, Math.max(5, totalBars - 1))
+                : Math.max(10, Math.floor(totalBars * 0.6)),
+          },
+        })),
+
+      exitReplayMode: () => set({ replay: DEFAULT_REPLAY }),
+
+      watchlist: [
+        'BTCUSDT',
+        'ETHUSDT',
+        'SOLUSDT',
+        'XAUUSD',
+        'EURUSD',
+        'GBPUSD',
+        'USDJPY',
+        'NVDA',
+        'TSLA',
+        'BBCA.JK',
+        'BBRI.JK',
+        'TLKM.JK',
+      ],
+
+      toggleWatchlistSymbol: (symbol) =>
+        set((state) => {
+          const exists = state.watchlist.includes(symbol);
+          return {
+            watchlist: exists
+              ? state.watchlist.filter((s) => s !== symbol)
+              : [...state.watchlist, symbol],
+          };
+        }),
+
+      quotes: {},
+      updateQuote: (symbol, price, source = 'simulated', volume = 0, overrideChangePct) =>
+        set((state) => {
+          const prev = state.quotes[symbol];
+          const info = getSymbolInfo(symbol);
+          const prevClose =
+            overrideChangePct !== undefined
+              ? price / Math.max(1 + overrideChangePct / 100, 1e-6)
+              : prev?.prevClose ?? info.basePrice;
+          const change = price - prevClose;
+          const changePercent =
+            overrideChangePct !== undefined
+              ? overrideChangePct
+              : prevClose > 0
+              ? (change / prevClose) * 100
+              : 0;
+          const spark = prev?.sparkline ? [...prev.sparkline, price].slice(-24) : [price];
+
+          return {
+            quotes: {
+              ...state.quotes,
+              [symbol]: {
+                symbol,
+                price,
+                prevClose,
+                change,
+                changePercent,
+                high24h: prev ? Math.max(prev.high24h, price) : price * 1.012,
+                low24h: prev ? Math.min(prev.low24h, price) : price * 0.988,
+                volume24h: (prev?.volume24h ?? info.basePrice * 120) + volume,
+                sparkline: spark,
+                source,
+              },
+            },
+          };
+        }),
+
+      alerts: [],
+      addAlert: (alert) =>
+        set((state) => ({
+          alerts: [
+            {
+              ...alert,
+              id: generateId('alert'),
+              active: true,
+              createdAt: Date.now(),
+            },
+            ...state.alerts,
+          ],
+        })),
+
+      updateAlertPrice: (id, price) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) => (a.id === id ? { ...a, price } : a)),
+        })),
+
+      toggleAlert: (id) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, active: !a.active, triggeredAt: undefined } : a
+          ),
+        })),
+
+      removeAlert: (id) =>
+        set((state) => ({
+          alerts: state.alerts.filter((a) => a.id !== id),
+        })),
+
+      markAlertTriggered: (id) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, active: false, triggeredAt: Date.now() } : a
+          ),
+        })),
+
+      paperBalance: 100000,
+      positions: [],
+      pendingOrders: [],
+      closedTrades: [],
+
+      placeMarketOrder: ({ symbol, side, quantity, price, stopLoss, takeProfit }) => {
+        if (quantity <= 0 || price <= 0) return;
+        const pos: PaperPosition = {
+          id: generateId('pos'),
+          symbol,
+          side,
+          quantity,
+          entryPrice: price,
+          stopLoss: stopLoss && stopLoss > 0 ? stopLoss : undefined,
+          takeProfit: takeProfit && takeProfit > 0 ? takeProfit : undefined,
+          openedAt: Date.now(),
+        };
+        set((state) => ({
+          positions: [pos, ...state.positions],
+        }));
+        get().addToast({
+          title: `${side === 'buy' ? 'Long' : 'Short'} Executed: ${symbol}`,
+          description: `Qty ${quantity} @ ${price}`,
+          variant: 'success',
+        });
+      },
+
+      placeLimitOrder: ({ symbol, side, quantity, limitPrice, stopLoss, takeProfit }) => {
+        if (quantity <= 0 || limitPrice <= 0) return;
+        const order: PendingOrder = {
+          id: generateId('ord'),
+          symbol,
+          side,
+          type: 'limit',
+          quantity,
+          limitPrice,
+          stopLoss: stopLoss && stopLoss > 0 ? stopLoss : undefined,
+          takeProfit: takeProfit && takeProfit > 0 ? takeProfit : undefined,
+          createdAt: Date.now(),
+        };
+        set((state) => ({
+          pendingOrders: [order, ...state.pendingOrders],
+        }));
+        get().addToast({
+          title: `Limit ${side.toUpperCase()} Placed: ${symbol}`,
+          description: `Qty ${quantity} @ ${limitPrice}`,
+          variant: 'info',
+        });
+      },
+
+      cancelPendingOrder: (id) =>
+        set((state) => ({
+          pendingOrders: state.pendingOrders.filter((o) => o.id !== id),
+        })),
+
+      closePosition: (id, exitPrice, reason = 'manual') => {
+        const state = get();
+        const pos = state.positions.find((p) => p.id === id);
+        if (!pos) return;
+
+        const priceDiff = pos.side === 'buy' ? exitPrice - pos.entryPrice : pos.entryPrice - exitPrice;
+        const pnl = priceDiff * pos.quantity;
+        const notional = pos.entryPrice * pos.quantity;
+        const pnlPercent = notional > 0 ? (pnl / notional) * 100 : 0;
+
+        const closed: ClosedTrade = {
+          id: generateId('trd'),
+          symbol: pos.symbol,
+          side: pos.side,
+          quantity: pos.quantity,
+          entryPrice: pos.entryPrice,
+          exitPrice,
+          pnl,
+          pnlPercent,
+          openedAt: pos.openedAt,
+          closedAt: Date.now(),
+          reason,
+        };
+
+        set({
+          positions: state.positions.filter((p) => p.id !== id),
+          closedTrades: [closed, ...state.closedTrades].slice(0, 100),
+          paperBalance: state.paperBalance + pnl,
+        });
+
+        get().addToast({
+          title: `${reason === 'sl' ? 'Stop Loss Hit' : reason === 'tp' ? 'Take Profit Hit' : 'Position Closed'}: ${pos.symbol}`,
+          description: `PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%)`,
+          variant: pnl >= 0 ? 'success' : 'danger',
+        });
+      },
+
+      updatePositionTPSL: (id, stopLoss, takeProfit) =>
+        set((state) => ({
+          positions: state.positions.map((p) =>
+            p.id === id ? { ...p, stopLoss, takeProfit } : p
+          ),
+        })),
+
+      processMarketPriceForPaperTrading: (symbol, high, low, close) => {
+        const state = get();
+        const ordersForSymbol = state.pendingOrders.filter((o) => o.symbol === symbol);
+        for (const ord of ordersForSymbol) {
+          const hit = ord.side === 'buy' ? low <= ord.limitPrice : high >= ord.limitPrice;
+          if (hit) {
+            set((s) => ({
+              pendingOrders: s.pendingOrders.filter((o) => o.id !== ord.id),
+              positions: [
+                {
+                  id: generateId('pos'),
+                  symbol: ord.symbol,
+                  side: ord.side,
+                  quantity: ord.quantity,
+                  entryPrice: ord.limitPrice,
+                  stopLoss: ord.stopLoss,
+                  takeProfit: ord.takeProfit,
+                  openedAt: Date.now(),
+                },
+                ...s.positions,
+              ],
+            }));
+            get().addToast({
+              title: `Limit Order Filled: ${ord.symbol}`,
+              description: `${ord.side.toUpperCase()} ${ord.quantity} @ ${ord.limitPrice}`,
+              variant: 'success',
+            });
+          }
+        }
+
+        const currentPositions = get().positions.filter((p) => p.symbol === symbol);
+        for (const pos of currentPositions) {
+          if (pos.side === 'buy') {
+            if (pos.stopLoss && low <= pos.stopLoss) {
+              get().closePosition(pos.id, pos.stopLoss, 'sl');
+            } else if (pos.takeProfit && high >= pos.takeProfit) {
+              get().closePosition(pos.id, pos.takeProfit, 'tp');
+            }
+          } else {
+            if (pos.stopLoss && high >= pos.stopLoss) {
+              get().closePosition(pos.id, pos.stopLoss, 'sl');
+            } else if (pos.takeProfit && low <= pos.takeProfit) {
+              get().closePosition(pos.id, pos.takeProfit, 'tp');
+            }
+          }
+        }
+      },
+
+      resetPaperAccount: () =>
+        set({
+          paperBalance: 100000,
+          positions: [],
+          pendingOrders: [],
+          closedTrades: [],
+        }),
+
+      toasts: [],
+      addToast: (toast) => {
+        const id = generateId('toast');
+        set((state) => ({
+          toasts: [{ ...toast, id, createdAt: Date.now() }, ...state.toasts].slice(0, 5),
+        }));
+        window.setTimeout(() => {
+          get().removeToast(id);
+        }, 4500);
+      },
+
+      removeToast: (id) =>
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        })),
+    }),
+    {
+      name: 'apexchart-pro-storage-v5',
+      version: 2,
+      migrate: (persistedState) => persistedState as TradingStore,
+      onRehydrateStorage: () => (state) => {
+        if (state && typeof document !== 'undefined') {
+          document.documentElement.classList.toggle('dark', state.theme === 'dark');
+        }
+      },
+      // Persist ALL workspace UI, sidebar visibility, drawing prefs, settings, & paper account!
+      partialize: (state) => ({
+        theme: state.theme,
+        chartSettings: state.chartSettings,
+        smartOverlays: state.smartOverlays,
+        rsiDivConfig: state.rsiDivConfig,
+        dataFeed: state.dataFeed,
+        rightSidebarTab: state.rightSidebarTab,
+        bottomPanelOpen: state.bottomPanelOpen,
+        bottomPanelTab: state.bottomPanelTab,
+        panelSizes: state.panelSizes,
+        chartTemplates: state.chartTemplates,
+        layout: state.layout,
+        maximizedPaneId: state.maximizedPaneId,
+        panes: state.panes,
+        activePaneId: state.activePaneId,
+        favoriteTimeframes: state.favoriteTimeframes,
+        syncCrosshair: state.syncCrosshair,
+        syncSymbol: state.syncSymbol,
+        syncTimeframe: state.syncTimeframe,
+        watchlist: state.watchlist,
+        drawingsBySymbol: state.drawingsBySymbol,
+        groupDefaultTools: state.groupDefaultTools,
+        drawingColor: state.drawingColor,
+        drawingLineWidth: state.drawingLineWidth,
+        drawingLineStyle: state.drawingLineStyle,
+        stayInDrawingMode: state.stayInDrawingMode,
+        magnetMode: state.magnetMode,
+        drawingsLocked: state.drawingsLocked,
+        drawingsVisible: state.drawingsVisible,
+        showBacktestOnChart: state.showBacktestOnChart,
+        alerts: state.alerts,
+        paperBalance: state.paperBalance,
+        positions: state.positions,
+        pendingOrders: state.pendingOrders,
+        closedTrades: state.closedTrades,
+      }),
+    }
+  )
+);
+<<<=== END FILE ===>>>
