@@ -50,7 +50,6 @@ export function runBacktest(
   let maxDD = 0;
   const equityCurve: number[] = [initialCapital];
 
-  // Special engine for user's RSI Divergence Pro strategy using exact SL / TP rules
   if (strategyId === 'rsi_divergence') {
     const cfg: RSIDivergenceConfig = rsiDivConfig ?? {
       rsiPeriod: 14,
@@ -63,8 +62,11 @@ export function runBacktest(
       goldenRatioMin: 0.5,
       goldenRatioTarget: 0.618,
       goldenRatioMax: 0.65,
+      maxSetups: 4,
+      hideMitigated: true,
+      enableAlerts: true,
     };
-    const sigs = computeRSIDivergences(candles, cfg).filter((s) => s.valid);
+    const sigs = computeRSIDivergences(candles, cfg, false).filter((s) => s.valid);
     const idxByTime = new Map<number, number>();
     candles.forEach((c, idx) => idxByTime.set(c.time, idx));
 
@@ -72,7 +74,7 @@ export function runBacktest(
       const startIdx = idxByTime.get(sig.entryTime);
       if (startIdx === undefined || startIdx >= candles.length - 1) continue;
 
-      const riskAmt = equity * 0.02; // 2% risk per divergence setup
+      const riskAmt = equity * 0.02;
       const stopDist = Math.max(Math.abs(sig.entryPrice - sig.stopLoss), sig.entryPrice * 0.001);
       const qty = riskAmt / stopDist;
 
@@ -113,7 +115,6 @@ export function runBacktest(
 
       const diff = sig.direction === 'bull' ? exitPrice - sig.entryPrice : sig.entryPrice - exitPrice;
       const pnlUsd = diff * qty;
-      const pnlPct = (pnlUsd / equity) * 100;
       equity += pnlUsd;
       peakEquity = Math.max(peakEquity, equity);
       maxDD = Math.max(maxDD, ((peakEquity - equity) / peakEquity) * 100);
@@ -127,12 +128,11 @@ export function runBacktest(
         exitTime: candles[exitIdx].time,
         exitPrice,
         pnlUsd,
-        pnlPct,
+        pnlPct: (pnlUsd / Math.max(equity - pnlUsd, 1)) * 100,
         reason,
       });
     }
   } else {
-    // Classic Signal-Flip Engines
     const fastMap = new Map(computeEMA(candles, 9).map((p) => [p.time, p.value]));
     const slowMap = new Map(computeEMA(candles, 21).map((p) => [p.time, p.value]));
     const rsiMap = new Map(computeRSI(candles, 14).map((p) => [p.time, p.value]));

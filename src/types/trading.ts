@@ -48,12 +48,48 @@ export interface SymbolInfo {
 }
 
 export interface Candle {
-  time: number; // UTC unix seconds
+  time: number;
   open: number;
   high: number;
   low: number;
   close: number;
   volume: number;
+}
+
+export interface OrderFlowTick {
+  timeSec: number;
+  price: number;
+  qty: number;
+  side: 'buy' | 'sell'; // buy = Ask aggressor, sell = Bid aggressor
+  isRealFlow: boolean;
+}
+
+export interface FootprintRow {
+  price: number;
+  bidVol: number;
+  askVol: number;
+  delta: number;
+  bidImbalance: boolean;
+  askImbalance: boolean;
+}
+
+export interface CandleFootprint {
+  time: number;
+  step: number;
+  rows: FootprintRow[];
+  pocPrice: number;
+  totalBid: number;
+  totalAsk: number;
+  delta: number;
+  isRealFlow: boolean;
+}
+
+export interface FootprintConfig {
+  imbalanceRatio: number; // default 3.0 (300%)
+  showImbalances: boolean;
+  showPOC: boolean;
+  showDeltaSummary: boolean;
+  rowTicksMultiplier: number; // auto-bucket granularity 1..4
 }
 
 export type FeedSourceType = 'binance' | 'twelvedata' | 'gold-proxy' | 'simulated';
@@ -77,7 +113,15 @@ export interface DataFeedConfig {
   useGoldProxyWhenNoKey: boolean;
 }
 
-export type ChartStyleType = 'candles' | 'hollow' | 'heikin_ashi' | 'line' | 'area' | 'bars';
+export type ChartStyleType =
+  | 'candles'
+  | 'hollow'
+  | 'heikin_ashi'
+  | 'footprint'
+  | 'line'
+  | 'area'
+  | 'bars';
+
 export type ScaleMode = 'normal' | 'logarithmic' | 'percentage';
 export type PriceSource = 'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3' | 'ohlc4';
 
@@ -172,9 +216,12 @@ export interface RSIDivergenceConfig {
   enableExaggerated: boolean;
   enableHidden: boolean;
   doubleTopTolerancePct: number;
-  goldenRatioMin: number; // e.g. 0.50
-  goldenRatioTarget: number; // e.g. 0.618
-  goldenRatioMax: number; // e.g. 0.65
+  goldenRatioMin: number;
+  goldenRatioTarget: number;
+  goldenRatioMax: number;
+  maxSetups: number;
+  hideMitigated: boolean;
+  enableAlerts: boolean;
 }
 
 export type DivergenceKind = 'regular' | 'exaggerated' | 'hidden';
@@ -192,14 +239,12 @@ export interface RSIDivergenceSignal {
   p2Time: number;
   p2Price: number;
   p2Rsi: number;
-  // Trigger Trendline (for Regular & Exaggerated body-break setups)
   trendline?: {
     t1: number;
     p1: number;
     t2: number;
     p2: number;
   };
-  // Fibonacci Golden Ratio Box (for Hidden Divergence setups)
   fibSetup?: {
     prevLow: number;
     prevHigh: number;
@@ -209,7 +254,8 @@ export interface RSIDivergenceSignal {
     goldenMid: number;
     goldenBot: number;
   };
-  valid: boolean; // True once trendline body-break occurred OR Golden Ratio tapped
+  valid: boolean;
+  mitigated?: boolean;
   entryTime: number;
   entryPrice: number;
   stopLoss: number;
@@ -270,7 +316,8 @@ export type IndicatorType =
   | 'RSI_DIV'
   | 'MACD'
   | 'STOCH'
-  | 'ATR';
+  | 'ATR'
+  | 'CVD';
 
 export type IndicatorPlacement = 'overlay' | 'subpane';
 

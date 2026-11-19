@@ -11,7 +11,8 @@ interface PivotPoint {
 
 export function computeRSIDivergences(
   candles: Candle[],
-  config: RSIDivergenceConfig
+  config: RSIDivergenceConfig,
+  applyClutterFilter = false
 ): RSIDivergenceSignal[] {
   if (candles.length < config.rsiPeriod + 20) return [];
 
@@ -61,13 +62,28 @@ export function computeRSIDivergences(
   const signals: RSIDivergenceSignal[] = [];
   const tolFrac = Math.max(0.0005, config.doubleTopTolerancePct / 100);
 
-  // Helper: evaluate trendline + candle body break for Regular & Exaggerated
+  const checkMitigated = (
+    direction: 'bull' | 'bear',
+    entryIdx: number,
+    sl: number,
+    tp: number
+  ): boolean => {
+    for (let k = entryIdx + 1; k < candles.length; k++) {
+      const c = candles[k];
+      if (direction === 'bull') {
+        if (c.low <= sl || c.high >= tp) return true;
+      } else {
+        if (c.high >= sl || c.low <= tp) return true;
+      }
+    }
+    return false;
+  };
+
   const buildTrendlineBreakSetup = (
     direction: 'bull' | 'bear',
     p1: PivotPoint,
     p2: PivotPoint
   ) => {
-    // Find structural counter-swing between p1 and p2
     let midIdx = p1.index + 1;
     for (let k = p1.index + 1; k < p2.index; k++) {
       if (direction === 'bull') {
@@ -77,7 +93,6 @@ export function computeRSIDivergences(
       }
     }
 
-    // Find secondary shoulder candle between midIdx and p2.index - 1 to anchor sloped counter-trendline
     let anchor2Idx = Math.max(midIdx, p2.index - 1);
     let bestShoulderDist = -Infinity;
     for (let k = midIdx + 1; k < p2.index; k++) {
@@ -110,7 +125,6 @@ export function computeRSIDivergences(
     const spanIdx = Math.max(1, idxB - idxA);
     const slope = (valB - valA) / spanIdx;
 
-    // Scan after p2 for genuine candle BODY close breaking the counter-trendline
     let valid = false;
     let entryIdx = Math.min(candles.length - 1, p2.index + 1);
     let entryPrice = candles[entryIdx].close;
@@ -120,7 +134,6 @@ export function computeRSIDivergences(
       const tlAtK = valA + slope * (k - idxA);
       const c = candles[k];
       if (direction === 'bull') {
-        // Candle body closes strictly above trigger trendline (or bullish candle breaks previous body high)
         if (c.close > tlAtK && c.close > c.open) {
           valid = true;
           entryIdx = k;
@@ -150,12 +163,12 @@ export function computeRSIDivergences(
         p2: tlEndVal,
       },
       valid,
+      entryIdx,
       entryTime: candles[entryIdx].time,
       entryPrice,
     };
   };
 
-  // 1. Scan Pivot Lows for Bullish Divergences (Regular, Exaggerated, Hidden)
   for (let i = 1; i < pivotLows.length; i++) {
     const p1 = pivotLows[i - 1];
     const p2 = pivotLows[i];
@@ -163,11 +176,11 @@ export function computeRSIDivergences(
 
     const priceDiffRatio = Math.abs(p2.price - p1.price) / Math.max(p1.price, 1e-9);
 
-    // Exaggerated Bullish: Double Bottom (equal lows) + Higher RSI Low
     if (config.enableExaggerated && priceDiffRatio <= tolFrac && p2.rsi > p1.rsi + 1.2) {
       const setup = buildTrendlineBreakSetup('bull', p1, p2);
       const sl = Math.min(p1.price, p2.price);
       const risk = Math.max(setup.entryPrice - sl, p2.price * 0.001);
+      const tp = setup.entryPrice + risk * 2;
       signals.push({
         id: `div_exag_bull_${p2.time}`,
         kind: 'exaggerated',
@@ -182,15 +195,15 @@ export function computeRSIDivergences(
         p2Rsi: p2.rsi,
         trendline: setup.trendline,
         valid: setup.valid,
+        mitigated: setup.valid ? checkMitigated('bull', setup.entryIdx, sl, tp) : false,
         entryTime: setup.entryTime,
         entryPrice: setup.entryPrice,
         stopLoss: sl,
-        takeProfit: setup.entryPrice + risk * 2,
+        takeProfit: tp,
       });
       continue;
     }
 
-    // Regular Bullish: Lower Price Low + Higher RSI Low
     if (
       config.enableRegular &&
       p2.price < p1.price * (1 - tolFrac) &&
@@ -199,6 +212,7 @@ export function computeRSIDivergences(
       const setup = buildTrendlineBreakSetup('bull', p1, p2);
       const sl = p2.price;
       const risk = Math.max(setup.entryPrice - sl, p2.price * 0.001);
+      const tp = setup.entryPrice + risk * 2;
       signals.push({
         id: `div_reg_bull_${p2.time}`,
         kind: 'regular',
@@ -213,15 +227,15 @@ export function computeRSIDivergences(
         p2Rsi: p2.rsi,
         trendline: setup.trendline,
         valid: setup.valid,
+        mitigated: setup.valid ? checkMitigated('bull', setup.entryIdx, sl, tp) : false,
         entryTime: setup.entryTime,
         entryPrice: setup.entryPrice,
         stopLoss: sl,
-        takeProfit: setup.entryPrice + risk * 2,
+        takeProfit: tp,
       });
       continue;
     }
 
-    // Hidden Bullish: Higher Price Low + Lower RSI Low -> Previous High/Low Fib Golden Ratio Entry
     if (
       config.enableHidden &&
       p2.price > p1.price * (1 + tolFrac) &&
@@ -234,7 +248,6 @@ export function computeRSIDivergences(
       const prevLow = p1.price;
       const span = Math.max(prevHigh - prevLow, p2.price * 0.002);
 
-      // Golden Ratio retracement zone (0.50 - 0.618 - 0.65 from prevHigh down toward prevLow)
       const goldenTop = prevHigh - span * config.goldenRatioMin;
       const goldenMid = prevHigh - span * config.goldenRatioTarget;
       const goldenBot = prevHigh - span * config.goldenRatioMax;
@@ -243,7 +256,6 @@ export function computeRSIDivergences(
       let entryIdx = p2.index;
       const endScan = Math.min(candles.length - 1, p2.index + 20);
 
-      // Check if p2 or subsequent bars tapped the Golden Ratio area
       if (p2.price <= goldenTop && p2.price >= goldenBot) {
         valid = true;
         entryIdx = p2.index;
@@ -258,6 +270,7 @@ export function computeRSIDivergences(
       }
 
       const endTime = candles[Math.min(candles.length - 1, p2.index + 14)].time;
+      const tp = prevHigh + span * 0.272;
       signals.push({
         id: `div_hid_bull_${p2.time}`,
         kind: 'hidden',
@@ -280,15 +293,15 @@ export function computeRSIDivergences(
           goldenBot,
         },
         valid,
+        mitigated: valid ? checkMitigated('bull', entryIdx, prevLow, tp) : false,
         entryTime: candles[entryIdx].time,
         entryPrice: goldenMid,
         stopLoss: prevLow,
-        takeProfit: prevHigh + span * 0.272,
+        takeProfit: tp,
       });
     }
   }
 
-  // 2. Scan Pivot Highs for Bearish Divergences (Regular, Exaggerated, Hidden)
   for (let i = 1; i < pivotHighs.length; i++) {
     const p1 = pivotHighs[i - 1];
     const p2 = pivotHighs[i];
@@ -296,11 +309,11 @@ export function computeRSIDivergences(
 
     const priceDiffRatio = Math.abs(p2.price - p1.price) / Math.max(p1.price, 1e-9);
 
-    // Exaggerated Bearish: Double Top (equal highs) + Lower RSI High
     if (config.enableExaggerated && priceDiffRatio <= tolFrac && p2.rsi < p1.rsi - 1.2) {
       const setup = buildTrendlineBreakSetup('bear', p1, p2);
       const sl = Math.max(p1.price, p2.price);
       const risk = Math.max(sl - setup.entryPrice, p2.price * 0.001);
+      const tp = Math.max(0.00001, setup.entryPrice - risk * 2);
       signals.push({
         id: `div_exag_bear_${p2.time}`,
         kind: 'exaggerated',
@@ -315,15 +328,15 @@ export function computeRSIDivergences(
         p2Rsi: p2.rsi,
         trendline: setup.trendline,
         valid: setup.valid,
+        mitigated: setup.valid ? checkMitigated('bear', setup.entryIdx, sl, tp) : false,
         entryTime: setup.entryTime,
         entryPrice: setup.entryPrice,
         stopLoss: sl,
-        takeProfit: Math.max(0.00001, setup.entryPrice - risk * 2),
+        takeProfit: tp,
       });
       continue;
     }
 
-    // Regular Bearish: Higher Price High + Lower RSI High
     if (
       config.enableRegular &&
       p2.price > p1.price * (1 + tolFrac) &&
@@ -332,6 +345,7 @@ export function computeRSIDivergences(
       const setup = buildTrendlineBreakSetup('bear', p1, p2);
       const sl = p2.price;
       const risk = Math.max(sl - setup.entryPrice, p2.price * 0.001);
+      const tp = Math.max(0.00001, setup.entryPrice - risk * 2);
       signals.push({
         id: `div_reg_bear_${p2.time}`,
         kind: 'regular',
@@ -346,15 +360,15 @@ export function computeRSIDivergences(
         p2Rsi: p2.rsi,
         trendline: setup.trendline,
         valid: setup.valid,
+        mitigated: setup.valid ? checkMitigated('bear', setup.entryIdx, sl, tp) : false,
         entryTime: setup.entryTime,
         entryPrice: setup.entryPrice,
         stopLoss: sl,
-        takeProfit: Math.max(0.00001, setup.entryPrice - risk * 2),
+        takeProfit: tp,
       });
       continue;
     }
 
-    // Hidden Bearish: Lower Price High + Higher RSI High -> Previous High/Low Fib Golden Ratio Entry
     if (
       config.enableHidden &&
       p2.price < p1.price * (1 - tolFrac) &&
@@ -367,7 +381,6 @@ export function computeRSIDivergences(
       const prevHigh = p1.price;
       const span = Math.max(prevHigh - prevLow, p2.price * 0.002);
 
-      // Upward retracement from prevLow toward prevHigh (0.50 - 0.618 - 0.65)
       const goldenBot = prevLow + span * config.goldenRatioMin;
       const goldenMid = prevLow + span * config.goldenRatioTarget;
       const goldenTop = prevLow + span * config.goldenRatioMax;
@@ -390,6 +403,7 @@ export function computeRSIDivergences(
       }
 
       const endTime = candles[Math.min(candles.length - 1, p2.index + 14)].time;
+      const tp = Math.max(0.00001, prevLow - span * 0.272);
       signals.push({
         id: `div_hid_bear_${p2.time}`,
         kind: 'hidden',
@@ -412,13 +426,19 @@ export function computeRSIDivergences(
           goldenBot,
         },
         valid,
+        mitigated: valid ? checkMitigated('bear', entryIdx, prevHigh, tp) : false,
         entryTime: candles[entryIdx].time,
         entryPrice: goldenMid,
         stopLoss: prevHigh,
-        takeProfit: Math.max(0.00001, prevLow - span * 0.272),
+        takeProfit: tp,
       });
     }
   }
 
-  return signals.sort((a, b) => a.p2Time - b.p2Time).slice(-14);
+  const sorted = signals.sort((a, b) => a.p2Time - b.p2Time);
+  if (!applyClutterFilter) return sorted;
+
+  const filtered = config.hideMitigated ? sorted.filter((s) => !s.mitigated) : sorted;
+  const maxKeep = Math.max(1, config.maxSetups ?? 4);
+  return filtered.slice(-maxKeep);
 }

@@ -7,7 +7,8 @@ import {
   isVisibleOnTimeframeGroup,
   TIMEFRAME_MAP,
 } from '@/data/symbols';
-import { formatCompactNumber, formatPrice, generateId } from '@/lib/utils';
+import { formatCompactNumber, formatPrice, generateId, playAlertSound } from '@/lib/utils';
+import { buildCandleFootprint, computeFootprintStep } from '@/services/footprint';
 import { computeRSIDivergences } from '@/services/rsiDivergence';
 import {
   computeLinearRegression,
@@ -15,7 +16,15 @@ import {
   computeVPVR,
 } from '@/services/smartAnalysis';
 import { useTradingStore } from '@/store/useTradingStore';
-import { Candle, DrawingObject, DrawingPoint, DrawingToolType, TimeframeId } from '@/types/trading';
+import {
+  Candle,
+  ChartStyleType,
+  DrawingObject,
+  DrawingPoint,
+  DrawingToolType,
+  OrderFlowTick,
+  TimeframeId,
+} from '@/types/trading';
 
 interface DrawingOverlayProps {
   chart: IChartApi | null;
@@ -24,6 +33,10 @@ interface DrawingOverlayProps {
   symbol: string;
   timeframe: TimeframeId;
   precision: number;
+  minMove?: number;
+  chartStyle?: ChartStyleType;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
   width: number;
   height: number;
   theme: 'dark' | 'light';
@@ -64,6 +77,12 @@ function hexWithOpacity(hex: string, opacityPct: number): string {
   return hex;
 }
 
+function fmtVolShort(v: number): string {
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v >= 10 ? v.toFixed(0) : v.toFixed(1);
+}
+
 function distToSegment(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -101,6 +120,10 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   symbol,
   timeframe,
   precision,
+  minMove = 0.01,
+  chartStyle = 'candles',
+  orderFlowMap,
+  orderFlowTickVersion = 0,
   width,
   height,
   theme,
@@ -129,13 +152,14 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const removeDrawing = useTradingStore((s) => s.removeDrawing);
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
   const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
+  const footprintConfig = useTradingStore((s) => s.footprintConfig);
   const chartSettings = useTradingStore((s) => s.chartSettings);
+  const addToast = useTradingStore((s) => s.addToast);
 
   const alerts = useTradingStore((s) => s.alerts);
   const positions = useTradingStore((s) => s.positions);
   const updateAlertPrice = useTradingStore((s) => s.updateAlertPrice);
   const updatePositionTPSL = useTradingStore((s) => s.updatePositionTPSL);
-
   const backtestTrades = useTradingStore((s) => s.backtestTrades);
   const showBacktestOnChart = useTradingStore((s) => s.showBacktestOnChart);
 
@@ -174,8 +198,48 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const showRsiDivOverlay = smartOverlays.showRSIDivergence || hasRsiDivIndicator;
   const rsiDivSignals = useMemo(() => {
     if (!showRsiDivOverlay || candles.length < 30) return [];
-    return computeRSIDivergences(candles, rsiDivConfig);
+    return computeRSIDivergences(candles, rsiDivConfig, true);
   }, [showRsiDivOverlay, candles, rsiDivConfig]);
+
+  // Live Auto-Alert when a new valid RSI Divergence setup triggers
+  const seenDivIdsRef = useRef<Set<string>>(new Set());
+  const divInitKeyRef = useRef<string>('');
+  useEffect(() => {
+    const key = `${symbol}-${timeframe}`;
+    if (divInitKeyRef.current !== key) {
+      divInitKeyRef.current = key;
+      seenDivIdsRef.current = new Set(rsiDivSignals.filter((s) => s.valid).map((s) => s.id));
+      return;
+    }
+    if (!rsiDivConfig.enableAlerts || rsiDivSignals.length === 0) return;
+
+    const latestTime = candles[candles.length - 1]?.time ?? 0;
+    for (const sig of rsiDivSignals) {
+      if (!sig.valid || seenDivIdsRef.current.has(sig.id)) continue;
+      seenDivIdsRef.current.add(sig.id);
+      if (latestTime - sig.entryTime <= tfSec * 5) {
+        if (chartSettings.playAlertSound) playAlertSound();
+        addToast({
+          title: `RSI ${sig.kind.toUpperCase()} ${sig.direction === 'bull' ? 'BUY' : 'SELL'} (${symbol})`,
+          description: `Entry @ ${formatPrice(sig.entryPrice, precision)} • SL ${formatPrice(
+            sig.stopLoss,
+            precision
+          )}`,
+          variant: sig.direction === 'bull' ? 'success' : 'danger',
+        });
+      }
+    }
+  }, [
+    rsiDivSignals,
+    rsiDivConfig.enableAlerts,
+    symbol,
+    timeframe,
+    tfSec,
+    candles,
+    precision,
+    chartSettings.playAlertSound,
+    addToast,
+  ]);
 
   const [draftPoints, setDraftPoints] = useState<DrawingPoint[]>([]);
   const [cursorPoint, setCursorPoint] = useState<DrawingPoint | null>(null);
@@ -524,7 +588,127 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const plotRight = isLeftScale ? width : Math.max(0, width - 70);
     const chartPlotWidth = Math.max(0, plotRight - plotLeft);
 
-    // 0. TRADING SESSIONS / KILLZONES & DAILY OPEN
+    // -----------------------------------------------------------------------
+    // 0. FOOTPRINT ORDER FLOW (Bid x Ask, Candle POC, Imbalances, Delta)
+    // -----------------------------------------------------------------------
+    if (chartStyle === 'footprint' && chart && candles.length > 0) {
+      const range = chart.timeScale().getVisibleLogicalRange();
+      const fromIdx = range ? Math.max(0, Math.floor(range.from) - 1) : Math.max(0, candles.length - 30);
+      const toIdx = range ? Math.min(candles.length - 1, Math.ceil(range.to) + 1) : candles.length - 1;
+      const visibleCount = Math.max(1, toIdx - fromIdx + 1);
+      const barPx = chartPlotWidth / visibleCount;
+      const fpStep = computeFootprintStep(
+        candles.slice(fromIdx, toIdx + 1),
+        minMove,
+        footprintConfig.rowTicksMultiplier
+      );
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(plotLeft, 0, chartPlotWidth, height - 26);
+      ctx.clip();
+
+      for (let idx = fromIdx; idx <= toIdx; idx++) {
+        const c = candles[idx];
+        const xCenter = chart.timeScale().logicalToCoordinate(idx as Logical);
+        if (xCenter === null) continue;
+        const cx = Number(xCenter);
+        if (cx < plotLeft - 40 || cx > plotRight + 40) continue;
+
+        const fp = buildCandleFootprint(
+          c,
+          fpStep,
+          footprintConfig,
+          orderFlowMap?.get(c.time)
+        );
+        const cellW = Math.min(44, Math.max(18, barPx * 0.42));
+
+        const yHigh = priceToY(c.high);
+        const yLow = priceToY(c.low);
+        const yOpen = priceToY(c.open);
+        const yClose = priceToY(c.close);
+
+        // Draw crisp thin candle spine & open/close bar
+        if (yHigh !== null && yLow !== null) {
+          ctx.strokeStyle = c.close >= c.open ? '#089981' : '#F23645';
+          ctx.lineWidth = barPx >= 46 ? 2 : 1.5;
+          ctx.beginPath();
+          ctx.moveTo(cx, yHigh);
+          ctx.lineTo(cx, yLow);
+          ctx.stroke();
+
+          if (yOpen !== null && yClose !== null) {
+            ctx.fillStyle = c.close >= c.open ? '#089981' : '#F23645';
+            ctx.fillRect(cx - 2, Math.min(yOpen, yClose), 4, Math.max(2, Math.abs(yClose - yOpen)));
+          }
+        }
+
+        if (barPx >= 44) {
+          const maxRowVol = Math.max(...fp.rows.map((r) => r.bidVol + r.askVol), 1);
+
+          for (const row of fp.rows) {
+            const yTop = priceToY(row.price + fpStep);
+            const yBot = priceToY(row.price);
+            if (yTop === null || yBot === null) continue;
+            const rowH = Math.max(9, Math.abs(yBot - yTop) - 1);
+            const ry = Math.min(yTop, yBot);
+            if (rowH < 8) continue;
+
+            // Left Bid Box
+            const bidFillW = (row.bidVol / maxRowVol) * cellW;
+            ctx.fillStyle = 'rgba(242, 54, 69, 0.22)';
+            ctx.fillRect(cx - 3 - bidFillW, ry, bidFillW, rowH);
+
+            // Right Ask Box
+            const askFillW = (row.askVol / maxRowVol) * cellW;
+            ctx.fillStyle = 'rgba(8, 153, 129, 0.22)';
+            ctx.fillRect(cx + 3, ry, askFillW, rowH);
+
+            // Candle POC Box Highlight
+            if (footprintConfig.showPOC && row.price === fp.pocPrice) {
+              ctx.strokeStyle = '#F59E0B';
+              ctx.lineWidth = 1.25;
+              ctx.strokeRect(cx - 3 - cellW, ry, cellW * 2 + 6, rowH);
+            }
+
+            // Bid x Ask Volume Labels
+            ctx.font = '600 9px "JetBrains Mono", monospace';
+            const bidText = fmtVolShort(row.bidVol);
+            const askText = fmtVolShort(row.askVol);
+
+            ctx.fillStyle = row.bidImbalance ? '#FF4D6D' : '#FCA5A5';
+            ctx.textAlign = 'right';
+            ctx.fillText(bidText, cx - 5, ry + rowH / 2 + 3);
+
+            ctx.fillStyle = row.askImbalance ? '#00F5D4' : '#6EE7B7';
+            ctx.textAlign = 'left';
+            ctx.fillText(askText, cx + 5, ry + rowH / 2 + 3);
+          }
+
+          if (footprintConfig.showDeltaSummary && yLow !== null) {
+            const isPos = fp.delta >= 0;
+            const dStr = `${isPos ? '+' : '-'}${fmtVolShort(Math.abs(fp.delta))}`;
+            ctx.font = '700 9px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = isPos ? '#00D4AA' : '#F23645';
+            ctx.fillText(dStr, cx, Math.min(height - 30, yLow + 12));
+          }
+          ctx.textAlign = 'left';
+        } else if (barPx >= 16 && footprintConfig.showPOC) {
+          const pocY = priceToY(fp.pocPrice);
+          if (pocY !== null) {
+            ctx.fillStyle = '#F59E0B';
+            ctx.fillRect(cx - 4, pocY - 1.5, 8, 3);
+          }
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // -----------------------------------------------------------------------
+    // 1. SESSIONS / KILLZONES & DAILY OPEN
+    // -----------------------------------------------------------------------
     if (smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
       ctx.save();
       let prevBucket = '';
@@ -591,7 +775,9 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       }
     }
 
-    // 1. SMART AI OVERLAYS (VPVR, FVG, Auto S/R, BOS/CHoCH, Trendlines)
+    // -----------------------------------------------------------------------
+    // 2. SMART OVERLAYS (VPVR, FVG, Auto S/R, BOS/CHoCH)
+    // -----------------------------------------------------------------------
     if (vpvrData && smartOverlays.showVPVR) {
       const maxBarW = Math.min(130, chartPlotWidth * 0.22);
       const rightEdge = plotRight - 2;
@@ -736,7 +922,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     }
 
     // -----------------------------------------------------------------------
-    // 2. RSI DIVERGENCE PRO RENDERER (REGULAR / EXAGGERATED / HIDDEN)
+    // 3. RSI DIVERGENCE PRO RENDERER (With Clutter Control)
     // -----------------------------------------------------------------------
     if (showRsiDivOverlay && rsiDivSignals.length > 0) {
       ctx.save();
@@ -755,7 +941,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             ? '#F59E0B'
             : '#A855F7';
 
-        // Connect Divergence Price Pivots
         ctx.strokeStyle = baseColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
@@ -764,7 +949,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.lineTo(sp2.x, sp2.y);
         ctx.stroke();
 
-        // Divergence Label Pill at P2
         const shortKind =
           sig.kind === 'regular' ? 'REG' : sig.kind === 'exaggerated' ? 'EXAG' : 'HID';
         const badgeText = `${shortKind} ${isBull ? 'BULL' : 'BEAR'}`;
@@ -778,7 +962,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.fillStyle = '#0B0E14';
         ctx.fillText(badgeText, sp2.x - bw / 2 + 5, by + 10.5);
 
-        // Regular & Exaggerated -> Trendline Body-Break Line + Valid Entry + SL/TP
         if ((sig.kind === 'regular' || sig.kind === 'exaggerated') && sig.trendline) {
           const tl1 = toScreen({ time: sig.trendline.t1, price: sig.trendline.p1 });
           const tl2 = toScreen({ time: sig.trendline.t2, price: sig.trendline.p2 });
@@ -794,7 +977,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           }
         }
 
-        // Hidden Divergence -> Previous High/Low Fib Retracement + Golden Ratio Zone
         if (sig.kind === 'hidden' && sig.fibSetup) {
           const fx1 = timeToX(sig.fibSetup.startTime);
           const fx2 = timeToX(sig.fibSetup.endTime);
@@ -808,7 +990,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
             const boxX = Math.min(fx1, fx2);
             const boxW = Math.max(70, Math.abs(fx2 - fx1));
 
-            // 0 & 1.0 Prev High / Prev Low boundaries
             if (hiY !== null && loY !== null) {
               ctx.strokeStyle = 'rgba(168, 85, 247, 0.35)';
               ctx.lineWidth = 1;
@@ -822,7 +1003,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
               ctx.setLineDash([]);
             }
 
-            // Shaded Golden Ratio Pocket (0.50 - 0.618 - 0.65)
             const gTop = Math.min(gTopY, gBotY);
             const gH = Math.max(4, Math.abs(gBotY - gTopY));
             ctx.fillStyle = 'rgba(245, 158, 11, 0.22)';
@@ -843,7 +1023,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           }
         }
 
-        // Entry & SL / TP markers on valid setups (only recent 6 signals for visual clarity)
         const ep = toScreen({ time: sig.entryTime, price: sig.entryPrice });
         const slY = priceToY(sig.stopLoss);
         const tpY = priceToY(sig.takeProfit);
@@ -863,7 +1042,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
           ctx.fillStyle = '#FFFFFF';
           ctx.fillText(tag, ep.x - tw / 2 + 5, ty + 11);
 
-          // SL & TP ticks extending 40px from entry
           if (slY !== null) {
             ctx.strokeStyle = '#F23645';
             ctx.lineWidth = 1.4;
@@ -892,7 +1070,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     }
 
     // -----------------------------------------------------------------------
-    // 3. BACKTESTER TRADE MARKERS ON CHART
+    // 4. BACKTESTER TRADE MARKERS
     // -----------------------------------------------------------------------
     if (showBacktestOnChart && backtestTrades.length > 0) {
       ctx.save();
@@ -930,7 +1108,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     }
 
     // -----------------------------------------------------------------------
-    // 4. 43 INTERACTIVE USER DRAWINGS
+    // 5. 43 INTERACTIVE USER DRAWINGS
     // -----------------------------------------------------------------------
     const drawSingle = (
       type: Exclude<DrawingToolType, 'cursor' | 'eraser'>,
@@ -1848,6 +2026,12 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
     ctx.restore();
   }, [
+    chart,
+    chartStyle,
+    minMove,
+    footprintConfig,
+    orderFlowMap,
+    orderFlowTickVersion,
     width,
     height,
     drawingsVisible,
@@ -1921,6 +2105,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     if (!dataPt) return;
 
     if (activeTool === 'eraser') {
+      e.stopPropagation();
       const hit = hitTestDrawings(x, y, true);
       if (hit) removeDrawing(symbol, hit.id);
       return;
@@ -1929,6 +2114,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     if (activeTool === 'cursor') {
       const hit = hitTestDrawings(x, y);
       if (hit) {
+        e.stopPropagation();
         const target = symbolDrawings.find((d) => d.id === hit.id);
         if (target) {
           setSelectedDrawingId(target.id);
@@ -1946,6 +2132,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
       const lineHit = hitTestOrderLines(y);
       if (lineHit) {
+        e.stopPropagation();
         dragOrderLineRef.current = lineHit;
         e.currentTarget.setPointerCapture(e.pointerId);
         return;
@@ -1954,6 +2141,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       setSelectedDrawingId(null);
       return;
     }
+
+    e.stopPropagation();
 
     if (activeTool === 'ruler') {
       if (!rulerStart || (rulerStart && rulerEnd && draftPoints.length === 0)) {

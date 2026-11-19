@@ -62,8 +62,10 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
   return (
     <div
+      onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      className="pointer-events-auto absolute left-1/2 top-2.5 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-xl backdrop-blur dark:border-[#2A2E39] dark:bg-[#1E222D]/95"
+      onClick={(e) => e.stopPropagation()}
+      className="pointer-events-auto absolute left-1/2 top-2.5 z-40 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-xl backdrop-blur dark:border-[#2A2E39] dark:bg-[#1E222D]/95"
     >
       <span className="px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
         {drawing.type.replace(/_/g, ' ')}
@@ -71,9 +73,9 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
       <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-      {/* Color Swatch */}
       <div className="relative">
         <button
+          type="button"
           onClick={() => setColorMenu(!colorMenu)}
           title="Color"
           className="flex h-6 w-6 items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-[#2A2E39]"
@@ -88,6 +90,7 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
             {SWATCHES.map((c) => (
               <button
                 key={c}
+                type="button"
                 onClick={() => {
                   updateDrawing(symbol, drawing.id, { color: c });
                   setColorMenu(false);
@@ -109,11 +112,11 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
         )}
       </div>
 
-      {/* Width */}
       <div className="flex items-center gap-0.5 px-0.5">
         {WIDTHS.map((w) => (
           <button
             key={w}
+            type="button"
             onClick={() => updateDrawing(symbol, drawing.id, { lineWidth: w })}
             className={cn(
               'flex h-6 w-6 items-center justify-center rounded font-mono text-[10px] font-semibold transition',
@@ -129,11 +132,11 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
       <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-      {/* Line Style */}
       <div className="flex items-center gap-0.5">
         {LINE_STYLES.map((st) => (
           <button
             key={st.id}
+            type="button"
             onClick={() => updateDrawing(symbol, drawing.id, { lineStyle: st.id })}
             title={st.label}
             className={cn(
@@ -152,6 +155,7 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
         <>
           <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
           <button
+            type="button"
             onClick={handleExecuteRR}
             title="Auto-calculate risk lot size and place order"
             className="inline-flex items-center gap-1 rounded bg-[#00D4AA]/15 px-2 py-0.5 text-[10px] font-bold text-[#00D4AA] hover:bg-[#00D4AA] hover:text-slate-950 transition"
@@ -164,10 +168,10 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
       <div className="h-4 w-px bg-slate-200 dark:bg-[#2A2E39]" />
 
-      {/* Full Drawing Settings Modal Button */}
       <button
+        type="button"
         onClick={() => setEditingDrawingId(drawing.id)}
-        title="Full Drawing Settings (Style, Text, Coordinates, Visibility)"
+        title="Full Drawing Settings"
         className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]"
       >
         <Settings2 className="h-3.5 w-3.5 text-[#2962FF]" />
@@ -175,6 +179,7 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
       </button>
 
       <button
+        type="button"
         onClick={() => updateDrawing(symbol, drawing.id, { locked: !drawing.locked })}
         title={drawing.locked ? 'Unlock' : 'Lock'}
         className={cn(
@@ -188,6 +193,7 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
       </button>
 
       <button
+        type="button"
         onClick={() => duplicateDrawing(symbol, drawing.id)}
         title="Clone Drawing"
         className="flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 dark:text-[#787B86] dark:hover:bg-[#2A2E39] dark:hover:text-[#D1D4DC]"
@@ -196,8 +202,9 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
       </button>
 
       <button
+        type="button"
         onClick={() => removeDrawing(symbol, drawing.id)}
-        title="Delete (Del)"
+        title="Delete Drawing (Del)"
         className="flex h-6 w-6 items-center justify-center rounded text-[#F23645] hover:bg-[#F23645]/15"
       >
         <Trash2 className="h-3.5 w-3.5" />

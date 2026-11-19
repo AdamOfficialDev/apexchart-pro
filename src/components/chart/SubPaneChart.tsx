@@ -12,6 +12,8 @@ import {
 } from 'lightweight-charts';
 import { Eye, EyeOff, Settings2, X } from 'lucide-react';
 import { isVisibleOnTimeframeGroup, TIMEFRAME_MAP } from '@/data/symbols';
+import { formatCompactNumber } from '@/lib/utils';
+import { computeCVDSeries } from '@/services/footprint';
 import {
   applyIndicatorOffset,
   computeATR,
@@ -21,7 +23,7 @@ import {
 } from '@/services/indicators';
 import { computeRSIDivergences } from '@/services/rsiDivergence';
 import { useTradingStore } from '@/store/useTradingStore';
-import { Candle, IndicatorConfig, TimeframeId } from '@/types/trading';
+import { Candle, IndicatorConfig, OrderFlowTick, TimeframeId } from '@/types/trading';
 
 interface SubPaneChartProps {
   indicator: IndicatorConfig;
@@ -30,9 +32,13 @@ interface SubPaneChartProps {
   theme: 'dark' | 'light';
   bgColorDark: string;
   mainChart: IChartApi | null;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
   onToggleVisibility: () => void;
   onRemove: () => void;
 }
+
+const EMPTY_FLOW_MAP = new Map<number, OrderFlowTick[]>();
 
 function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
   if (ls === 'dashed') return LineStyle.Dashed;
@@ -47,6 +53,8 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   theme,
   bgColorDark,
   mainChart,
+  orderFlowMap,
+  orderFlowTickVersion = 0,
   onToggleVisibility,
   onRemove,
 }) => {
@@ -73,6 +81,12 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     const src = indicator.source ?? 'close';
     const offset = indicator.offset ?? 0;
 
+    if (indicator.type === 'CVD') {
+      return {
+        kind: 'CVD' as const,
+        data: computeCVDSeries(candles, orderFlowMap ?? EMPTY_FLOW_MAP),
+      };
+    }
     if (isRsiKind) {
       return {
         kind: 'RSI' as const,
@@ -126,7 +140,15 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       };
     }
     return null;
-  }, [indicator, isRsiKind, candles, isTimeframeVisible, tfMeta.seconds]);
+  }, [
+    indicator,
+    isRsiKind,
+    candles,
+    isTimeframeVisible,
+    tfMeta.seconds,
+    orderFlowMap,
+    orderFlowTickVersion,
+  ]);
 
   const rsiDivs = useMemo(() => {
     if (
@@ -136,10 +158,14 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     ) {
       return [];
     }
-    return computeRSIDivergences(candles, {
-      ...rsiDivConfig,
-      rsiPeriod: indicator.params.period ?? rsiDivConfig.rsiPeriod,
-    });
+    return computeRSIDivergences(
+      candles,
+      {
+        ...rsiDivConfig,
+        rsiPeriod: indicator.params.period ?? rsiDivConfig.rsiPeriod,
+      },
+      true
+    );
   }, [
     isRsiKind,
     indicator.visible,
@@ -152,6 +178,13 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
 
   const latestReadout = useMemo(() => {
     if (!computed || !indicator.visible || !isTimeframeVisible) return 'Hidden';
+    if (computed.kind === 'CVD') {
+      const last = computed.data[computed.data.length - 1];
+      if (!last) return '—';
+      return `${formatCompactNumber(last.cvd)} (Δ ${last.barDelta >= 0 ? '+' : ''}${formatCompactNumber(
+        last.barDelta
+      )})`;
+    }
     if (computed.kind === 'RSI') {
       const last = computed.data[computed.data.length - 1];
       return last ? last.value.toFixed(2) : '—';
@@ -277,6 +310,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       return;
     }
 
+    const scaleId = chartSettings.priceScalePosition === 'left' ? 'left' : 'right';
     const sig = JSON.stringify({
       id: indicator.id,
       type: indicator.type,
@@ -288,6 +322,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       up: indicator.upperLevel,
       lo: indicator.lowerLevel,
       lastVal: indicator.showLastValue !== false,
+      scaleId,
     });
 
     const lw = (indicator.lineWidth ?? 2) as 1 | 2 | 3 | 4;
@@ -304,11 +339,28 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       seriesRefs.current = [];
       seriesSigRef.current = sig;
 
-      if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+      if (computed.kind === 'CVD') {
+        const deltaHist = chart.addHistogramSeries({
+          priceScaleId: '',
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        deltaHist.priceScale().applyOptions({ scaleMargins: { top: 0.62, bottom: 0.04 } });
+        const cvdLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+          lastValueVisible: indicator.showLastValue !== false,
+        });
+        seriesRefs.current.push(deltaHist, cvdLine);
+      } else if (computed.kind === 'RSI' || computed.kind === 'ATR') {
         const line = chart.addLineSeries({
           color: indicator.color,
           lineWidth: lw,
           lineStyle: ls,
+          priceScaleId: scaleId,
           priceLineVisible: false,
           lastValueVisible: indicator.showLastValue !== false,
         });
@@ -333,6 +385,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         seriesRefs.current.push(line);
       } else if (computed.kind === 'MACD') {
         const hist = chart.addHistogramSeries({
+          priceScaleId: scaleId,
           priceLineVisible: false,
           lastValueVisible: false,
         });
@@ -340,11 +393,13 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
           color: indicator.color,
           lineWidth: lw,
           lineStyle: ls,
+          priceScaleId: scaleId,
           priceLineVisible: false,
         });
         const sigLine = chart.addLineSeries({
           color: indicator.secondaryColor ?? '#F97316',
           lineWidth: 1,
+          priceScaleId: scaleId,
           priceLineVisible: false,
         });
         seriesRefs.current.push(hist, macdLine, sigLine);
@@ -353,6 +408,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
           color: indicator.color,
           lineWidth: lw,
           lineStyle: ls,
+          priceScaleId: scaleId,
           priceLineVisible: false,
         });
         if (indicator.showBands !== false) {
@@ -376,13 +432,26 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         const dLine = chart.addLineSeries({
           color: indicator.secondaryColor ?? '#F23645',
           lineWidth: 1,
+          priceScaleId: scaleId,
           priceLineVisible: false,
         });
         seriesRefs.current.push(kLine, dLine);
       }
     }
 
-    if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+    if (computed.kind === 'CVD') {
+      (seriesRefs.current[0] as ISeriesApi<'Histogram'>)?.setData(
+        computed.data.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: Math.abs(p.barDelta),
+          color:
+            p.barDelta >= 0 ? 'rgba(8, 153, 129, 0.45)' : 'rgba(242, 54, 69, 0.45)',
+        }))
+      );
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
+        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.cvd }))
+      );
+    } else if (computed.kind === 'RSI' || computed.kind === 'ATR') {
       (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
         computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
       );
@@ -413,7 +482,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       const r = mainChart.timeScale().getVisibleLogicalRange();
       if (r) chart.timeScale().setVisibleLogicalRange(r);
     }
-  }, [computed, indicator, mainChart, isTimeframeVisible]);
+  }, [computed, indicator, mainChart, isTimeframeVisible, chartSettings.priceScalePosition]);
 
   const drawRsiDivLines = useCallback(() => {
     const canvas = divCanvasRef.current;
@@ -436,7 +505,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
-    if (!chart || !rsiSeries || rsiDivs.length === 0) {
+    if (!chart || !rsiSeries || rsiDivs.length === 0 || !isRsiKind) {
       ctx.restore();
       return;
     }
@@ -473,7 +542,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     }
 
     ctx.restore();
-  }, [rsiDivs]);
+  }, [rsiDivs, isRsiKind]);
 
   useEffect(() => {
     drawRsiDivLines();
@@ -524,15 +593,15 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       />
 
       <div
-        className={`pointer-events-auto absolute top-1.5 z-10 flex items-center gap-2 text-[11px] ${
-          isLeftScale ? 'left-20' : 'left-3'
+        className={`pointer-events-auto absolute top-1 z-10 flex max-w-[calc(100%-74px)] flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px] ${
+          isLeftScale ? 'left-20' : 'left-2.5'
         }`}
       >
-        <span className="font-semibold text-slate-700 dark:text-[#D1D4DC]">
+        <span className="truncate font-semibold text-slate-700 dark:text-[#D1D4DC]">
           {indicator.name}
           {paramSummary ? ` (${paramSummary})` : ''}
         </span>
-        <span className="font-mono text-[11px] tabular-nums" style={{ color: indicator.color }}>
+        <span className="font-mono tabular-nums" style={{ color: indicator.color }}>
           {latestReadout}
         </span>
         <button

@@ -18,6 +18,7 @@ import {
   DrawingToolGroupId,
   DrawingToolType,
   FeedSourceType,
+  FootprintConfig,
   IndicatorConfig,
   IndicatorType,
   LayoutType,
@@ -117,6 +118,17 @@ export const DEFAULT_RSI_DIV_CONFIG: RSIDivergenceConfig = {
   goldenRatioMin: 0.5,
   goldenRatioTarget: 0.618,
   goldenRatioMax: 0.65,
+  maxSetups: 4,
+  hideMitigated: true,
+  enableAlerts: true,
+};
+
+export const DEFAULT_FOOTPRINT_CONFIG: FootprintConfig = {
+  imbalanceRatio: 3.0,
+  showImbalances: true,
+  showPOC: true,
+  showDeltaSummary: true,
+  rowTicksMultiplier: 1,
 };
 
 export const DEFAULT_DATA_FEED: DataFeedConfig = {
@@ -222,6 +234,9 @@ interface TradingStore {
   rsiDivConfig: RSIDivergenceConfig;
   updateRsiDivConfig: (patch: Partial<RSIDivergenceConfig>) => void;
   resetRsiDivConfig: () => void;
+  footprintConfig: FootprintConfig;
+  updateFootprintConfig: (patch: Partial<FootprintConfig>) => void;
+  resetFootprintConfig: () => void;
   dataFeed: DataFeedConfig;
   updateDataFeed: (patch: Partial<DataFeedConfig>) => void;
 
@@ -231,6 +246,8 @@ interface TradingStore {
   setBottomPanelOpen: (open: boolean) => void;
   bottomPanelTab: BottomPanelTab;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
+  mobileDrawingBarOpen: boolean;
+  setMobileDrawingBarOpen: (open: boolean) => void;
   panelSizes: { rightWidth: number; bottomHeight: number; subPaneHeight: number };
   updatePanelSizes: (patch: Partial<{ rightWidth: number; bottomHeight: number; subPaneHeight: number }>) => void;
 
@@ -422,6 +439,13 @@ export const useTradingStore = create<TradingStore>()(
         })),
       resetRsiDivConfig: () => set({ rsiDivConfig: DEFAULT_RSI_DIV_CONFIG }),
 
+      footprintConfig: DEFAULT_FOOTPRINT_CONFIG,
+      updateFootprintConfig: (patch) =>
+        set((state) => ({
+          footprintConfig: { ...state.footprintConfig, ...patch },
+        })),
+      resetFootprintConfig: () => set({ footprintConfig: DEFAULT_FOOTPRINT_CONFIG }),
+
       dataFeed: DEFAULT_DATA_FEED,
       updateDataFeed: (patch) =>
         set((state) => ({
@@ -434,6 +458,8 @@ export const useTradingStore = create<TradingStore>()(
       setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
       bottomPanelTab: 'positions',
       setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+      mobileDrawingBarOpen: false,
+      setMobileDrawingBarOpen: (mobileDrawingBarOpen) => set({ mobileDrawingBarOpen }),
       panelSizes: { rightWidth: 288, bottomHeight: 256, subPaneHeight: 112 },
       updatePanelSizes: (patch) =>
         set((state) => ({
@@ -1144,19 +1170,31 @@ export const useTradingStore = create<TradingStore>()(
     }),
     {
       name: 'apexchart-pro-storage-v5',
-      version: 2,
-      migrate: (persistedState) => persistedState as TradingStore,
+      version: 3,
+      merge: (persistedState, currentState) => {
+        const p = (persistedState ?? {}) as Partial<TradingStore>;
+        return {
+          ...currentState,
+          ...p,
+          chartSettings: { ...currentState.chartSettings, ...(p.chartSettings ?? {}) },
+          smartOverlays: { ...currentState.smartOverlays, ...(p.smartOverlays ?? {}) },
+          rsiDivConfig: { ...currentState.rsiDivConfig, ...(p.rsiDivConfig ?? {}) },
+          footprintConfig: { ...currentState.footprintConfig, ...(p.footprintConfig ?? {}) },
+          dataFeed: { ...currentState.dataFeed, ...(p.dataFeed ?? {}) },
+          panelSizes: { ...currentState.panelSizes, ...(p.panelSizes ?? {}) },
+        };
+      },
       onRehydrateStorage: () => (state) => {
         if (state && typeof document !== 'undefined') {
           document.documentElement.classList.toggle('dark', state.theme === 'dark');
         }
       },
-      // Persist ALL workspace UI, sidebar visibility, drawing prefs, settings, & paper account!
       partialize: (state) => ({
         theme: state.theme,
         chartSettings: state.chartSettings,
         smartOverlays: state.smartOverlays,
         rsiDivConfig: state.rsiDivConfig,
+        footprintConfig: state.footprintConfig,
         dataFeed: state.dataFeed,
         rightSidebarTab: state.rightSidebarTab,
         bottomPanelOpen: state.bottomPanelOpen,

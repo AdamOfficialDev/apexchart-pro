@@ -1,0 +1,639 @@
+<<<=== FILE: src/components/chart/SubPaneChart.tsx ===>>>
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  ColorType,
+  CrosshairMode,
+  IChartApi,
+  ISeriesApi,
+  LineStyle,
+  Logical,
+  LogicalRange,
+  UTCTimestamp,
+  createChart,
+} from 'lightweight-charts';
+import { Eye, EyeOff, Settings2, X } from 'lucide-react';
+import { isVisibleOnTimeframeGroup, TIMEFRAME_MAP } from '@/data/symbols';
+import { formatCompactNumber } from '@/lib/utils';
+import { computeCVDSeries } from '@/services/footprint';
+import {
+  applyIndicatorOffset,
+  computeATR,
+  computeMACD,
+  computeRSI,
+  computeStochastic,
+} from '@/services/indicators';
+import { computeRSIDivergences } from '@/services/rsiDivergence';
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, IndicatorConfig, OrderFlowTick, TimeframeId } from '@/types/trading';
+
+interface SubPaneChartProps {
+  indicator: IndicatorConfig;
+  candles: Candle[];
+  timeframe: TimeframeId;
+  theme: 'dark' | 'light';
+  bgColorDark: string;
+  mainChart: IChartApi | null;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
+  onToggleVisibility: () => void;
+  onRemove: () => void;
+}
+
+const EMPTY_FLOW_MAP = new Map<number, OrderFlowTick[]>();
+
+function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
+  if (ls === 'dashed') return LineStyle.Dashed;
+  if (ls === 'dotted') return LineStyle.Dotted;
+  return LineStyle.Solid;
+}
+
+export const SubPaneChart: React.FC<SubPaneChartProps> = ({
+  indicator,
+  candles,
+  timeframe,
+  theme,
+  bgColorDark,
+  mainChart,
+  orderFlowMap,
+  orderFlowTickVersion = 0,
+  onToggleVisibility,
+  onRemove,
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
+  const syncingRef = useRef(false);
+
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+  const chartSettings = useTradingStore((s) => s.chartSettings);
+  const smartOverlays = useTradingStore((s) => s.smartOverlays);
+  const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
+  const subPaneHeight = useTradingStore((s) => s.panelSizes.subPaneHeight);
+  const updatePanelSizes = useTradingStore((s) => s.updatePanelSizes);
+
+  const tfMeta = TIMEFRAME_MAP[timeframe];
+  const isTimeframeVisible = isVisibleOnTimeframeGroup(indicator.visibility, tfMeta.group);
+  const isRsiKind = indicator.type === 'RSI' || indicator.type === 'RSI_DIV';
+
+  const computed = useMemo(() => {
+    if (!indicator.visible || !isTimeframeVisible || candles.length === 0) return null;
+    const src = indicator.source ?? 'close';
+    const offset = indicator.offset ?? 0;
+
+    if (indicator.type === 'CVD') {
+      return {
+        kind: 'CVD' as const,
+        data: computeCVDSeries(candles, orderFlowMap ?? EMPTY_FLOW_MAP),
+      };
+    }
+    if (isRsiKind) {
+      return {
+        kind: 'RSI' as const,
+        data: applyIndicatorOffset(
+          computeRSI(candles, indicator.params.period ?? 14, src),
+          offset,
+          tfMeta.seconds
+        ),
+      };
+    }
+    if (indicator.type === 'MACD') {
+      const m = computeMACD(
+        candles,
+        indicator.params.fast ?? 12,
+        indicator.params.slow ?? 26,
+        indicator.params.signal ?? 9,
+        src
+      );
+      return {
+        kind: 'MACD' as const,
+        data: {
+          macd: applyIndicatorOffset(m.macd, offset, tfMeta.seconds),
+          signal: applyIndicatorOffset(m.signal, offset, tfMeta.seconds),
+          histogram: applyIndicatorOffset(m.histogram, offset, tfMeta.seconds),
+        },
+      };
+    }
+    if (indicator.type === 'STOCH') {
+      const st = computeStochastic(
+        candles,
+        indicator.params.kPeriod ?? 14,
+        indicator.params.dPeriod ?? 3,
+        indicator.params.smooth ?? 3
+      );
+      return {
+        kind: 'STOCH' as const,
+        data: {
+          k: applyIndicatorOffset(st.k, offset, tfMeta.seconds),
+          d: applyIndicatorOffset(st.d, offset, tfMeta.seconds),
+        },
+      };
+    }
+    if (indicator.type === 'ATR') {
+      return {
+        kind: 'ATR' as const,
+        data: applyIndicatorOffset(
+          computeATR(candles, indicator.params.period ?? 14),
+          offset,
+          tfMeta.seconds
+        ),
+      };
+    }
+    return null;
+  }, [
+    indicator,
+    isRsiKind,
+    candles,
+    isTimeframeVisible,
+    tfMeta.seconds,
+    orderFlowMap,
+    orderFlowTickVersion,
+  ]);
+
+  const rsiDivs = useMemo(() => {
+    if (
+      !isRsiKind ||
+      !indicator.visible ||
+      (!smartOverlays.showRSIDivergence && indicator.type !== 'RSI_DIV')
+    ) {
+      return [];
+    }
+    return computeRSIDivergences(
+      candles,
+      {
+        ...rsiDivConfig,
+        rsiPeriod: indicator.params.period ?? rsiDivConfig.rsiPeriod,
+      },
+      true
+    );
+  }, [
+    isRsiKind,
+    indicator.visible,
+    indicator.type,
+    indicator.params.period,
+    smartOverlays.showRSIDivergence,
+    candles,
+    rsiDivConfig,
+  ]);
+
+  const latestReadout = useMemo(() => {
+    if (!computed || !indicator.visible || !isTimeframeVisible) return 'Hidden';
+    if (computed.kind === 'CVD') {
+      const last = computed.data[computed.data.length - 1];
+      if (!last) return '—';
+      return `${formatCompactNumber(last.cvd)} (Δ ${last.barDelta >= 0 ? '+' : ''}${formatCompactNumber(
+        last.barDelta
+      )})`;
+    }
+    if (computed.kind === 'RSI') {
+      const last = computed.data[computed.data.length - 1];
+      return last ? last.value.toFixed(2) : '—';
+    }
+    if (computed.kind === 'ATR') {
+      const last = computed.data[computed.data.length - 1];
+      return last ? last.value.toFixed(4) : '—';
+    }
+    if (computed.kind === 'MACD') {
+      const m = computed.data.macd[computed.data.macd.length - 1];
+      const s = computed.data.signal[computed.data.signal.length - 1];
+      return m && s ? `${m.value.toFixed(2)} / ${s.value.toFixed(2)}` : '—';
+    }
+    if (computed.kind === 'STOCH') {
+      const k = computed.data.k[computed.data.k.length - 1];
+      const d = computed.data.d[computed.data.d.length - 1];
+      return k && d ? `%K ${k.value.toFixed(1)}  %D ${d.value.toFixed(1)}` : '—';
+    }
+    return '—';
+  }, [computed, indicator.visible, isTimeframeVisible]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const isDark = theme === 'dark';
+    const isLeft = chartSettings.priceScalePosition === 'left';
+    const chart = createChart(el, {
+      width: el.clientWidth,
+      height: el.clientHeight,
+      layout: {
+        attributionLogo: false,
+        background: { type: ColorType.Solid, color: isDark ? bgColorDark : '#FFFFFF' },
+        textColor: isDark ? '#787B86' : '#475569',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: Math.max(9, chartSettings.scaleFontSize - 1),
+      },
+      grid: {
+        vertLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
+        horzLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: {
+        visible: !isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      timeScale: {
+        visible: false,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+      },
+    });
+
+    chartRef.current = chart;
+    seriesSigRef.current = '';
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) chart.applyOptions({ width, height });
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+    };
+  }, [theme, bgColorDark, chartSettings.priceScalePosition, chartSettings.scaleFontSize]);
+
+  useEffect(() => {
+    const sub = chartRef.current;
+    if (!sub || !mainChart) return;
+
+    const onMainRange = (range: LogicalRange | null) => {
+      if (!range || syncingRef.current) return;
+      syncingRef.current = true;
+      sub.timeScale().setVisibleLogicalRange(range);
+      syncingRef.current = false;
+    };
+
+    const onSubRange = (range: LogicalRange | null) => {
+      if (!range || syncingRef.current) return;
+      syncingRef.current = true;
+      mainChart.timeScale().setVisibleLogicalRange(range);
+      syncingRef.current = false;
+    };
+
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(onMainRange);
+    sub.timeScale().subscribeVisibleLogicalRangeChange(onSubRange);
+
+    const currRange = mainChart.timeScale().getVisibleLogicalRange();
+    if (currRange) sub.timeScale().setVisibleLogicalRange(currRange);
+
+    return () => {
+      mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(onMainRange);
+      sub.timeScale().unsubscribeVisibleLogicalRangeChange(onSubRange);
+    };
+  }, [mainChart]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (!computed || !indicator.visible || !isTimeframeVisible) {
+      for (const s of seriesRefs.current) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          // ignore
+        }
+      }
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+      return;
+    }
+
+    const scaleId = chartSettings.priceScalePosition === 'left' ? 'left' : 'right';
+    const sig = JSON.stringify({
+      id: indicator.id,
+      type: indicator.type,
+      color: indicator.color,
+      secondaryColor: indicator.secondaryColor,
+      lw: indicator.lineWidth ?? 2,
+      ls: indicator.lineStyle ?? 'solid',
+      showBands: indicator.showBands !== false,
+      up: indicator.upperLevel,
+      lo: indicator.lowerLevel,
+      lastVal: indicator.showLastValue !== false,
+      scaleId,
+    });
+
+    const lw = (indicator.lineWidth ?? 2) as 1 | 2 | 3 | 4;
+    const ls = toChartLineStyle(indicator.lineStyle);
+
+    if (seriesSigRef.current !== sig) {
+      for (const s of seriesRefs.current) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          // ignore
+        }
+      }
+      seriesRefs.current = [];
+      seriesSigRef.current = sig;
+
+      if (computed.kind === 'CVD') {
+        const deltaHist = chart.addHistogramSeries({
+          priceScaleId: '',
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        deltaHist.priceScale().applyOptions({ scaleMargins: { top: 0.62, bottom: 0.04 } });
+        const cvdLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+          lastValueVisible: indicator.showLastValue !== false,
+        });
+        seriesRefs.current.push(deltaHist, cvdLine);
+      } else if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+        const line = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+          lastValueVisible: indicator.showLastValue !== false,
+        });
+        if (computed.kind === 'RSI' && indicator.showBands !== false) {
+          line.createPriceLine({
+            price: indicator.upperLevel ?? 70,
+            color: 'rgba(242,54,69,0.5)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+          line.createPriceLine({
+            price: indicator.lowerLevel ?? 30,
+            color: 'rgba(8,153,129,0.5)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+        }
+        seriesRefs.current.push(line);
+      } else if (computed.kind === 'MACD') {
+        const hist = chart.addHistogramSeries({
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        const macdLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+        });
+        const sigLine = chart.addLineSeries({
+          color: indicator.secondaryColor ?? '#F97316',
+          lineWidth: 1,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+        });
+        seriesRefs.current.push(hist, macdLine, sigLine);
+      } else if (computed.kind === 'STOCH') {
+        const kLine = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: lw,
+          lineStyle: ls,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+        });
+        if (indicator.showBands !== false) {
+          kLine.createPriceLine({
+            price: indicator.upperLevel ?? 80,
+            color: 'rgba(242,54,69,0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+          kLine.createPriceLine({
+            price: indicator.lowerLevel ?? 20,
+            color: 'rgba(8,153,129,0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: '',
+          });
+        }
+        const dLine = chart.addLineSeries({
+          color: indicator.secondaryColor ?? '#F23645',
+          lineWidth: 1,
+          priceScaleId: scaleId,
+          priceLineVisible: false,
+        });
+        seriesRefs.current.push(kLine, dLine);
+      }
+    }
+
+    if (computed.kind === 'CVD') {
+      (seriesRefs.current[0] as ISeriesApi<'Histogram'>)?.setData(
+        computed.data.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: Math.abs(p.barDelta),
+          color:
+            p.barDelta >= 0 ? 'rgba(8, 153, 129, 0.45)' : 'rgba(242, 54, 69, 0.45)',
+        }))
+      );
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
+        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.cvd }))
+      );
+    } else if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+      (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
+        computed.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+    } else if (computed.kind === 'MACD') {
+      (seriesRefs.current[0] as ISeriesApi<'Histogram'>)?.setData(
+        computed.data.histogram.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+          color: p.color,
+        }))
+      );
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
+        computed.data.macd.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      (seriesRefs.current[2] as ISeriesApi<'Line'>)?.setData(
+        computed.data.signal.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+    } else if (computed.kind === 'STOCH') {
+      (seriesRefs.current[0] as ISeriesApi<'Line'>)?.setData(
+        computed.data.k.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+      (seriesRefs.current[1] as ISeriesApi<'Line'>)?.setData(
+        computed.data.d.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
+      );
+    }
+
+    if (mainChart) {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (r) chart.timeScale().setVisibleLogicalRange(r);
+    }
+  }, [computed, indicator, mainChart, isTimeframeVisible, chartSettings.priceScalePosition]);
+
+  const drawRsiDivLines = useCallback(() => {
+    const canvas = divCanvasRef.current;
+    const chart = chartRef.current;
+    const rsiSeries = seriesRefs.current[0] as ISeriesApi<'Line'> | undefined;
+    const el = containerRef.current;
+    if (!canvas || !el) return;
+
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    if (!chart || !rsiSeries || rsiDivs.length === 0 || !isRsiKind) {
+      ctx.restore();
+      return;
+    }
+
+    for (const sig of rsiDivs) {
+      const x1 = chart.timeScale().logicalToCoordinate(sig.p1Index as Logical);
+      const x2 = chart.timeScale().logicalToCoordinate(sig.p2Index as Logical);
+      const y1 = rsiSeries.priceToCoordinate(sig.p1Rsi);
+      const y2 = rsiSeries.priceToCoordinate(sig.p2Rsi);
+      if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+
+      const isBull = sig.direction === 'bull';
+      const col =
+        sig.kind === 'regular'
+          ? isBull
+            ? '#00D4AA'
+            : '#F23645'
+          : sig.kind === 'exaggerated'
+          ? '#F59E0B'
+          : '#A855F7';
+
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Number(x1), Number(y1));
+      ctx.lineTo(Number(x2), Number(y2));
+      ctx.stroke();
+
+      ctx.font = '700 8px Inter, sans-serif';
+      ctx.fillStyle = col;
+      const tag =
+        sig.kind === 'regular' ? 'REG' : sig.kind === 'exaggerated' ? 'EXAG' : 'HID';
+      ctx.fillText(tag, Number(x2) - 8, isBull ? Number(y2) + 10 : Number(y2) - 5);
+    }
+
+    ctx.restore();
+  }, [rsiDivs, isRsiKind]);
+
+  useEffect(() => {
+    drawRsiDivLines();
+  }, [drawRsiDivLines, subPaneHeight]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const onRange = () => drawRsiDivLines();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+    };
+  }, [drawRsiDivLines]);
+
+  const startResizeDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = subPaneHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY;
+      const nextH = Math.max(72, Math.min(240, startH + delta));
+      updatePanelSizes({ subPaneHeight: nextH });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const paramSummary = Object.values(indicator.params).join(', ');
+  const isLeftScale = chartSettings.priceScalePosition === 'left';
+
+  return (
+    <div
+      style={{ height: subPaneHeight }}
+      className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
+    >
+      <div
+        onMouseDown={startResizeDrag}
+        title="Drag to resize indicator height"
+        className="absolute inset-x-0 -top-[2px] z-20 h-[5px] cursor-ns-resize hover:bg-[#2962FF]/60"
+      />
+
+      <div
+        className={`pointer-events-auto absolute top-1 z-10 flex max-w-[calc(100%-74px)] flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px] ${
+          isLeftScale ? 'left-20' : 'left-2.5'
+        }`}
+      >
+        <span className="truncate font-semibold text-slate-700 dark:text-[#D1D4DC]">
+          {indicator.name}
+          {paramSummary ? ` (${paramSummary})` : ''}
+        </span>
+        <span className="font-mono tabular-nums" style={{ color: indicator.color }}>
+          {latestReadout}
+        </span>
+        <button
+          onClick={() => setEditingIndicatorId(indicator.id)}
+          title="Indicator Settings"
+          className="text-[#787B86] hover:text-white"
+        >
+          <Settings2 className="h-3 w-3" />
+        </button>
+        <button
+          onClick={onToggleVisibility}
+          title={indicator.visible ? 'Hide' : 'Show'}
+          className="text-[#787B86] hover:text-white"
+        >
+          {indicator.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+        </button>
+        <button
+          onClick={onRemove}
+          title="Remove Indicator"
+          className="text-[#787B86] hover:text-rose-400"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+
+      <div ref={containerRef} className="h-full w-full" />
+      <canvas
+        ref={divCanvasRef}
+        className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+      />
+    </div>
+  );
+};
+<<<=== END FILE ===>>>

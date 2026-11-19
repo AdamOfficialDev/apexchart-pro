@@ -1,5 +1,12 @@
 import { getSymbolInfo, TIMEFRAME_MAP } from '@/data/symbols';
-import { Candle, DataFeedConfig, FeedSourceType, SymbolInfo, TimeframeId } from '@/types/trading';
+import {
+  Candle,
+  DataFeedConfig,
+  FeedSourceType,
+  OrderFlowTick,
+  SymbolInfo,
+  TimeframeId,
+} from '@/types/trading';
 
 const BINANCE_REST_BASE = 'https://data-api.binance.vision/api/v3';
 const BINANCE_WS_BASE = 'wss://data-stream.binance.vision/ws';
@@ -21,7 +28,6 @@ function updateServerOffsetFromAtomicClock(serverTimeSec: number) {
   if (!Number.isFinite(serverTimeSec) || serverTimeSec < 1600000000) return;
   const localSec = Math.floor(Date.now() / 1000);
   const nextOffset = serverTimeSec - localSec;
-  // Smoothly ignore minor <= 2s network jitter once already synced
   if (SERVER_CLOCK.syncedAt > 0 && Math.abs(nextOffset - SERVER_CLOCK.offsetSec) <= 2) {
     return;
   }
@@ -135,6 +141,39 @@ export async function fetchBinanceWatchlistTickers(
     return out;
   } catch {
     return {};
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function fetchBinanceAggTrades(
+  symbol: string,
+  limit = 1000
+): Promise<OrderFlowTick[]> {
+  const info = getSymbolInfo(symbol);
+  if (!info.binanceSymbol) return [];
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 4000);
+  try {
+    const url = `${BINANCE_REST_BASE}/aggTrades?symbol=${info.binanceSymbol}&limit=${limit}`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return [];
+    const data = (await res.json()) as Array<{
+      p: string;
+      q: string;
+      T: number;
+      m: boolean;
+    }>;
+    if (!Array.isArray(data)) return [];
+    return data.map((row) => ({
+      timeSec: Math.floor(row.T / 1000),
+      price: Number(row.p),
+      qty: Number(row.q),
+      side: row.m ? 'sell' : 'buy',
+      isRealFlow: true,
+    }));
+  } catch {
+    return [];
   } finally {
     window.clearTimeout(timer);
   }
@@ -563,7 +602,8 @@ export function subscribeLiveTicks(
   timeframe: TimeframeId,
   initialLastCandle: Candle,
   onTick: (candle: Candle, source: FeedSourceType) => void,
-  feedConfig?: DataFeedConfig
+  feedConfig?: DataFeedConfig,
+  onOrderFlowTick?: (tick: OrderFlowTick, bucketTimeSec: number) => void
 ): () => void {
   const info = getSymbolInfo(symbol);
   const tfSec = TIMEFRAME_MAP[timeframe].seconds;
@@ -571,6 +611,8 @@ export function subscribeLiveTicks(
 
   let disposed = false;
   let currentBar: Candle = { ...initialLastCandle };
+  let lastTradePrice = initialLastCandle.close;
+  let lastTickDir: 'buy' | 'sell' = initialLastCandle.close >= initialLastCandle.open ? 'buy' : 'sell';
   let activeSource: FeedSourceType = 'simulated';
   let hasReceivedLiveStream = false;
   let lastLiveMsgLocalMs = Date.now();
@@ -585,13 +627,13 @@ export function subscribeLiveTicks(
     price: number,
     qty: number,
     tradeTimeSec: number,
-    source: FeedSourceType
+    source: FeedSourceType,
+    explicitSide?: 'buy' | 'sell',
+    isRealFlow = false
   ) => {
     if (disposed) return;
     activeSource = source;
 
-    // ONLY trust Binance atomic UTC timestamps for SERVER_CLOCK!
-    // Never let Twelve Data WS truncated/minute-rounded timestamps corrupt SERVER_CLOCK!
     if (source === 'binance' || source === 'gold-proxy') {
       updateServerOffsetFromAtomicClock(tradeTimeSec);
     }
@@ -601,9 +643,27 @@ export function subscribeLiveTicks(
     }
 
     const roundedPrice = roundToPrecision(price, info.precision);
-    // Strict monotonic bucket: NEVER go backwards earlier than currentBar.time!
     const rawBucket = Math.floor(tradeTimeSec / tfSec) * tfSec;
     const bucketTime = Math.max(currentBar.time, rawBucket);
+
+    let side: 'buy' | 'sell' = explicitSide ?? lastTickDir;
+    if (!explicitSide) {
+      if (roundedPrice > lastTradePrice) side = 'buy';
+      else if (roundedPrice < lastTradePrice) side = 'sell';
+      lastTickDir = side;
+    }
+    lastTradePrice = roundedPrice;
+
+    onOrderFlowTick?.(
+      {
+        timeSec: tradeTimeSec,
+        price: roundedPrice,
+        qty: Math.max(qty, 1),
+        side,
+        isRealFlow,
+      },
+      bucketTime
+    );
 
     if (bucketTime > currentBar.time) {
       currentBar = {
@@ -627,7 +687,6 @@ export function subscribeLiveTicks(
     onTick(currentBar, source);
   };
 
-  // Auto-Rollover Watchdog using true atomic UTC getServerNowSec()
   rolloverTimer = window.setInterval(() => {
     if (disposed || !hasReceivedLiveStream) return;
     const nowServer = getServerNowSec();
@@ -662,7 +721,7 @@ export function subscribeLiveTicks(
         (info.category === 'Crypto' ? 1.5 : info.category === 'IDX' ? 2500 : 120) *
           (0.2 + Math.random() * 1.8)
       );
-      processTrade(nextPrice, qty, getServerNowSec(), 'simulated');
+      processTrade(nextPrice, qty, getServerNowSec(), 'simulated', undefined, false);
     }, intervalMs);
   };
 
@@ -698,7 +757,6 @@ export function subscribeLiveTicks(
           const msg = JSON.parse(ev.data as string) as {
             event?: string;
             price?: number;
-            timestamp?: number;
             day_volume?: number;
           };
           if (msg.event === 'price' && typeof msg.price === 'number' && msg.price > 0) {
@@ -707,8 +765,14 @@ export function subscribeLiveTicks(
               window.clearTimeout(wsHandshakeTimeout);
               wsHandshakeTimeout = null;
             }
-            // Use atomic server clock getServerNowSec() so quantized Twelve Data timestamps never rewind candles!
-            processTrade(msg.price, msg.day_volume ? 10 : 5, getServerNowSec(), 'twelvedata');
+            processTrade(
+              msg.price,
+              msg.day_volume ? 10 : 5,
+              getServerNowSec(),
+              'twelvedata',
+              undefined,
+              false
+            );
           }
         } catch {
           // ignore
@@ -735,7 +799,7 @@ export function subscribeLiveTicks(
             const j = (await r.json()) as { price?: string };
             const p = Number(j.price);
             if (Number.isFinite(p) && p > 0) {
-              processTrade(p, 5, getServerNowSec(), 'twelvedata');
+              processTrade(p, 5, getServerNowSec(), 'twelvedata', undefined, false);
             }
           }
         } catch {
@@ -774,13 +838,23 @@ export function subscribeLiveTicks(
             p?: string;
             q?: string;
             T?: number;
+            m?: boolean;
           };
           if (msg.p) {
             const p = Number(msg.p);
             const q = Number(msg.q ?? 0);
             const tSec = Math.floor((msg.T ?? Date.now()) / 1000);
+            const explicitSide: 'buy' | 'sell' | undefined =
+              typeof msg.m === 'boolean' ? (msg.m ? 'sell' : 'buy') : undefined;
             if (Number.isFinite(p) && p > 0) {
-              processTrade(p, Number.isFinite(q) ? q : 0, tSec, resolvedSource);
+              processTrade(
+                p,
+                Number.isFinite(q) ? q : 0,
+                tSec,
+                resolvedSource,
+                explicitSide,
+                true
+              );
             }
           }
         } catch {

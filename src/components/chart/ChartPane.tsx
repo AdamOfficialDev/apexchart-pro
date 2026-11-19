@@ -55,6 +55,7 @@ import {
   computeVWAP,
 } from '@/services/indicators';
 import {
+  fetchBinanceAggTrades,
   fetchHistoricalCandles,
   fetchOlderCandles,
   getServerNowSec,
@@ -66,6 +67,7 @@ import {
   ChartContextMenuData,
   ChartPaneConfig,
   FeedSourceType,
+  OrderFlowTick,
   TimeframeId,
 } from '@/types/trading';
 import { ChartContextMenu } from './ChartContextMenu';
@@ -125,6 +127,23 @@ function formatCountdown(secondsLeft: number): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   if (hrs > 0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
   return `${pad(mins)}:${pad(secs)}`;
+}
+
+function getNextSessionInfo(nowUtcSec: number): string {
+  const d = new Date(nowUtcSec * 1000);
+  const secOfDay = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
+  const sessions = [
+    { name: 'ASIA', sec: 0 },
+    { name: 'LDN', sec: 7 * 3600 },
+    { name: 'NY', sec: 12 * 3600 },
+    { name: 'CLOSE', sec: 21 * 3600 },
+  ];
+  for (const s of sessions) {
+    if (s.sec > secOfDay) {
+      return `${s.name} ${formatCountdown(s.sec - secOfDay)}`;
+    }
+  }
+  return `ASIA ${formatCountdown(86400 - secOfDay)}`;
 }
 
 function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
@@ -194,6 +213,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const hitTestDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
   const isExternalCrosshairRef = useRef(false);
 
+  const orderFlowMapRef = useRef<Map<number, OrderFlowTick[]>>(new Map());
   const pendingTickRef = useRef<{ candle: Candle; source: FeedSourceType } | null>(null);
   const flushTimerRef = useRef<number | null>(null);
 
@@ -205,6 +225,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const [fullCandles, setFullCandles] = useState<Candle[]>([]);
   const [compareCandles, setCompareCandles] = useState<Candle[]>([]);
   const [dataSource, setDataSource] = useState<FeedSourceType>('simulated');
+  const [orderFlowTickVersion, setOrderFlowTickVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hoveredBar, setHoveredBar] = useState<Candle | null>(null);
@@ -220,6 +241,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   );
   const [countdownText, setCountdownText] = useState('00:00');
   const [clockText, setClockText] = useState('');
+  const [sessionText, setSessionText] = useState('');
   const [lastPriceY, setLastPriceY] = useState<number | null>(null);
 
   const isThisPaneInReplay = replay.enabled && replay.paneId === pane.id;
@@ -246,6 +268,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       setCountdownText(formatCountdown(nextClose - nowServerSec));
       const timeStr = formatTimeInOffset(nowServerSec, tzPreset.offsetMinutes, false, true);
       setClockText(`${timeStr} (${tzPreset.short})`);
+      setSessionText(getNextSessionInfo(nowServerSec));
     };
     tickClock();
     const id = window.setInterval(tickClock, 500);
@@ -461,12 +484,13 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     });
   }, [theme, chartSettings, tzPreset, tfMeta.seconds, pane.scaleMode]);
 
-  // 2. Fetch Historical Candles
+  // 2. Fetch Historical Candles + Real Binance aggTrades for Footprint/CVD
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setHoveredBar(null);
     loadingMoreRef.current = false;
+    orderFlowMapRef.current = new Map();
 
     fetchHistoricalCandles(pane.symbol, pane.timeframe, dataFeed).then(
       ({ candles, source, warning }) => {
@@ -494,6 +518,22 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         ) {
           setReplayTotalBars(candles.length);
         }
+
+        // Pre-fill recent candles with real Binance aggTrades order flow if available
+        if (source === 'binance' || source === 'gold-proxy') {
+          fetchBinanceAggTrades(pane.symbol, 1000).then((ticks) => {
+            if (cancelled || ticks.length === 0) return;
+            const tfSec = tfMeta.seconds;
+            const map = orderFlowMapRef.current;
+            for (const t of ticks) {
+              const b = Math.floor(t.timeSec / tfSec) * tfSec;
+              const arr = map.get(b) ?? [];
+              arr.push(t);
+              map.set(b, arr);
+            }
+            setOrderFlowTickVersion((v) => v + 1);
+          });
+        }
       }
     );
 
@@ -504,6 +544,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     pane.symbol,
     pane.timeframe,
     pane.id,
+    tfMeta.seconds,
     dataFeed.twelveDataApiKey,
     dataFeed.preferTwelveData,
     dataFeed.useGoldProxyWhenNoKey,
@@ -529,7 +570,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, fullCandles.length, setReplayTotalBars]);
 
-  // 3. Coalesced Live Tick Stream
+  // 3. Coalesced Live Tick Stream + Footprint Order Flow Collector
   useEffect(() => {
     if (loading || fullCandles.length === 0 || isThisPaneInReplay) return;
     const lastCandle = fullCandles[fullCandles.length - 1];
@@ -542,6 +583,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       const { candle: tickCandle, source } = pending;
 
       setDataSource(source);
+      setOrderFlowTickVersion((v) => v + 1);
       setFullCandles((prev) => {
         if (prev.length === 0) return [tickCandle];
         const tail = prev[prev.length - 1];
@@ -570,7 +612,14 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           flushTimerRef.current = window.setTimeout(flushPending, 120);
         }
       },
-      dataFeed
+      dataFeed,
+      (ofTick, bucketTimeSec) => {
+        const map = orderFlowMapRef.current;
+        const list = map.get(bucketTimeSec) ?? [];
+        list.push(ofTick);
+        if (list.length > 2500) list.shift();
+        map.set(bucketTimeSec, list);
+      }
     );
 
     return () => {
@@ -602,7 +651,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     }
   }, [isThisPaneInReplay, replay.isSelectingStart, displayCandles, pane.symbol]);
 
-  // 4. Main Series
+  // 4. Main Series (incl. Ghost Skeleton for Footprint Mode!)
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -631,7 +680,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     };
 
     let s: MainSeriesApi;
-    if (pane.chartStyle === 'hollow') {
+    if (pane.chartStyle === 'footprint') {
+      // Transparent ghost candlestick keeps axis/crosshair/zoom exact while DrawingOverlay draws Bid x Ask
+      s = chart.addCandlestickSeries({
+        upColor: 'rgba(8, 153, 129, 0.08)',
+        downColor: 'rgba(242, 54, 69, 0.08)',
+        borderVisible: false,
+        wickVisible: false,
+        priceFormat,
+        ...commonLineOpts,
+      });
+    } else if (pane.chartStyle === 'hollow') {
       s = chart.addCandlestickSeries({
         upColor: 'transparent',
         downColor: chartSettings.downColor,
@@ -1163,7 +1222,6 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     const onClick = (param: { time?: Time }) => {
       setActivePaneId(pane.id);
       setPlusMenuOpen(null);
-      // Clicking empty chart area immediately closes FloatingDrawingToolbar
       if (useTradingStore.getState().activeDrawingTool === 'cursor') {
         setSelectedDrawingId(null);
       }
@@ -1280,12 +1338,26 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       autoScale: true,
     });
     chart.timeScale().applyOptions({
-      barSpacing: chartSettings.barSpacing,
+      barSpacing: pane.chartStyle === 'footprint' ? 54 : chartSettings.barSpacing,
       rightOffset: chartSettings.rightOffset,
     });
     chart.timeScale().scrollToRealTime();
     setScrolledAway(false);
-  }, [chartSettings.priceScalePosition, chartSettings.barSpacing, chartSettings.rightOffset]);
+  }, [
+    chartSettings.priceScalePosition,
+    chartSettings.barSpacing,
+    chartSettings.rightOffset,
+    pane.chartStyle,
+  ]);
+
+  // Auto-zoom nicely when switching into Footprint mode so Bid x Ask cells are readable immediately
+  useEffect(() => {
+    if (pane.chartStyle === 'footprint' && chartRef.current) {
+      chartRef.current.timeScale().applyOptions({ barSpacing: 58 });
+    } else if (chartRef.current) {
+      chartRef.current.timeScale().applyOptions({ barSpacing: chartSettings.barSpacing });
+    }
+  }, [pane.chartStyle, chartSettings.barSpacing]);
 
   const handleFitContent = useCallback(() => {
     const chart = chartRef.current;
@@ -1302,7 +1374,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     const range = chart.timeScale().getVisibleLogicalRange();
     if (!range) return;
     const span = range.to - range.from;
-    const nextSpan = Math.max(12, Math.min(800, span * factor));
+    const nextSpan = Math.max(8, Math.min(800, span * factor));
     const delta = nextSpan - span;
     chart.timeScale().setVisibleLogicalRange({
       from: range.from - delta * 0.7,
@@ -1360,8 +1432,14 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     [displayCandles, fullCandles, symbolInfo.basePrice]
   );
 
-  // Instant pointer-down deselect on empty chart (works on desktop & mobile touch!)
+  // CRITICAL FIX: Only run background deselect when pointerdown actually hits the chart canvas itself!
+  // Never steal pointerdown from FloatingDrawingToolbar, PlusMenu, Legend, or HoverNav!
   const handleChartViewportPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const targetNode = e.target as Node;
+    const clickedInChartCanvas =
+      mainContainerRef.current?.contains(targetNode) || targetNode === drawingCanvasRef.current;
+    if (!clickedInChartCanvas) return;
+
     if (useTradingStore.getState().activeDrawingTool !== 'cursor') return;
     const rect = mainContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -1389,6 +1467,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   };
 
   const handleContainerDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const targetNode = e.target as Node;
+    if (!mainContainerRef.current?.contains(targetNode) && targetNode !== drawingCanvasRef.current) {
+      return;
+    }
     const rect = mainContainerRef.current?.getBoundingClientRect();
     if (!rect || !chartRef.current) return;
     const x = e.clientX - rect.left;
@@ -1548,14 +1630,16 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             isLeftScale ? 'left-20' : 'left-3'
           }`}
         >
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2 text-xs">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
             {chartSettings.showStatusSymbol && (
               <>
                 <span className="font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
                   {symbolInfo.displaySymbol}
                 </span>
                 <span className="text-[11px] font-medium text-[#787B86]">· {pane.timeframe} ·</span>
-                <span className="text-[11px] font-medium text-[#787B86]">{symbolInfo.exchange}</span>
+                <span className="hidden sm:inline text-[11px] font-medium text-[#787B86]">
+                  {symbolInfo.exchange}
+                </span>
               </>
             )}
 
@@ -1563,7 +1647,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
               <button
                 onClick={() => openChartSettingsTab('feeds')}
                 title="Click to configure Twelve Data Live API / Data Feeds"
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold transition hover:brightness-125"
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-bold transition hover:brightness-125"
               >
                 {isThisPaneInReplay ? (
                   <span className="inline-flex items-center gap-1 text-amber-400">
@@ -1588,10 +1672,18 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                 ) : (
                   <span className="inline-flex items-center gap-1 text-cyan-400">
                     <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                    SIM (Add API)
+                    SIM
                   </span>
                 )}
               </button>
+            )}
+
+            {pane.chartStyle === 'footprint' && (
+              <span className="rounded bg-[#00D4AA]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#00D4AA]">
+                {dataSource === 'binance' || dataSource === 'gold-proxy'
+                  ? 'FOOTPRINT • REAL FLOW'
+                  : 'FOOTPRINT • TICK-RULE'}
+              </span>
             )}
 
             {loadingMore && (
@@ -1841,6 +1933,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             style={{
               top: Math.max(8, Math.min(chartSize.height - 170, plusMenuOpen.y - 16)),
             }}
+            onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             className={cn(
               'absolute z-40 w-52 rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]',
@@ -1937,6 +2030,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         )}
 
         <div
+          onPointerDown={(e) => e.stopPropagation()}
           className={cn(
             'pointer-events-auto absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 shadow-lg backdrop-blur transition-opacity duration-200 dark:border-[#2A2E39] dark:bg-[#1E222D]/92',
             hoverChart || scrolledAway ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -2012,6 +2106,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           symbol={pane.symbol}
           timeframe={pane.timeframe}
           precision={effectivePrecision}
+          minMove={effectiveMinMove}
+          chartStyle={pane.chartStyle}
+          orderFlowMap={orderFlowMapRef.current}
+          orderFlowTickVersion={orderFlowTickVersion}
           width={chartSize.width}
           height={chartSize.height}
           theme={theme}
@@ -2038,6 +2136,8 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
             theme={theme}
             bgColorDark={chartSettings.bgColorDark || '#131722'}
             mainChart={chartRef.current}
+            orderFlowMap={orderFlowMapRef.current}
+            orderFlowTickVersion={orderFlowTickVersion}
             onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
             onRemove={() => removeIndicator(pane.id, ind.id)}
           />
@@ -2046,9 +2146,9 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
 
       <div
         onMouseDown={() => setSelectedDrawingId(null)}
-        className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2.5 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]"
+        className="flex h-7 w-full shrink-0 items-center justify-between border-t border-slate-200 bg-white px-2 text-[11px] dark:border-[#2A2E39] dark:bg-[#131722]"
       >
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
           {RANGE_PRESETS.map((preset) => (
             <button
               key={preset.label}
@@ -2059,7 +2159,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
                 }, 250);
               }}
               className={cn(
-                'rounded px-1.5 py-0.5 font-medium transition',
+                'shrink-0 rounded px-1.5 py-0.5 font-medium transition',
                 pane.timeframe === preset.tf
                   ? 'text-[#2962FF] font-bold bg-[#2962FF]/10'
                   : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-[#787B86] dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
@@ -2070,7 +2170,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           ))}
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-[11px]">
+        <div className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+          <span className="hidden lg:inline text-[10px] font-semibold text-[#00D4AA]">
+            {sessionText}
+          </span>
           <button
             onClick={() => openChartSettingsTab('trading')}
             title="Click to configure Timezone"

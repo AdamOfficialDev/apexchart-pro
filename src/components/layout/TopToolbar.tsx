@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   Maximize2,
   Moon,
+  PanelLeft,
   PlayCircle,
   Rows2,
   Search,
@@ -28,10 +29,11 @@ import { cn, formatPrice } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
 import { ChartStyleType, LayoutType, TimeframeGroup } from '@/types/trading';
 
-const CHART_STYLES: { id: ChartStyleType; label: string }[] = [
+const CHART_STYLES: { id: ChartStyleType; label: string; badge?: string }[] = [
   { id: 'candles', label: 'Candles' },
   { id: 'hollow', label: 'Hollow Candles' },
   { id: 'heikin_ashi', label: 'Heikin Ashi' },
+  { id: 'footprint', label: 'Footprint (Order Flow)', badge: 'PRO' },
   { id: 'bars', label: 'OHLC Bars' },
   { id: 'line', label: 'Line' },
   { id: 'area', label: 'Area' },
@@ -55,6 +57,8 @@ export const TopToolbar: React.FC = () => {
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
   const updateSmartOverlays = useTradingStore((s) => s.updateSmartOverlays);
   const dataFeed = useTradingStore((s) => s.dataFeed);
+  const mobileDrawingBarOpen = useTradingStore((s) => s.mobileDrawingBarOpen);
+  const setMobileDrawingBarOpen = useTradingStore((s) => s.setMobileDrawingBarOpen);
 
   const panes = useTradingStore((s) => s.panes);
   const activePaneId = useTradingStore((s) => s.activePaneId);
@@ -124,11 +128,24 @@ export const TopToolbar: React.FC = () => {
   return (
     <header
       ref={navRef}
-      className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
+      className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-1.5 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
     >
-      {/* Left Cluster */}
       <div className="flex min-w-0 items-center gap-1">
-        {/* Brand Emblem (full title on wide screens, crisp icon on laptop) */}
+        {/* Mobile Drawing Bar Toggle */}
+        <button
+          onClick={() => setMobileDrawingBarOpen(!mobileDrawingBarOpen)}
+          title="Toggle Drawing Tools"
+          className={cn(
+            'sm:hidden flex h-7 w-7 shrink-0 items-center justify-center rounded transition',
+            mobileDrawingBarOpen
+              ? 'bg-[#2962FF]/20 text-[#2962FF]'
+              : 'text-[#787B86] hover:bg-[#1E222D]'
+          )}
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+
+        {/* Brand */}
         <div className="hidden sm:flex shrink-0 items-center gap-1.5 pr-1">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#2962FF] to-[#00D4AA] text-white">
             <Sparkles className="h-3.5 w-3.5" />
@@ -162,7 +179,7 @@ export const TopToolbar: React.FC = () => {
           </kbd>
         </button>
 
-        {/* Compare Symbol (+) */}
+        {/* Compare */}
         <button
           onClick={() => setCompareModalOpen(true)}
           title="Compare / Overlay Symbol (%)"
@@ -283,12 +300,17 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px shrink-0 bg-slate-200 dark:bg-[#2A2E39]" />
 
-        {/* Chart Type */}
+        {/* Chart Type (incl. Footprint!) */}
         <div className="relative shrink-0">
           <button
             onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
-            title="Chart Style"
-            className="flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+            title="Chart Style (Candles, Heikin Ashi, Footprint)"
+            className={cn(
+              'flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium transition',
+              activePane.chartStyle === 'footprint'
+                ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+            )}
           >
             <CandlestickChart className="h-4 w-4 shrink-0 text-[#2962FF]" />
             <span className="hidden 2xl:inline">
@@ -298,7 +320,7 @@ export const TopToolbar: React.FC = () => {
           </button>
 
           {openMenu === 'style' && (
-            <div className="absolute left-0 top-9 z-50 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="absolute left-0 top-9 z-50 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
               {CHART_STYLES.map((cs) => (
                 <button
                   key={cs.id}
@@ -313,7 +335,14 @@ export const TopToolbar: React.FC = () => {
                       : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
                   )}
                 >
-                  <span>{cs.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{cs.label}</span>
+                    {cs.badge && (
+                      <span className="rounded bg-[#00D4AA]/15 px-1 py-0.2 text-[9px] font-bold text-[#00D4AA]">
+                        {cs.badge}
+                      </span>
+                    )}
+                  </span>
                   {activePane.chartStyle === cs.id && <Check className="h-3.5 w-3.5" />}
                 </button>
               ))}
@@ -323,7 +352,6 @@ export const TopToolbar: React.FC = () => {
 
         <div className="h-5 w-px shrink-0 bg-slate-200 dark:bg-[#2A2E39]" />
 
-        {/* Unlimited Indicators */}
         <button
           onClick={() => setIndicatorsModalOpen(true)}
           title="Indicators & Strategies"
@@ -336,7 +364,6 @@ export const TopToolbar: React.FC = () => {
           </span>
         </button>
 
-        {/* Smart AI + RSI Divergence Pro + Sessions */}
         <div className="relative shrink-0">
           <button
             onClick={() => setOpenMenu(openMenu === 'smart' ? null : 'smart')}
@@ -440,7 +467,6 @@ export const TopToolbar: React.FC = () => {
           )}
         </div>
 
-        {/* Templates */}
         <button
           onClick={() => setTemplatesModalOpen(true)}
           title="Chart & Indicator Templates"
@@ -450,7 +476,6 @@ export const TopToolbar: React.FC = () => {
           <span className="hidden 2xl:inline">Templates</span>
         </button>
 
-        {/* Replay */}
         <button
           onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
           title="Bar Replay Mode"
@@ -589,7 +614,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={triggerSnapshot}
           title="Export PNG Snapshot"
-          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden sm:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
         >
           <Camera className="h-4 w-4" />
         </button>

@@ -1,11 +1,10 @@
-// patch.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 function loadPatchContent() {
   const cwd = process.cwd();
-  const candidates = ['v42-bundle.txt', 'v41-bundle.txt', 'v4-bundle.txt'];
+  const candidates = ['v5-bundle.txt', 'v42-bundle.txt', 'v41-bundle.txt'];
   for (const name of candidates) {
     const p = path.join(cwd, name);
     if (fs.existsSync(p)) {
@@ -16,6 +15,7 @@ function loadPatchContent() {
 
   const files = fs.readdirSync(cwd);
   const prefixes = [
+    /^v5[-._]?part\d+\.txt$/i,
     /^v42[-._]?part\d+\.txt$/i,
     /^v41[-._]?part\d+\.txt$/i,
     /^v4[-._]?part\d+\.txt$/i,
@@ -30,7 +30,7 @@ function loadPatchContent() {
     }
   }
 
-  console.error('❌ File v42-part*.txt tidak ditemukan!');
+  console.error('❌ File v5-part*.txt tidak ditemukan!');
   process.exit(1);
 }
 
@@ -57,7 +57,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('🔧 ApexChart Pro V4.2 — Applying Live Clock & UX Fix...\n');
+  console.log('🚀 ApexChart Pro V5 — Applying Footprint Order Flow, Delete UX Fix & Mobile Polish...\n');
   const raw = loadPatchContent();
   const entries = extractFiles(raw);
 
@@ -82,12 +82,12 @@ function main() {
   console.log('\n🔍 Memeriksa TypeScript via pnpm typecheck...');
   try {
     execSync('pnpm typecheck', { cwd, stdio: 'inherit' });
-    console.log('\n✅ V4.2 Patch berhasil diterapkan & lolos TypeScript check!');
+    console.log('\n✅ V5 Upgrade berhasil diterapkan & lolos TypeScript check!');
   } catch {
     console.warn('\n⚠️  Typecheck selesai dengan peringatan/error. Cek output di atas.');
   }
 
-  console.log('\n🔥 Jalankan `pnpm dev` lalu refresh!\n');
+  console.log('\n🔥 Jalankan `pnpm dev` untuk menikmati ApexChart Pro V5!\n');
 }
 
 main();

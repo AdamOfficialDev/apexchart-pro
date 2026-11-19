@@ -71,7 +71,6 @@ export function getTimezonePreset(id: string): TimezonePreset {
   return TIMEZONE_PRESETS.find((t) => t.id === id) ?? TIMEZONE_PRESETS[0];
 }
 
-// Upgraded defaultBars to 1,500–2,000+ candles for deep charting & backtesting
 export const TIMEFRAMES: TimeframeMeta[] = [
   { id: '1s', label: '1s', seconds: 1, group: 'Seconds', binanceInterval: '1s', defaultBars: 1000 },
   { id: '5s', label: '5s', seconds: 5, group: 'Seconds', defaultBars: 1000 },
@@ -520,6 +519,18 @@ export function getSymbolInfo(rawSymbol: string): SymbolInfo {
 
 export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
   {
+    type: 'CVD',
+    name: 'Cumulative Volume Delta (CVD)',
+    shortName: 'CVD',
+    category: 'Volume',
+    placement: 'subpane',
+    description: 'Cumulative Bid vs Ask order-flow delta & bar delta histogram.',
+    defaultColor: '#00D4AA',
+    secondaryColor: '#089981',
+    tertiaryColor: '#F23645',
+    defaultParams: {},
+  },
+  {
     type: 'RSI_DIV',
     name: 'RSI Divergence Pro (Reg / Exag / Hid)',
     shortName: 'RSI Div Pro',
@@ -656,6 +667,25 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
 
 export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
   {
+    id: 'tpl_footprint_orderflow',
+    name: 'Footprint Order Flow + CVD',
+    chartStyle: 'footprint',
+    indicators: [
+      { type: 'VWAP', name: 'VWAP', placement: 'overlay', visible: true, color: '#EC4899', params: {} },
+      { type: 'CVD', name: 'CVD', placement: 'subpane', visible: true, color: '#00D4AA', params: {} },
+    ],
+    smartOverlays: {
+      showVPVR: true,
+      showMarketStructure: false,
+      showFVG: false,
+      showAutoSR: false,
+      showAutoTrendlines: false,
+      showRSIDivergence: false,
+      showSessions: true,
+      showDailyOpen: true,
+    },
+  },
+  {
     id: 'tpl_rsi_div_hunter',
     name: 'RSI Divergence Hunter (Reg / Exag / Hid)',
     chartStyle: 'candles',
@@ -693,26 +723,6 @@ export const DEFAULT_CHART_TEMPLATES: ChartTemplate[] = [
       showRSIDivergence: true,
       showSessions: true,
       showDailyOpen: true,
-    },
-  },
-  {
-    id: 'tpl_momentum_swing',
-    name: 'EMA + Supertrend + MACD Momentum',
-    chartStyle: 'heikin_ashi',
-    indicators: [
-      { type: 'EMA', name: 'EMA', placement: 'overlay', visible: true, color: '#2962FF', params: { period: 21 } },
-      { type: 'SUPERTREND', name: 'ST', placement: 'overlay', visible: true, color: '#089981', secondaryColor: '#F23645', params: { period: 10, multiplier: 3 } },
-      { type: 'MACD', name: 'MACD', placement: 'subpane', visible: true, color: '#2962FF', secondaryColor: '#F97316', params: { fast: 12, slow: 26, signal: 9 } },
-    ],
-    smartOverlays: {
-      showVPVR: false,
-      showMarketStructure: false,
-      showFVG: false,
-      showAutoSR: true,
-      showAutoTrendlines: true,
-      showRSIDivergence: false,
-      showSessions: false,
-      showDailyOpen: false,
     },
   },
 ];

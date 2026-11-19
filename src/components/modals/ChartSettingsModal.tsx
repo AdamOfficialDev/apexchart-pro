@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Activity,
   CandlestickChart,
   Check,
   ChevronDown,
@@ -30,6 +29,10 @@ export const ChartSettingsModal: React.FC = () => {
   const settings = useTradingStore((s) => s.chartSettings);
   const update = useTradingStore((s) => s.updateChartSettings);
   const reset = useTradingStore((s) => s.resetChartSettings);
+
+  const footprintConfig = useTradingStore((s) => s.footprintConfig);
+  const updateFootprint = useTradingStore((s) => s.updateFootprintConfig);
+  const resetFootprint = useTradingStore((s) => s.resetFootprintConfig);
 
   const smartOverlays = useTradingStore((s) => s.smartOverlays);
   const updateSmart = useTradingStore((s) => s.updateSmartOverlays);
@@ -85,7 +88,7 @@ export const ChartSettingsModal: React.FC = () => {
   };
 
   const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'symbol', label: 'Symbol', icon: <CandlestickChart className="h-3.5 w-3.5" /> },
+    { id: 'symbol', label: 'Symbol & Footprint', icon: <CandlestickChart className="h-3.5 w-3.5" /> },
     { id: 'status', label: 'Status Line', icon: <Eye className="h-3.5 w-3.5" /> },
     { id: 'scales', label: 'Scales & Lines', icon: <Ruler className="h-3.5 w-3.5" /> },
     { id: 'canvas', label: 'Canvas & Grid', icon: <LayoutTemplate className="h-3.5 w-3.5" /> },
@@ -108,7 +111,6 @@ export const ChartSettingsModal: React.FC = () => {
         }}
         className="flex h-[540px] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-[#2A2E39]">
           <div className="flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-[#2962FF]" />
@@ -124,9 +126,7 @@ export const ChartSettingsModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Body */}
         <div className="grid flex-1 min-h-0 grid-cols-1 sm:grid-cols-12">
-          {/* Left Navigation */}
           <div className="border-b border-slate-200 p-2 sm:col-span-4 sm:border-b-0 sm:border-r dark:border-[#2A2E39] dark:bg-[#131722]/60 space-y-0.5 overflow-y-auto">
             {TABS.map((t) => (
               <button
@@ -150,7 +150,6 @@ export const ChartSettingsModal: React.FC = () => {
             ))}
           </div>
 
-          {/* Right Form */}
           <div className="overflow-y-auto p-4 sm:col-span-8 text-xs space-y-4">
             {tab === 'symbol' && (
               <>
@@ -232,70 +231,93 @@ export const ChartSettingsModal: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
-                  <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
-                    Color Presets
+                {/* Footprint Order Flow Configuration */}
+                <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#2A2E39]">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[#00D4AA]">
+                    Footprint (Order Flow) Settings
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { name: 'TradingView', up: '#089981', down: '#F23645' },
-                      { name: 'Cyber Mint', up: '#00D4AA', down: '#FF3B6B' },
-                      { name: 'Classic Mono', up: '#D1D4DC', down: '#64748B' },
-                      { name: 'Hollow Pro', up: '#2962FF', down: '#F59E0B' },
-                    ].map((p) => (
-                      <button
-                        key={p.name}
-                        type="button"
-                        onClick={() =>
-                          update({
-                            upColor: p.up,
-                            wickUpColor: p.up,
-                            borderUpColor: p.up,
-                            downColor: p.down,
-                            wickDownColor: p.down,
-                            borderDownColor: p.down,
-                          })
-                        }
-                        className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium hover:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#131722]/40 dark:hover:bg-[#2A2E39]"
-                      >
-                        {p.name}
-                      </button>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <span>Diagonal Imbalance Ratio</span>
+                    <div className="flex rounded bg-slate-100 p-0.5 dark:bg-[#131722]">
+                      {[2.0, 2.5, 3.0, 4.0].map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => updateFootprint({ imbalanceRatio: r })}
+                          className={cn(
+                            'rounded px-2 py-0.5 font-mono text-[10px] font-bold',
+                            footprintConfig.imbalanceRatio === r
+                              ? 'bg-[#00D4AA] text-slate-950'
+                              : 'text-[#787B86]'
+                          )}
+                        >
+                          {r * 100}%
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span>Row Granularity Multiplier</span>
+                    <div className="flex rounded bg-slate-100 p-0.5 dark:bg-[#131722]">
+                      {[0.75, 1, 1.5, 2].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => updateFootprint({ rowTicksMultiplier: m })}
+                          className={cn(
+                            'rounded px-2 py-0.5 font-mono text-[10px] font-bold',
+                            footprintConfig.rowTicksMultiplier === m
+                              ? 'bg-[#2962FF] text-white'
+                              : 'text-[#787B86]'
+                          )}
+                        >
+                          {m}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Highlight Candle POC (Point of Control)</span>
+                    <input
+                      type="checkbox"
+                      checked={footprintConfig.showPOC}
+                      onChange={(e) => updateFootprint({ showPOC: e.target.checked })}
+                      className="accent-[#00D4AA]"
+                    />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Highlight Buy / Sell Imbalances</span>
+                    <input
+                      type="checkbox"
+                      checked={footprintConfig.showImbalances}
+                      onChange={(e) => updateFootprint({ showImbalances: e.target.checked })}
+                      className="accent-[#00D4AA]"
+                    />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between">
+                    <span>Show Candle Delta Summary Below Bars</span>
+                    <input
+                      type="checkbox"
+                      checked={footprintConfig.showDeltaSummary}
+                      onChange={(e) => updateFootprint({ showDeltaSummary: e.target.checked })}
+                      className="accent-[#00D4AA]"
+                    />
+                  </label>
                 </div>
 
                 <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#2A2E39]">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
                     Price Lines & Precision
                   </div>
-                  <div className="flex items-center justify-between">
+                  <label className="flex cursor-pointer items-center justify-between">
                     <span>Last Price Line</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.showLastPriceLine}
-                        onChange={(e) => update({ showLastPriceLine: e.target.checked })}
-                        className="accent-[#2962FF]"
-                      />
-                      <div className="flex rounded bg-slate-100 p-0.5 dark:bg-[#131722]">
-                        {(['solid', 'dashed', 'dotted'] as const).map((ls) => (
-                          <button
-                            key={ls}
-                            type="button"
-                            onClick={() => update({ lastPriceLineStyle: ls })}
-                            className={cn(
-                              'rounded px-1.5 py-0.5 text-[10px] capitalize',
-                              settings.lastPriceLineStyle === ls
-                                ? 'bg-[#2962FF] text-white'
-                                : 'text-[#787B86]'
-                            )}
-                          >
-                            {ls}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                    <input
+                      type="checkbox"
+                      checked={settings.showLastPriceLine}
+                      onChange={(e) => update({ showLastPriceLine: e.target.checked })}
+                      className="accent-[#2962FF]"
+                    />
+                  </label>
                   <label className="flex cursor-pointer items-center justify-between">
                     <span>Session High & Low Price Lines</span>
                     <input
@@ -705,11 +727,14 @@ export const ChartSettingsModal: React.FC = () => {
                   </div>
                   {(
                     [
+                      { key: 'showRSIDivergence', label: 'RSI Divergence Pro (Reg / Exag / Hid)' },
                       { key: 'showVPVR', label: 'Volume Profile (VPVR + POC / VAH / VAL)' },
                       { key: 'showMarketStructure', label: 'Market Structure (HH/HL/LH/LL & BOS/CHoCH)' },
                       { key: 'showFVG', label: 'Fair Value Gaps (FVG Imbalance Zones)' },
                       { key: 'showAutoSR', label: 'Auto Support / Resistance Levels' },
                       { key: 'showAutoTrendlines', label: 'Auto Pivot Trendlines' },
+                      { key: 'showSessions', label: 'Trading Sessions (Asia / London / NY)' },
+                      { key: 'showDailyOpen', label: 'Daily Open Reference Line' },
                     ] as const
                   ).map((item) => (
                     <label key={item.key} className="flex cursor-pointer items-center justify-between">
@@ -773,10 +798,6 @@ export const ChartSettingsModal: React.FC = () => {
                       {testResult}
                     </div>
                   )}
-                  <p className="mt-1 text-[10px] text-[#787B86]">
-                    Dapatkan key gratis di <span className="text-[#2962FF]">twelvedata.com</span>{' '}
-                    (800 REST calls/hari + Live WebSocket). Tersimpan lokal di browser lo.
-                  </p>
                 </div>
 
                 <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#2A2E39]">
@@ -806,11 +827,13 @@ export const ChartSettingsModal: React.FC = () => {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 dark:border-[#2A2E39]">
           <button
             type="button"
-            onClick={reset}
+            onClick={() => {
+              reset();
+              resetFootprint();
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#787B86] hover:bg-white/5 hover:text-white"
           >
             <RotateCcw className="h-3.5 w-3.5" />

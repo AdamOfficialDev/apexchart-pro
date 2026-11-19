@@ -42,13 +42,12 @@ export const RightSidebar: React.FC = () => {
       {rightTab !== null && (
         <div
           style={{ width: rightWidth }}
-          className="relative h-full overflow-hidden border-l border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]"
+          className="fixed bottom-8 right-[42px] top-10 z-40 overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:static sm:bottom-auto sm:right-auto sm:top-auto sm:z-auto sm:h-full sm:shadow-none dark:border-[#2A2E39] dark:bg-[#131722]"
         >
-          {/* Horizontal Resize Splitter */}
           <div
             onMouseDown={startResize}
             title="Drag to resize sidebar"
-            className="absolute inset-y-0 left-0 z-30 w-[5px] cursor-ew-resize hover:bg-[#2962FF]/60"
+            className="hidden sm:block absolute inset-y-0 left-0 z-30 w-[5px] cursor-ew-resize hover:bg-[#2962FF]/60"
           />
           {rightTab === 'watchlist' && <WatchlistPanel />}
           {rightTab === 'orderbook' && <OrderBookPanel />}
