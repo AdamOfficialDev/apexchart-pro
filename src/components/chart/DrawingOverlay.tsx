@@ -28,9 +28,11 @@ import {
 
 interface DrawingOverlayProps {
   chart: IChartApi | null;
-  series: ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null;
+  series: ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area' | 'Histogram'> | null;
   candles: Candle[];
   symbol: string;
+  targetIndicatorId?: string;
+  snapValuesByTime?: Map<number, number>;
   timeframe: TimeframeId;
   precision: number;
   minMove?: number;
@@ -118,6 +120,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   series,
   candles,
   symbol,
+  targetIndicatorId,
+  snapValuesByTime,
   timeframe,
   precision,
   minMove = 0.01,
@@ -168,10 +172,27 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
   const symbolDrawings = useMemo(
     () =>
-      (drawingsBySymbol[symbol] ?? []).filter((d) =>
-        isVisibleOnTimeframeGroup(d.visibility, tfMeta.group)
-      ),
-    [drawingsBySymbol, symbol, tfMeta.group]
+      (drawingsBySymbol[symbol] ?? []).filter((d) => {
+        const matchPane = targetIndicatorId
+          ? d.targetIndicatorId === targetIndicatorId
+          : !d.targetIndicatorId;
+        return matchPane && isVisibleOnTimeframeGroup(d.visibility, tfMeta.group);
+      }),
+    [drawingsBySymbol, symbol, targetIndicatorId, tfMeta.group]
+  );
+
+  // Cross-pane Vertical Lines (drawings from other panes extend through this pane)
+  const crossPaneVerticalLines = useMemo(
+    () =>
+      (drawingsBySymbol[symbol] ?? []).filter((d) => {
+        if (d.visible === false) return false;
+        if (d.type !== 'vline' && d.type !== 'cross_line') return false;
+        const isOtherPane = targetIndicatorId
+          ? d.targetIndicatorId !== targetIndicatorId
+          : Boolean(d.targetIndicatorId);
+        return isOtherPane && isVisibleOnTimeframeGroup(d.visibility, tfMeta.group);
+      }),
+    [drawingsBySymbol, symbol, targetIndicatorId, tfMeta.group]
   );
 
   const vpvrData = useMemo(() => {
@@ -195,7 +216,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     candles,
   ]);
 
-  const showRsiDivOverlay = smartOverlays.showRSIDivergence || hasRsiDivIndicator;
+  const showRsiDivOverlay = hasRsiDivIndicator;
   const rsiDivSignals = useMemo(() => {
     if (!showRsiDivOverlay || candles.length < 30) return [];
     return computeRSIDivergences(candles, rsiDivConfig, true);
@@ -355,15 +376,25 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         const c = candles[nearestIdx];
         if (c) {
           time = c.time;
-          const ohlc = [c.open, c.high, c.low, c.close];
-          let bestDist = Infinity;
-          for (const candidate of ohlc) {
-            const cy = series.priceToCoordinate(candidate);
-            if (cy !== null) {
-              const d = Math.abs(Number(cy) - y);
-              if (d < bestDist && d < 36) {
-                bestDist = d;
-                snappedPrice = candidate;
+          if (targetIndicatorId) {
+            const indVal = snapValuesByTime?.get(c.time);
+            if (indVal !== undefined) {
+              const cy = series.priceToCoordinate(indVal);
+              if (cy !== null && Math.abs(Number(cy) - y) < 36) {
+                snappedPrice = indVal;
+              }
+            }
+          } else {
+            const ohlc = [c.open, c.high, c.low, c.close];
+            let bestDist = Infinity;
+            for (const candidate of ohlc) {
+              const cy = series.priceToCoordinate(candidate);
+              if (cy !== null) {
+                const d = Math.abs(Number(cy) - y);
+                if (d < bestDist && d < 36) {
+                  bestDist = d;
+                  snappedPrice = candidate;
+                }
               }
             }
           }
@@ -372,7 +403,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
 
       return { time, price: snappedPrice };
     },
-    [chart, series, candles, tfSec, magnetMode]
+    [chart, series, candles, tfSec, magnetMode, targetIndicatorId, snapValuesByTime]
   );
 
   const toScreen = useCallback(
@@ -591,7 +622,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     // -----------------------------------------------------------------------
     // 0. FOOTPRINT ORDER FLOW (Bid x Ask, Candle POC, Imbalances, Delta)
     // -----------------------------------------------------------------------
-    if (chartStyle === 'footprint' && chart && candles.length > 0) {
+    if (!targetIndicatorId && chartStyle === 'footprint' && chart && candles.length > 0) {
       const range = chart.timeScale().getVisibleLogicalRange();
       const fromIdx = range ? Math.max(0, Math.floor(range.from) - 1) : Math.max(0, candles.length - 30);
       const toIdx = range ? Math.min(candles.length - 1, Math.ceil(range.to) + 1) : candles.length - 1;
@@ -709,7 +740,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     // -----------------------------------------------------------------------
     // 1. SESSIONS / KILLZONES & DAILY OPEN
     // -----------------------------------------------------------------------
-    if (smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
+    if (!targetIndicatorId && smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
       ctx.save();
       let prevBucket = '';
       let bandStartX: number | null = null;
@@ -752,7 +783,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       ctx.restore();
     }
 
-    if (smartOverlays.showDailyOpen && candles.length > 0) {
+    if (!targetIndicatorId && smartOverlays.showDailyOpen && candles.length > 0) {
       const latestDay = Math.floor(candles[candles.length - 1].time / 86400);
       const dayOpenBar = candles.find((c) => Math.floor(c.time / 86400) === latestDay);
       if (dayOpenBar) {
@@ -778,7 +809,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     // -----------------------------------------------------------------------
     // 2. SMART OVERLAYS (VPVR, FVG, Auto S/R, BOS/CHoCH)
     // -----------------------------------------------------------------------
-    if (vpvrData && smartOverlays.showVPVR) {
+    if (!targetIndicatorId && vpvrData && smartOverlays.showVPVR) {
       const maxBarW = Math.min(130, chartPlotWidth * 0.22);
       const rightEdge = plotRight - 2;
       const vahY = priceToY(vpvrData.vahPrice);
@@ -822,7 +853,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       }
     }
 
-    if (structureData) {
+    if (!targetIndicatorId && structureData) {
       if (smartOverlays.showFVG) {
         for (const fvg of structureData.fvgs) {
           const x1 = timeToX(fvg.timeStart);
@@ -924,7 +955,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     // -----------------------------------------------------------------------
     // 3. RSI DIVERGENCE PRO RENDERER (With Clutter Control)
     // -----------------------------------------------------------------------
-    if (showRsiDivOverlay && rsiDivSignals.length > 0) {
+    if (!targetIndicatorId && showRsiDivOverlay && rsiDivSignals.length > 0) {
       ctx.save();
       for (const sig of rsiDivSignals) {
         const sp1 = toScreen({ time: sig.p1Time, price: sig.p1Price });
@@ -1072,7 +1103,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     // -----------------------------------------------------------------------
     // 4. BACKTESTER TRADE MARKERS
     // -----------------------------------------------------------------------
-    if (showBacktestOnChart && backtestTrades.length > 0) {
+    if (!targetIndicatorId && showBacktestOnChart && backtestTrades.length > 0) {
       ctx.save();
       for (const bt of backtestTrades) {
         const ent = toScreen({ time: bt.entryTime, price: bt.entryPrice });
@@ -1966,6 +1997,24 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     };
 
     if (drawingsVisible) {
+      // Draw synced vertical lines piercing across from other panes
+      for (const vl of crossPaneVerticalLines) {
+        const pt = vl.points[0];
+        if (!pt) continue;
+        const vx = timeToX(pt.time);
+        if (vx === null) continue;
+        ctx.save();
+        ctx.strokeStyle = hexWithOpacity(vl.color, vl.opacity ?? 100);
+        ctx.lineWidth = vl.lineWidth;
+        if (vl.lineStyle === 'dashed') ctx.setLineDash([7, 5]);
+        else if (vl.lineStyle === 'dotted') ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(vx, 0);
+        ctx.lineTo(vx, height);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       for (const d of symbolDrawings) {
         if (d.visible === false) continue;
         drawSingle(
@@ -2062,6 +2111,8 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     showBacktestOnChart,
     backtestTrades,
     chartSettings.priceScalePosition,
+    targetIndicatorId,
+    crossPaneVerticalLines,
   ]);
 
   useEffect(() => {
@@ -2082,6 +2133,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       addDrawing({
         id: generateId('drw'),
         symbol,
+        targetIndicatorId,
         type,
         points,
         color: drawingColor,
@@ -2092,7 +2144,15 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       setDraftPoints([]);
       finishToolUsage();
     },
-    [addDrawing, symbol, drawingColor, drawingLineWidth, drawingLineStyle, finishToolUsage]
+    [
+      addDrawing,
+      symbol,
+      targetIndicatorId,
+      drawingColor,
+      drawingLineWidth,
+      drawingLineStyle,
+      finishToolUsage,
+    ]
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2198,6 +2258,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       addDrawing({
         id: generateId('drw'),
         symbol,
+        targetIndicatorId,
         type: activeTool,
         points: [
           dataPt,
@@ -2265,7 +2326,9 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         for (let i = 0; i < updatedPts.length; i++) {
           updatedPts[i] = {
             time: updatedPts[i].time + dt,
-            price: Math.max(0.000001, updatedPts[i].price + dp),
+            price: targetIndicatorId
+              ? updatedPts[i].price + dp
+              : Math.max(0.000001, updatedPts[i].price + dp),
           };
         }
       }
@@ -2316,6 +2379,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         addDrawing({
           id: generateId('drw'),
           symbol,
+          targetIndicatorId,
           type: activeTool === 'highlighter' ? 'highlighter' : 'brush',
           points: [...brushPointsRef.current],
           color: drawingColor,
@@ -2383,6 +2447,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         addDrawing({
           id: generateId('drw'),
           symbol,
+          targetIndicatorId,
           type: textDraft.kind,
           points: textDraft.points,
           color: drawingColor,
@@ -2428,7 +2493,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         }`}
       />
 
-      {activeTool !== 'cursor' && activeToolMeta && (
+      {!targetIndicatorId && activeTool !== 'cursor' && activeToolMeta && (
         <div className="pointer-events-none absolute bottom-10 left-3 z-20 rounded-md border border-[#2A2E39] bg-[#1E222D]/90 px-2.5 py-1 text-[11px] text-[#D1D4DC] shadow-lg backdrop-blur">
           <span className="font-bold text-[#2962FF]">{activeToolMeta.label}</span>
           {activeToolMeta.pointsRequired > 1 && (

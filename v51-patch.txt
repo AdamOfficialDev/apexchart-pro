@@ -1,0 +1,12 @@
+<<<=== PATCH: src/components/chart/SubPaneChart.tsx ===>>>
+<<<--- FIND --->>>
+  Logical,
+  LogicalRange,
+  UTCTimestamp,
+<<<--- REPLACE --->>>
+  Logical,
+  LogicalRange,
+  Time,
+  UTCTimestamp,
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>

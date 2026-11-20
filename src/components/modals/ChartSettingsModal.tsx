@@ -727,7 +727,7 @@ export const ChartSettingsModal: React.FC = () => {
                   </div>
                   {(
                     [
-                      { key: 'showRSIDivergence', label: 'RSI Divergence Pro (Reg / Exag / Hid)' },
+
                       { key: 'showVPVR', label: 'Volume Profile (VPVR + POC / VAH / VAL)' },
                       { key: 'showMarketStructure', label: 'Market Structure (HH/HL/LH/LL & BOS/CHoCH)' },
                       { key: 'showFVG', label: 'Fair Value Gaps (FVG Imbalance Zones)' },

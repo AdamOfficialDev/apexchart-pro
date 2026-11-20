@@ -12,7 +12,18 @@ function getPartNumber(filename) {
 
 function loadPatchContent() {
   const cwd = process.cwd();
-  const candidates = ['v5-bundle.txt', 'v42-bundle.txt', 'v41-bundle.txt'];
+  const argFile = process.argv[2];
+  if (argFile) {
+    const p = path.resolve(cwd, argFile);
+    if (!fs.existsSync(p)) {
+      console.error(`❌ File ${argFile} tidak ditemukan!`);
+      process.exit(1);
+    }
+    console.log(`📦 Membaca ${argFile}...`);
+    return fs.readFileSync(p, 'utf8');
+  }
+
+  const candidates = ['v51-patch.txt', 'v5-bundle.txt', 'v42-bundle.txt', 'v41-bundle.txt'];
   for (const name of candidates) {
     const p = path.join(cwd, name);
     if (fs.existsSync(p)) {
@@ -38,24 +49,73 @@ function loadPatchContent() {
     }
   }
 
-  console.error('❌ File part patch tidak ditemukan!');
+  console.error('❌ File patch tidak ditemukan!');
   process.exit(1);
 }
 
-function extractFiles(rawContent) {
-  const normalized = rawContent.replace(/\r\n/g, '\n');
+function applyFullFiles(cwd, normalized) {
   const fileRegex =
     /<<<===\s*FILE:\s*(.+?)\s*===>>>[ \t]*\n([\s\S]*?)\n<<<===\s*END FILE\s*===>>>/g;
-
-  const entries = [];
+  let count = 0;
   let match;
   while ((match = fileRegex.exec(normalized)) !== null) {
-    entries.push({
-      filePath: match[1].trim(),
-      content: match[2],
-    });
+    const filePath = match[1].trim();
+    const content = match[2];
+    const fullPath = path.join(cwd, filePath);
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const existed = fs.existsSync(fullPath);
+    fs.writeFileSync(fullPath, content + '\n', 'utf8');
+    count++;
+    console.log(`  ${existed ? '↻ Updated' : '+ Created'} ${filePath}`);
   }
-  return entries;
+  return count;
+}
+
+function applySurgicalPatches(cwd, normalized) {
+  const patchRegex =
+    /<<<===\s*PATCH:\s*(.+?)\s*===>>>[ \t]*\n([\s\S]*?)\n<<<===\s*END PATCH\s*===>>>/g;
+  const hunkRegex =
+    /<<<---\s*FIND\s*--->>>[ \t]*\n([\s\S]*?)\n<<<---\s*REPLACE\s*--->>>[ \t]*\n([\s\S]*?)<<<---\s*END HUNK\s*--->>>/g;
+
+  let totalFiles = 0;
+  let patchMatch;
+  while ((patchMatch = patchRegex.exec(normalized)) !== null) {
+    const relPath = patchMatch[1].trim();
+    const body = patchMatch[2];
+    const fullPath = path.join(cwd, relPath);
+
+    if (!fs.existsSync(fullPath)) {
+      console.error(`  ❌ File target tidak ditemukan: ${relPath}`);
+      continue;
+    }
+
+    let source = fs.readFileSync(fullPath, 'utf8').replace(/\r\n/g, '\n');
+    let hunkMatch;
+    let applied = 0;
+    let failed = 0;
+
+    hunkRegex.lastIndex = 0;
+    while ((hunkMatch = hunkRegex.exec(body)) !== null) {
+      const findStr = hunkMatch[1];
+      const replaceStr = hunkMatch[2].replace(/\n$/, '');
+
+      if (source.includes(findStr)) {
+        source = source.replace(findStr, replaceStr);
+        applied++;
+      } else {
+        failed++;
+        console.warn(`  ⚠️  Hunk tidak cocok di ${relPath}:\n     ${findStr.slice(0, 70)}...`);
+      }
+    }
+
+    fs.writeFileSync(fullPath, source, 'utf8');
+    totalFiles++;
+    console.log(
+      `  ✓ Patched ${relPath} (${applied} hunk berhasil${failed ? `, ${failed} gagal` : ''})`
+    );
+  }
+  return totalFiles;
 }
 
 function main() {
@@ -66,33 +126,22 @@ function main() {
   }
 
   console.log('🔧 ApexChart Pro — Applying Patch...\n');
-  const raw = loadPatchContent();
-  const entries = extractFiles(raw);
+  const normalized = loadPatchContent().replace(/\r\n/g, '\n');
 
-  if (entries.length === 0) {
-    console.error('❌ Tidak ada blok file valid di dalam bundle.');
+  const fullCount = applyFullFiles(cwd, normalized);
+  const patchCount = applySurgicalPatches(cwd, normalized);
+
+  if (fullCount === 0 && patchCount === 0) {
+    console.error('❌ Tidak ada blok FILE atau PATCH valid yang ditemukan.');
     process.exit(1);
   }
-
-  entries.forEach((entry, idx) => {
-    const fullPath = path.join(cwd, entry.filePath);
-    const dir = path.dirname(fullPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const existed = fs.existsSync(fullPath);
-    fs.writeFileSync(fullPath, entry.content + '\n', 'utf8');
-    console.log(
-      `  [${idx + 1}/${entries.length}] ${existed ? '↻ Updated' : '+ Created'} ${entry.filePath}`
-    );
-  });
 
   console.log('\n🔍 Memeriksa TypeScript via pnpm typecheck...');
   try {
     execSync('pnpm typecheck', { cwd, stdio: 'inherit' });
     console.log('\n✅ Patch berhasil diterapkan & lolos TypeScript check!');
   } catch {
-    console.warn('\n⚠️  Typecheck selesai dengan peringatan/error. Cek output di atas.');
+    console.warn('\n⚠️  Typecheck selesai dengan error. Cek output di atas.');
   }
 
   console.log('\n🔥 Jalankan `pnpm dev`!\n');

@@ -395,11 +395,7 @@ export const TopToolbar: React.FC = () => {
               <div className="space-y-1 text-xs">
                 {(
                   [
-                    {
-                      key: 'showRSIDivergence',
-                      title: 'RSI Divergence Pro (Reg / Exag / Hid)',
-                      sub: 'Trendline breakouts + Golden Ratio Fib setups',
-                    },
+
                     {
                       key: 'showVPVR',
                       title: 'Volume Profile (VPVR)',

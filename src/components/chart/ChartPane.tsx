@@ -243,6 +243,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const [clockText, setClockText] = useState('');
   const [sessionText, setSessionText] = useState('');
   const [lastPriceY, setLastPriceY] = useState<number | null>(null);
+  const [paneCrosshairTime, setPaneCrosshairTime] = useState<number | null>(null);
 
   const isThisPaneInReplay = replay.enabled && replay.paneId === pane.id;
   const isMaximized = maximizedPaneId === pane.id;
@@ -317,6 +318,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
         visible: !isLeft,
+        minimumWidth: 78,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         scaleMargins: {
           top: chartSettings.scaleMarginTop / 100,
@@ -326,6 +328,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       },
       leftPriceScale: {
         visible: isLeft,
+        minimumWidth: 78,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         scaleMargins: {
           top: chartSettings.scaleMarginTop / 100,
@@ -455,6 +458,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       },
       rightPriceScale: {
         visible: !isLeft,
+        minimumWidth: 78,
         invertScale: chartSettings.invertScale,
         scaleMargins: {
           top: chartSettings.scaleMarginTop / 100,
@@ -469,6 +473,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       },
       leftPriceScale: {
         visible: isLeft,
+        minimumWidth: 78,
         invertScale: chartSettings.invertScale,
         scaleMargins: {
           top: chartSettings.scaleMarginTop / 100,
@@ -1167,11 +1172,15 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         const t = Number(param.time);
         const found = candleByTime.get(t);
         if (found) setHoveredBar(found);
-        if (syncCrosshair && !isExternalCrosshairRef.current) {
-          setSyncedCrosshairTime(t);
+        if (!isExternalCrosshairRef.current) {
+          setPaneCrosshairTime(t);
+          if (syncCrosshair) setSyncedCrosshairTime(t);
         }
       } else {
         setHoveredBar(null);
+        if (!isExternalCrosshairRef.current) {
+          setPaneCrosshairTime(null);
+        }
       }
     };
 
@@ -1556,10 +1565,41 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     : symbolInfo.basePrice;
   const askPrice = lastBar ? lastBar.close + spreadStep : symbolInfo.basePrice;
 
+  const handleSubCrosshairMove = useCallback(
+    (time: number | null) => {
+      setPaneCrosshairTime(time);
+      const chart = chartRef.current;
+      const series = mainSeriesRef.current;
+      if (!chart || !series) return;
+
+      isExternalCrosshairRef.current = true;
+      try {
+        if (time === null) {
+          chart.applyOptions({ crosshair: { horzLine: { visible: true } } });
+          chart.clearCrosshairPosition();
+          setHoveredBar(null);
+        } else {
+          chart.applyOptions({ crosshair: { horzLine: { visible: false } } });
+          const bar = displayCandles.find((c) => c.time === time);
+          if (bar) {
+            chart.setCrosshairPosition(bar.close, bar.time as UTCTimestamp, series);
+            setHoveredBar(bar);
+          }
+          if (syncCrosshair) setSyncedCrosshairTime(time);
+        }
+      } catch {
+        // ignore
+      }
+      isExternalCrosshairRef.current = false;
+    },
+    [displayCandles, syncCrosshair, setSyncedCrosshairTime]
+  );
+
   const subPaneIndicators = pane.indicators.filter((i) => i.placement === 'subpane');
   const overlayIndicators = pane.indicators.filter((i) => i.placement === 'overlay');
+  // Pure RSI does NOT trigger RSI Divergence overlays on main price chart
   const hasRsiDivIndicator = pane.indicators.some(
-    (i) => (i.type === 'RSI_DIV' || i.type === 'RSI') && i.visible
+    (i) => i.type === 'RSI_DIV' && i.visible
   );
   const isLeftScale = chartSettings.priceScalePosition === 'left';
 
@@ -1580,7 +1620,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     >
       <div
         className="relative flex-1 min-h-0 w-full"
-        onMouseEnter={() => setHoverChart(true)}
+        onMouseEnter={() => {
+          setHoverChart(true);
+          chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: true } } });
+        }}
         onMouseLeave={() => {
           setHoverChart(false);
           setPriceAxisHover(null);
@@ -2032,7 +2075,7 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
         <div
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
-            'pointer-events-auto absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 shadow-lg backdrop-blur transition-opacity duration-200 dark:border-[#2A2E39] dark:bg-[#1E222D]/92',
+            'pointer-events-auto absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 shadow-lg backdrop-blur transition-opacity duration-200 dark:border-[#2A2E39] dark:bg-[#1E222D]/95',
             hoverChart || scrolledAway ? 'opacity-100' : 'opacity-0 pointer-events-none'
           )}
         >
@@ -2125,23 +2168,22 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       </div>
 
       {subPaneIndicators.map((ind) => (
-        <div
+        <SubPaneChart
           key={ind.id}
-          onMouseDown={() => setSelectedDrawingId(null)}
-        >
-          <SubPaneChart
-            indicator={ind}
-            candles={displayCandles}
-            timeframe={pane.timeframe}
-            theme={theme}
-            bgColorDark={chartSettings.bgColorDark || '#131722'}
-            mainChart={chartRef.current}
-            orderFlowMap={orderFlowMapRef.current}
-            orderFlowTickVersion={orderFlowTickVersion}
-            onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
-            onRemove={() => removeIndicator(pane.id, ind.id)}
-          />
-        </div>
+          indicator={ind}
+          symbol={pane.symbol}
+          candles={displayCandles}
+          timeframe={pane.timeframe}
+          theme={theme}
+          bgColorDark={chartSettings.bgColorDark || '#131722'}
+          mainChart={chartRef.current}
+          syncedSubTime={paneCrosshairTime}
+          onSubCrosshairMove={handleSubCrosshairMove}
+          orderFlowMap={orderFlowMapRef.current}
+          orderFlowTickVersion={orderFlowTickVersion}
+          onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
+          onRemove={() => removeIndicator(pane.id, ind.id)}
+        />
       ))}
 
       <div

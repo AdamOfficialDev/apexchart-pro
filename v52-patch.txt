@@ -1,0 +1,354 @@
+<<<=== PATCH: src/components/chart/SubPaneChart.tsx ===>>>
+<<<--- FIND --->>>
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
+  const syncingRef = useRef(false);
+  const externalCrosshairRef = useRef(false);
+<<<--- REPLACE --->>>
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const anchorSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
+  const syncingRef = useRef(false);
+  const externalCrosshairRef = useRef(false);
+  const pointerInsideSubRef = useRef(false);
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: {
+        visible: !isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      timeScale: {
+        visible: false,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+      },
+    });
+
+    chartRef.current = chart;
+    seriesSigRef.current = '';
+<<<--- REPLACE --->>>
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        horzLine: { visible: false },
+      },
+      rightPriceScale: {
+        visible: !isLeft,
+        minimumWidth: 78,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        minimumWidth: 78,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: { top: 0.14, bottom: 0.14 },
+      },
+      timeScale: {
+        visible: false,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+      },
+    });
+
+    // Invisible whitespace series forces exact 1:1 candle logical index alignment with mainChart
+    anchorSeriesRef.current = chart.addLineSeries({
+      visible: false,
+      priceScaleId: 'anchor',
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+
+    chartRef.current = chart;
+    seriesSigRef.current = '';
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+    };
+<<<--- REPLACE --->>>
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      anchorSeriesRef.current = null;
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+    };
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (!computed || !indicator.visible || !isTimeframeVisible) {
+<<<--- REPLACE --->>>
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    // Keep sub-pane time axis aligned 1:1 to every candle in main chart
+    if (anchorSeriesRef.current && candles.length > 0) {
+      anchorSeriesRef.current.setData(
+        candles.map((c) => ({ time: c.time as UTCTimestamp }))
+      );
+    }
+
+    if (!computed || !indicator.visible || !isTimeframeVisible) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+  // Synchronize Vertical & Horizontal Crosshair from Main Chart into Sub-Pane
+  useEffect(() => {
+    const sub = chartRef.current;
+    if (!sub || !indicator.visible || !isTimeframeVisible) return;
+
+    const targetSeries =
+      indicator.type === 'MACD' || indicator.type === 'CVD'
+        ? seriesRefs.current[1] ?? seriesRefs.current[0]
+        : seriesRefs.current[0];
+
+    externalCrosshairRef.current = true;
+    try {
+      if (syncedSubTime === null || !targetSeries) {
+        sub.clearCrosshairPosition();
+      } else {
+        const val = primaryValueMap.get(syncedSubTime);
+        if (val !== undefined) {
+          sub.setCrosshairPosition(val, syncedSubTime as UTCTimestamp, targetSeries);
+        } else {
+          sub.clearCrosshairPosition();
+        }
+      }
+    } catch {
+      // ignore if out of range
+    }
+    externalCrosshairRef.current = false;
+  }, [syncedSubTime, primaryValueMap, indicator.type, indicator.visible, isTimeframeVisible]);
+<<<--- REPLACE --->>>
+  // Synchronize Vertical Crosshair from Main Chart into Sub-Pane
+  useEffect(() => {
+    const sub = chartRef.current;
+    if (!sub || !indicator.visible || !isTimeframeVisible || pointerInsideSubRef.current) return;
+
+    const targetSeries =
+      indicator.type === 'MACD' || indicator.type === 'CVD'
+        ? seriesRefs.current[1] ?? seriesRefs.current[0]
+        : seriesRefs.current[0];
+
+    externalCrosshairRef.current = true;
+    try {
+      sub.applyOptions({ crosshair: { horzLine: { visible: false } } });
+      if (syncedSubTime === null || !targetSeries) {
+        sub.clearCrosshairPosition();
+      } else {
+        const val = primaryValueMap.get(syncedSubTime);
+        if (val !== undefined) {
+          sub.setCrosshairPosition(val, syncedSubTime as UTCTimestamp, targetSeries);
+        } else {
+          sub.clearCrosshairPosition();
+        }
+      }
+    } catch {
+      // ignore if out of range
+    }
+    externalCrosshairRef.current = false;
+  }, [syncedSubTime, primaryValueMap, indicator.type, indicator.visible, isTimeframeVisible]);
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+  return (
+    <div
+      style={{ height: subPaneHeight }}
+      className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
+    >
+<<<--- REPLACE --->>>
+  return (
+    <div
+      style={{ height: subPaneHeight }}
+      onMouseEnter={() => {
+        pointerInsideSubRef.current = true;
+        chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: true } } });
+      }}
+      onMouseLeave={() => {
+        pointerInsideSubRef.current = false;
+        chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: false } } });
+        onSubCrosshairMove?.(null);
+      }}
+      className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
+    >
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>
+
+<<<=== PATCH: src/components/chart/ChartPane.tsx ===>>>
+<<<--- FIND --->>>
+      rightPriceScale: {
+        visible: !isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        invertScale: chartSettings.invertScale,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        invertScale: chartSettings.invertScale,
+      },
+<<<--- REPLACE --->>>
+      rightPriceScale: {
+        visible: !isLeft,
+        minimumWidth: 78,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        invertScale: chartSettings.invertScale,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        minimumWidth: 78,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        invertScale: chartSettings.invertScale,
+      },
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      rightPriceScale: {
+        visible: !isLeft,
+        invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+<<<--- REPLACE --->>>
+      rightPriceScale: {
+        visible: !isLeft,
+        minimumWidth: 78,
+        invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+      leftPriceScale: {
+        visible: isLeft,
+        minimumWidth: 78,
+        invertScale: chartSettings.invertScale,
+        scaleMargins: {
+          top: chartSettings.scaleMarginTop / 100,
+          bottom: chartSettings.scaleMarginBottom / 100,
+        },
+        mode:
+          pane.scaleMode === 'logarithmic'
+            ? PriceScaleMode.Logarithmic
+            : pane.scaleMode === 'percentage'
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      },
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      isExternalCrosshairRef.current = true;
+      try {
+        if (time === null) {
+          chart.clearCrosshairPosition();
+          setHoveredBar(null);
+        } else {
+          const bar = displayCandles.find((c) => c.time === time);
+          if (bar) {
+            chart.setCrosshairPosition(bar.close, bar.time as UTCTimestamp, series);
+            setHoveredBar(bar);
+          }
+          if (syncCrosshair) setSyncedCrosshairTime(time);
+        }
+      } catch {
+        // ignore
+      }
+      isExternalCrosshairRef.current = false;
+<<<--- REPLACE --->>>
+      isExternalCrosshairRef.current = true;
+      try {
+        if (time === null) {
+          chart.applyOptions({ crosshair: { horzLine: { visible: true } } });
+          chart.clearCrosshairPosition();
+          setHoveredBar(null);
+        } else {
+          chart.applyOptions({ crosshair: { horzLine: { visible: false } } });
+          const bar = displayCandles.find((c) => c.time === time);
+          if (bar) {
+            chart.setCrosshairPosition(bar.close, bar.time as UTCTimestamp, series);
+            setHoveredBar(bar);
+          }
+          if (syncCrosshair) setSyncedCrosshairTime(time);
+        }
+      } catch {
+        // ignore
+      }
+      isExternalCrosshairRef.current = false;
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+        onMouseEnter={() => setHoverChart(true)}
+<<<--- REPLACE --->>>
+        onMouseEnter={() => {
+          setHoverChart(true);
+          chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: true } } });
+        }}
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>

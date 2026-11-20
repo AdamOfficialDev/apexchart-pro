@@ -102,7 +102,7 @@ export const DEFAULT_SMART_OVERLAYS: SmartOverlaySettings = {
   showFVG: false,
   showAutoSR: false,
   showAutoTrendlines: false,
-  showRSIDivergence: true,
+  showRSIDivergence: false,
   showSessions: false,
   showDailyOpen: false,
 };
@@ -1177,7 +1177,11 @@ export const useTradingStore = create<TradingStore>()(
           ...currentState,
           ...p,
           chartSettings: { ...currentState.chartSettings, ...(p.chartSettings ?? {}) },
-          smartOverlays: { ...currentState.smartOverlays, ...(p.smartOverlays ?? {}) },
+          smartOverlays: {
+            ...currentState.smartOverlays,
+            ...(p.smartOverlays ?? {}),
+            showRSIDivergence: false,
+          },
           rsiDivConfig: { ...currentState.rsiDivConfig, ...(p.rsiDivConfig ?? {}) },
           footprintConfig: { ...currentState.footprintConfig, ...(p.footprintConfig ?? {}) },
           dataFeed: { ...currentState.dataFeed, ...(p.dataFeed ?? {}) },

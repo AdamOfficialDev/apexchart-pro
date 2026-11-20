@@ -415,6 +415,7 @@ export interface FibLevelItem {
 export interface DrawingObject {
   id: string;
   symbol: string;
+  targetIndicatorId?: string;
   type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>;
   points: DrawingPoint[];
   color: string;

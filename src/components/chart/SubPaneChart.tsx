@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ColorType,
   CrosshairMode,
@@ -7,6 +7,7 @@ import {
   LineStyle,
   Logical,
   LogicalRange,
+  Time,
   UTCTimestamp,
   createChart,
 } from 'lightweight-charts';
@@ -24,14 +25,18 @@ import {
 import { computeRSIDivergences } from '@/services/rsiDivergence';
 import { useTradingStore } from '@/store/useTradingStore';
 import { Candle, IndicatorConfig, OrderFlowTick, TimeframeId } from '@/types/trading';
+import { DrawingOverlay } from './DrawingOverlay';
 
 interface SubPaneChartProps {
   indicator: IndicatorConfig;
+  symbol: string;
   candles: Candle[];
   timeframe: TimeframeId;
   theme: 'dark' | 'light';
   bgColorDark: string;
   mainChart: IChartApi | null;
+  syncedSubTime?: number | null;
+  onSubCrosshairMove?: (time: number | null) => void;
   orderFlowMap?: Map<number, OrderFlowTick[]>;
   orderFlowTickVersion?: number;
   onToggleVisibility: () => void;
@@ -48,11 +53,14 @@ function toChartLineStyle(ls?: 'solid' | 'dashed' | 'dotted'): LineStyle {
 
 export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   indicator,
+  symbol,
   candles,
   timeframe,
   theme,
   bgColorDark,
   mainChart,
+  syncedSubTime = null,
+  onSubCrosshairMove,
   orderFlowMap,
   orderFlowTickVersion = 0,
   onToggleVisibility,
@@ -61,13 +69,23 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const anchorSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
   const seriesSigRef = useRef<string>('');
   const syncingRef = useRef(false);
+  const externalCrosshairRef = useRef(false);
+  const pointerInsideSubRef = useRef(false);
+  const hitTestSubDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
+
+  const [subSize, setSubSize] = useState({ width: 0, height: 0 });
+  const [chartReadyApi, setChartReadyApi] = useState<IChartApi | null>(null);
+  const [primarySeriesApi, setPrimarySeriesApi] = useState<
+    ISeriesApi<'Line' | 'Histogram'> | null
+  >(null);
 
   const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+  const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
   const chartSettings = useTradingStore((s) => s.chartSettings);
-  const smartOverlays = useTradingStore((s) => s.smartOverlays);
   const rsiDivConfig = useTradingStore((s) => s.rsiDivConfig);
   const subPaneHeight = useTradingStore((s) => s.panelSizes.subPaneHeight);
   const updatePanelSizes = useTradingStore((s) => s.updatePanelSizes);
@@ -75,6 +93,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   const tfMeta = TIMEFRAME_MAP[timeframe];
   const isTimeframeVisible = isVisibleOnTimeframeGroup(indicator.visibility, tfMeta.group);
   const isRsiKind = indicator.type === 'RSI' || indicator.type === 'RSI_DIV';
+  const isRsiDiv = indicator.type === 'RSI_DIV';
 
   const computed = useMemo(() => {
     if (!indicator.visible || !isTimeframeVisible || candles.length === 0) return null;
@@ -150,12 +169,9 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     orderFlowTickVersion,
   ]);
 
+  // Pure RSI never renders divergence lines; only RSI_DIV does!
   const rsiDivs = useMemo(() => {
-    if (
-      !isRsiKind ||
-      !indicator.visible ||
-      (!smartOverlays.showRSIDivergence && indicator.type !== 'RSI_DIV')
-    ) {
+    if (!isRsiDiv || !indicator.visible) {
       return [];
     }
     return computeRSIDivergences(
@@ -167,14 +183,27 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       true
     );
   }, [
-    isRsiKind,
+    isRsiDiv,
     indicator.visible,
-    indicator.type,
     indicator.params.period,
-    smartOverlays.showRSIDivergence,
     candles,
     rsiDivConfig,
   ]);
+
+  const primaryValueMap = useMemo(() => {
+    const map = new Map<number, number>();
+    if (!computed) return map;
+    if (computed.kind === 'CVD') {
+      for (const p of computed.data) map.set(p.time, p.cvd);
+    } else if (computed.kind === 'RSI' || computed.kind === 'ATR') {
+      for (const p of computed.data) map.set(p.time, p.value);
+    } else if (computed.kind === 'MACD') {
+      for (const p of computed.data.macd) map.set(p.time, p.value);
+    } else if (computed.kind === 'STOCH') {
+      for (const p of computed.data.k) map.set(p.time, p.value);
+    }
+    return map;
+  }, [computed]);
 
   const latestReadout = useMemo(() => {
     if (!computed || !indicator.visible || !isTimeframeVisible) return 'Hidden';
@@ -226,14 +255,19 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         vertLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
         horzLines: { color: isDark ? 'rgba(42, 46, 57, 0.55)' : 'rgba(15,23,42,0.06)' },
       },
-      crosshair: { mode: CrosshairMode.Normal },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        horzLine: { visible: false },
+      },
       rightPriceScale: {
         visible: !isLeft,
+        minimumWidth: 78,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         scaleMargins: { top: 0.14, bottom: 0.14 },
       },
       leftPriceScale: {
         visible: isLeft,
+        minimumWidth: 78,
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         scaleMargins: { top: 0.14, bottom: 0.14 },
       },
@@ -243,13 +277,27 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       },
     });
 
+    // Invisible whitespace series forces exact 1:1 candle logical index alignment with mainChart
+    anchorSeriesRef.current = chart.addLineSeries({
+      visible: false,
+      priceScaleId: 'anchor',
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+
     chartRef.current = chart;
+    setChartReadyApi(chart);
+    setSubSize({ width: el.clientWidth, height: el.clientHeight });
     seriesSigRef.current = '';
 
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) chart.applyOptions({ width, height });
+        if (width > 0 && height > 0) {
+          chart.applyOptions({ width, height });
+          setSubSize({ width, height });
+        }
       }
     });
     ro.observe(el);
@@ -258,6 +306,9 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
+      setChartReadyApi(null);
+      setPrimarySeriesApi(null);
+      anchorSeriesRef.current = null;
       seriesRefs.current = [];
       seriesSigRef.current = '';
     };
@@ -287,15 +338,58 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     const currRange = mainChart.timeScale().getVisibleLogicalRange();
     if (currRange) sub.timeScale().setVisibleLogicalRange(currRange);
 
+    const onSubCrosshair = (param: { time?: Time }) => {
+      if (externalCrosshairRef.current) return;
+      onSubCrosshairMove?.(param.time !== undefined ? Number(param.time) : null);
+    };
+    sub.subscribeCrosshairMove(onSubCrosshair);
+
     return () => {
       mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(onMainRange);
       sub.timeScale().unsubscribeVisibleLogicalRangeChange(onSubRange);
+      sub.unsubscribeCrosshairMove(onSubCrosshair);
     };
-  }, [mainChart]);
+  }, [mainChart, onSubCrosshairMove]);
+
+  // Synchronize Vertical Crosshair from Main Chart into Sub-Pane
+  useEffect(() => {
+    const sub = chartRef.current;
+    if (!sub || !indicator.visible || !isTimeframeVisible || pointerInsideSubRef.current) return;
+
+    const targetSeries =
+      indicator.type === 'MACD' || indicator.type === 'CVD'
+        ? seriesRefs.current[1] ?? seriesRefs.current[0]
+        : seriesRefs.current[0];
+
+    externalCrosshairRef.current = true;
+    try {
+      sub.applyOptions({ crosshair: { horzLine: { visible: false } } });
+      if (syncedSubTime === null || !targetSeries) {
+        sub.clearCrosshairPosition();
+      } else {
+        const val = primaryValueMap.get(syncedSubTime);
+        if (val !== undefined) {
+          sub.setCrosshairPosition(val, syncedSubTime as UTCTimestamp, targetSeries);
+        } else {
+          sub.clearCrosshairPosition();
+        }
+      }
+    } catch {
+      // ignore if out of range
+    }
+    externalCrosshairRef.current = false;
+  }, [syncedSubTime, primaryValueMap, indicator.type, indicator.visible, isTimeframeVisible]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+
+    // Keep sub-pane time axis aligned 1:1 to every candle in main chart
+    if (anchorSeriesRef.current && candles.length > 0) {
+      anchorSeriesRef.current.setData(
+        candles.map((c) => ({ time: c.time as UTCTimestamp }))
+      );
+    }
 
     if (!computed || !indicator.visible || !isTimeframeVisible) {
       for (const s of seriesRefs.current) {
@@ -478,6 +572,12 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       );
     }
 
+    const nextPrimary =
+      computed.kind === 'MACD' || computed.kind === 'CVD'
+        ? seriesRefs.current[1] ?? seriesRefs.current[0]
+        : seriesRefs.current[0];
+    setPrimarySeriesApi(nextPrimary ?? null);
+
     if (mainChart) {
       const r = mainChart.timeScale().getVisibleLogicalRange();
       if (r) chart.timeScale().setVisibleLogicalRange(r);
@@ -505,7 +605,26 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
-    if (!chart || !rsiSeries || rsiDivs.length === 0 || !isRsiKind) {
+    // Draw fallback vertical crosshair hairline if cursor is in early bars without RSI value
+    if (chart && syncedSubTime !== null && primaryValueMap.get(syncedSubTime) === undefined) {
+      const idx = candles.findIndex((c) => c.time === syncedSubTime);
+      if (idx >= 0) {
+        const cx = chart.timeScale().logicalToCoordinate(idx as Logical);
+        if (cx !== null) {
+          ctx.strokeStyle =
+            theme === 'dark' ? 'rgba(148, 163, 184, 0.45)' : 'rgba(71, 85, 105, 0.45)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(Number(cx), 0);
+          ctx.lineTo(Number(cx), h);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
+
+    if (!chart || !rsiSeries || rsiDivs.length === 0 || !isRsiDiv) {
       ctx.restore();
       return;
     }
@@ -542,7 +661,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
     }
 
     ctx.restore();
-  }, [rsiDivs, isRsiKind]);
+  }, [rsiDivs, isRsiDiv, syncedSubTime, primaryValueMap, candles, theme]);
 
   useEffect(() => {
     drawRsiDivLines();
@@ -584,6 +703,15 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
   return (
     <div
       style={{ height: subPaneHeight }}
+      onMouseEnter={() => {
+        pointerInsideSubRef.current = true;
+        chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: true } } });
+      }}
+      onMouseLeave={() => {
+        pointerInsideSubRef.current = false;
+        chartRef.current?.applyOptions({ crosshair: { horzLine: { visible: false } } });
+        onSubCrosshairMove?.(null);
+      }}
       className="relative w-full shrink-0 border-t border-slate-200 dark:border-[#2A2E39]"
     >
       <div
@@ -627,11 +755,39 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         </button>
       </div>
 
-      <div ref={containerRef} className="h-full w-full" />
-      <canvas
-        ref={divCanvasRef}
-        className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
-      />
+      <div
+        onPointerDown={(e) => {
+          if (useTradingStore.getState().activeDrawingTool !== 'cursor') return;
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const hitId =
+            hitTestSubDrawingRef.current?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
+          setSelectedDrawingId(hitId);
+        }}
+        className="relative h-full w-full"
+      >
+        <div ref={containerRef} className="h-full w-full" />
+        <canvas
+          ref={divCanvasRef}
+          className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+        />
+        <DrawingOverlay
+          chart={chartReadyApi}
+          series={primarySeriesApi}
+          candles={candles}
+          symbol={symbol}
+          targetIndicatorId={indicator.id}
+          snapValuesByTime={primaryValueMap}
+          timeframe={timeframe}
+          precision={indicator.type === 'ATR' ? 4 : indicator.type === 'CVD' ? 0 : 2}
+          width={subSize.width}
+          height={subSize.height}
+          theme={theme}
+          onHitTestExpose={(fn) => {
+            hitTestSubDrawingRef.current = fn;
+          }}
+        />
+      </div>
     </div>
   );
 };

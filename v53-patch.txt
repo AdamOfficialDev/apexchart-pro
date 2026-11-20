@@ -1,0 +1,748 @@
+<<<=== PATCH: src/types/trading.ts ===>>>
+<<<--- FIND --->>>
+export interface DrawingObject {
+  id: string;
+  symbol: string;
+  type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>;
+<<<--- REPLACE --->>>
+export interface DrawingObject {
+  id: string;
+  symbol: string;
+  targetIndicatorId?: string;
+  type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>;
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>
+
+<<<=== PATCH: src/components/chart/DrawingOverlay.tsx ===>>>
+<<<--- FIND --->>>
+interface DrawingOverlayProps {
+  chart: IChartApi | null;
+  series: ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null;
+  candles: Candle[];
+  symbol: string;
+  timeframe: TimeframeId;
+  precision: number;
+  minMove?: number;
+  chartStyle?: ChartStyleType;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
+  width: number;
+  height: number;
+  theme: 'dark' | 'light';
+  hasRsiDivIndicator?: boolean;
+<<<--- REPLACE --->>>
+interface DrawingOverlayProps {
+  chart: IChartApi | null;
+  series: ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area' | 'Histogram'> | null;
+  candles: Candle[];
+  symbol: string;
+  targetIndicatorId?: string;
+  snapValuesByTime?: Map<number, number>;
+  timeframe: TimeframeId;
+  precision: number;
+  minMove?: number;
+  chartStyle?: ChartStyleType;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
+  width: number;
+  height: number;
+  theme: 'dark' | 'light';
+  hasRsiDivIndicator?: boolean;
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
+  chart,
+  series,
+  candles,
+  symbol,
+  timeframe,
+  precision,
+  minMove = 0.01,
+  chartStyle = 'candles',
+  orderFlowMap,
+  orderFlowTickVersion = 0,
+  width,
+  height,
+  theme,
+  hasRsiDivIndicator = false,
+  onCanvasReady,
+  onHitTestExpose,
+  onRequestContextMenu,
+}) => {
+<<<--- REPLACE --->>>
+export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
+  chart,
+  series,
+  candles,
+  symbol,
+  targetIndicatorId,
+  snapValuesByTime,
+  timeframe,
+  precision,
+  minMove = 0.01,
+  chartStyle = 'candles',
+  orderFlowMap,
+  orderFlowTickVersion = 0,
+  width,
+  height,
+  theme,
+  hasRsiDivIndicator = false,
+  onCanvasReady,
+  onHitTestExpose,
+  onRequestContextMenu,
+}) => {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+  const symbolDrawings = useMemo(
+    () =>
+      (drawingsBySymbol[symbol] ?? []).filter((d) =>
+        isVisibleOnTimeframeGroup(d.visibility, tfMeta.group)
+      ),
+    [drawingsBySymbol, symbol, tfMeta.group]
+  );
+<<<--- REPLACE --->>>
+  const symbolDrawings = useMemo(
+    () =>
+      (drawingsBySymbol[symbol] ?? []).filter((d) => {
+        const matchPane = targetIndicatorId
+          ? d.targetIndicatorId === targetIndicatorId
+          : !d.targetIndicatorId;
+        return matchPane && isVisibleOnTimeframeGroup(d.visibility, tfMeta.group);
+      }),
+    [drawingsBySymbol, symbol, targetIndicatorId, tfMeta.group]
+  );
+
+  // Cross-pane Vertical Lines (drawings from other panes extend through this pane)
+  const crossPaneVerticalLines = useMemo(
+    () =>
+      (drawingsBySymbol[symbol] ?? []).filter((d) => {
+        if (d.visible === false) return false;
+        if (d.type !== 'vline' && d.type !== 'cross_line') return false;
+        const isOtherPane = targetIndicatorId
+          ? d.targetIndicatorId !== targetIndicatorId
+          : Boolean(d.targetIndicatorId);
+        return isOtherPane && isVisibleOnTimeframeGroup(d.visibility, tfMeta.group);
+      }),
+    [drawingsBySymbol, symbol, targetIndicatorId, tfMeta.group]
+  );
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      let snappedPrice = Number(price);
+      if (applyMagnet && magnetMode) {
+        const nearestIdx = Math.max(0, Math.min(candles.length - 1, Math.round(idx)));
+        const c = candles[nearestIdx];
+        if (c) {
+          time = c.time;
+          const ohlc = [c.open, c.high, c.low, c.close];
+          let bestDist = Infinity;
+          for (const candidate of ohlc) {
+            const cy = series.priceToCoordinate(candidate);
+            if (cy !== null) {
+              const d = Math.abs(Number(cy) - y);
+              if (d < bestDist && d < 36) {
+                bestDist = d;
+                snappedPrice = candidate;
+              }
+            }
+          }
+        }
+      }
+<<<--- REPLACE --->>>
+      let snappedPrice = Number(price);
+      if (applyMagnet && magnetMode) {
+        const nearestIdx = Math.max(0, Math.min(candles.length - 1, Math.round(idx)));
+        const c = candles[nearestIdx];
+        if (c) {
+          time = c.time;
+          if (targetIndicatorId) {
+            const indVal = snapValuesByTime?.get(c.time);
+            if (indVal !== undefined) {
+              const cy = series.priceToCoordinate(indVal);
+              if (cy !== null && Math.abs(Number(cy) - y) < 36) {
+                snappedPrice = indVal;
+              }
+            }
+          } else {
+            const ohlc = [c.open, c.high, c.low, c.close];
+            let bestDist = Infinity;
+            for (const candidate of ohlc) {
+              const cy = series.priceToCoordinate(candidate);
+              if (cy !== null) {
+                const d = Math.abs(Number(cy) - y);
+                if (d < bestDist && d < 36) {
+                  bestDist = d;
+                  snappedPrice = candidate;
+                }
+              }
+            }
+          }
+        }
+      }
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    },
+    [chart, series, candles, tfSec, magnetMode]
+  );
+<<<--- REPLACE --->>>
+    },
+    [chart, series, candles, tfSec, magnetMode, targetIndicatorId, snapValuesByTime]
+  );
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (chartStyle === 'footprint' && chart && candles.length > 0) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && chartStyle === 'footprint' && chart && candles.length > 0) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && smartOverlays.showSessions && tfSec < 14400 && candles.length > 0) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (smartOverlays.showDailyOpen && candles.length > 0) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && smartOverlays.showDailyOpen && candles.length > 0) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (vpvrData && smartOverlays.showVPVR) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && vpvrData && smartOverlays.showVPVR) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (structureData) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && structureData) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (showRsiDivOverlay && rsiDivSignals.length > 0) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && showRsiDivOverlay && rsiDivSignals.length > 0) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (showBacktestOnChart && backtestTrades.length > 0) {
+<<<--- REPLACE --->>>
+    if (!targetIndicatorId && showBacktestOnChart && backtestTrades.length > 0) {
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (drawingsVisible) {
+      for (const d of symbolDrawings) {
+        if (d.visible === false) continue;
+        drawSingle(
+          d.type,
+          d.points,
+          d.color,
+          d.lineWidth,
+          d.lineStyle ?? 'solid',
+          d.id === selectedDrawingId,
+          d
+        );
+      }
+    }
+<<<--- REPLACE --->>>
+    if (drawingsVisible) {
+      // Draw synced vertical lines piercing across from other panes
+      for (const vl of crossPaneVerticalLines) {
+        const pt = vl.points[0];
+        if (!pt) continue;
+        const vx = timeToX(pt.time);
+        if (vx === null) continue;
+        ctx.save();
+        ctx.strokeStyle = hexWithOpacity(vl.color, vl.opacity ?? 100);
+        ctx.lineWidth = vl.lineWidth;
+        if (vl.lineStyle === 'dashed') ctx.setLineDash([7, 5]);
+        else if (vl.lineStyle === 'dotted') ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(vx, 0);
+        ctx.lineTo(vx, height);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (const d of symbolDrawings) {
+        if (d.visible === false) continue;
+        drawSingle(
+          d.type,
+          d.points,
+          d.color,
+          d.lineWidth,
+          d.lineStyle ?? 'solid',
+          d.id === selectedDrawingId,
+          d
+        );
+      }
+    }
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    vpvrData,
+    structureData,
+    smartOverlays,
+    showRsiDivOverlay,
+    rsiDivSignals,
+    showBacktestOnChart,
+    backtestTrades,
+    chartSettings.priceScalePosition,
+  ]);
+<<<--- REPLACE --->>>
+    vpvrData,
+    structureData,
+    smartOverlays,
+    showRsiDivOverlay,
+    rsiDivSignals,
+    showBacktestOnChart,
+    backtestTrades,
+    chartSettings.priceScalePosition,
+    targetIndicatorId,
+    crossPaneVerticalLines,
+  ]);
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+  const commitDrawing = useCallback(
+    (type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>, points: DrawingPoint[]) => {
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        type,
+        points,
+        color: drawingColor,
+        lineWidth: drawingLineWidth,
+        lineStyle: drawingLineStyle,
+        createdAt: Date.now(),
+      });
+      setDraftPoints([]);
+      finishToolUsage();
+    },
+    [addDrawing, symbol, drawingColor, drawingLineWidth, drawingLineStyle, finishToolUsage]
+  );
+<<<--- REPLACE --->>>
+  const commitDrawing = useCallback(
+    (type: Exclude<DrawingToolType, 'cursor' | 'eraser' | 'ruler'>, points: DrawingPoint[]) => {
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        targetIndicatorId,
+        type,
+        points,
+        color: drawingColor,
+        lineWidth: drawingLineWidth,
+        lineStyle: drawingLineStyle,
+        createdAt: Date.now(),
+      });
+      setDraftPoints([]);
+      finishToolUsage();
+    },
+    [
+      addDrawing,
+      symbol,
+      targetIndicatorId,
+      drawingColor,
+      drawingLineWidth,
+      drawingLineStyle,
+      finishToolUsage,
+    ]
+  );
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        type: activeTool,
+        points: [
+          dataPt,
+          { time: dataPt.time + tfSec * 14, price: tpPrice },
+          { time: dataPt.time + tfSec * 14, price: slPrice },
+        ],
+        color: isLong ? '#089981' : '#F23645',
+        lineWidth: 1.5,
+        lineStyle: 'solid',
+        riskPercent: chartSettings.defaultRiskPercent,
+        accountSize: 100000,
+        createdAt: Date.now(),
+      });
+<<<--- REPLACE --->>>
+      addDrawing({
+        id: generateId('drw'),
+        symbol,
+        targetIndicatorId,
+        type: activeTool,
+        points: [
+          dataPt,
+          { time: dataPt.time + tfSec * 14, price: tpPrice },
+          { time: dataPt.time + tfSec * 14, price: slPrice },
+        ],
+        color: isLong ? '#089981' : '#F23645',
+        lineWidth: 1.5,
+        lineStyle: 'solid',
+        riskPercent: chartSettings.defaultRiskPercent,
+        accountSize: 100000,
+        createdAt: Date.now(),
+      });
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+        for (let i = 0; i < updatedPts.length; i++) {
+          updatedPts[i] = {
+            time: updatedPts[i].time + dt,
+            price: Math.max(0.000001, updatedPts[i].price + dp),
+          };
+        }
+<<<--- REPLACE --->>>
+        for (let i = 0; i < updatedPts.length; i++) {
+          updatedPts[i] = {
+            time: updatedPts[i].time + dt,
+            price: targetIndicatorId
+              ? updatedPts[i].price + dp
+              : Math.max(0.000001, updatedPts[i].price + dp),
+          };
+        }
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      if (brushPointsRef.current.length > 2) {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          type: activeTool === 'highlighter' ? 'highlighter' : 'brush',
+          points: [...brushPointsRef.current],
+          color: drawingColor,
+          lineWidth: drawingLineWidth,
+          lineStyle: drawingLineStyle,
+          createdAt: Date.now(),
+        });
+      }
+<<<--- REPLACE --->>>
+      if (brushPointsRef.current.length > 2) {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          targetIndicatorId,
+          type: activeTool === 'highlighter' ? 'highlighter' : 'brush',
+          points: [...brushPointsRef.current],
+          color: drawingColor,
+          lineWidth: drawingLineWidth,
+          lineStyle: drawingLineStyle,
+          createdAt: Date.now(),
+        });
+      }
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      } else {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          type: textDraft.kind,
+          points: textDraft.points,
+          color: drawingColor,
+          lineWidth: 1.5,
+          text: textValue.trim(),
+          createdAt: Date.now(),
+        });
+      }
+<<<--- REPLACE --->>>
+      } else {
+        addDrawing({
+          id: generateId('drw'),
+          symbol,
+          targetIndicatorId,
+          type: textDraft.kind,
+          points: textDraft.points,
+          color: drawingColor,
+          lineWidth: 1.5,
+          text: textValue.trim(),
+          createdAt: Date.now(),
+        });
+      }
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      {activeTool !== 'cursor' && activeToolMeta && (
+<<<--- REPLACE --->>>
+      {!targetIndicatorId && activeTool !== 'cursor' && activeToolMeta && (
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>
+
+<<<=== PATCH: src/components/chart/SubPaneChart.tsx ===>>>
+<<<--- FIND --->>>
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+<<<--- REPLACE --->>>
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, IndicatorConfig, OrderFlowTick, TimeframeId } from '@/types/trading';
+<<<--- REPLACE --->>>
+import { useTradingStore } from '@/store/useTradingStore';
+import { Candle, IndicatorConfig, OrderFlowTick, TimeframeId } from '@/types/trading';
+import { DrawingOverlay } from './DrawingOverlay';
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+interface SubPaneChartProps {
+  indicator: IndicatorConfig;
+  candles: Candle[];
+  timeframe: TimeframeId;
+  theme: 'dark' | 'light';
+  bgColorDark: string;
+  mainChart: IChartApi | null;
+  syncedSubTime?: number | null;
+  onSubCrosshairMove?: (time: number | null) => void;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
+  onToggleVisibility: () => void;
+  onRemove: () => void;
+}
+<<<--- REPLACE --->>>
+interface SubPaneChartProps {
+  indicator: IndicatorConfig;
+  symbol: string;
+  candles: Candle[];
+  timeframe: TimeframeId;
+  theme: 'dark' | 'light';
+  bgColorDark: string;
+  mainChart: IChartApi | null;
+  syncedSubTime?: number | null;
+  onSubCrosshairMove?: (time: number | null) => void;
+  orderFlowMap?: Map<number, OrderFlowTick[]>;
+  orderFlowTickVersion?: number;
+  onToggleVisibility: () => void;
+  onRemove: () => void;
+}
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+export const SubPaneChart: React.FC<SubPaneChartProps> = ({
+  indicator,
+  candles,
+  timeframe,
+  theme,
+  bgColorDark,
+  mainChart,
+  syncedSubTime = null,
+  onSubCrosshairMove,
+  orderFlowMap,
+  orderFlowTickVersion = 0,
+  onToggleVisibility,
+  onRemove,
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const anchorSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
+  const syncingRef = useRef(false);
+  const externalCrosshairRef = useRef(false);
+  const pointerInsideSubRef = useRef(false);
+
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+<<<--- REPLACE --->>>
+export const SubPaneChart: React.FC<SubPaneChartProps> = ({
+  indicator,
+  symbol,
+  candles,
+  timeframe,
+  theme,
+  bgColorDark,
+  mainChart,
+  syncedSubTime = null,
+  onSubCrosshairMove,
+  orderFlowMap,
+  orderFlowTickVersion = 0,
+  onToggleVisibility,
+  onRemove,
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const divCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const anchorSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const seriesRefs = useRef<ISeriesApi<'Line' | 'Histogram'>[]>([]);
+  const seriesSigRef = useRef<string>('');
+  const syncingRef = useRef(false);
+  const externalCrosshairRef = useRef(false);
+  const pointerInsideSubRef = useRef(false);
+  const hitTestSubDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
+
+  const [subSize, setSubSize] = useState({ width: 0, height: 0 });
+  const [chartReadyApi, setChartReadyApi] = useState<IChartApi | null>(null);
+  const [primarySeriesApi, setPrimarySeriesApi] = useState<
+    ISeriesApi<'Line' | 'Histogram'> | null
+  >(null);
+
+  const setEditingIndicatorId = useTradingStore((s) => s.setEditingIndicatorId);
+  const setSelectedDrawingId = useTradingStore((s) => s.setSelectedDrawingId);
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    chartRef.current = chart;
+    seriesSigRef.current = '';
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) chart.applyOptions({ width, height });
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      anchorSeriesRef.current = null;
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+    };
+<<<--- REPLACE --->>>
+    chartRef.current = chart;
+    setChartReadyApi(chart);
+    setSubSize({ width: el.clientWidth, height: el.clientHeight });
+    seriesSigRef.current = '';
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          chart.applyOptions({ width, height });
+          setSubSize({ width, height });
+        }
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      setChartReadyApi(null);
+      setPrimarySeriesApi(null);
+      anchorSeriesRef.current = null;
+      seriesRefs.current = [];
+      seriesSigRef.current = '';
+    };
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+    if (mainChart) {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (r) chart.timeScale().setVisibleLogicalRange(r);
+    }
+  }, [computed, indicator, mainChart, isTimeframeVisible, chartSettings.priceScalePosition]);
+<<<--- REPLACE --->>>
+    const nextPrimary =
+      computed.kind === 'MACD' || computed.kind === 'CVD'
+        ? seriesRefs.current[1] ?? seriesRefs.current[0]
+        : seriesRefs.current[0];
+    setPrimarySeriesApi(nextPrimary ?? null);
+
+    if (mainChart) {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (r) chart.timeScale().setVisibleLogicalRange(r);
+    }
+  }, [computed, indicator, mainChart, isTimeframeVisible, chartSettings.priceScalePosition]);
+<<<--- END HUNK --->>>
+
+<<<--- FIND --->>>
+      <div ref={containerRef} className="h-full w-full" />
+      <canvas
+        ref={divCanvasRef}
+        className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+      />
+    </div>
+<<<--- REPLACE --->>>
+      <div
+        onPointerDown={(e) => {
+          if (useTradingStore.getState().activeDrawingTool !== 'cursor') return;
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const hitId =
+            hitTestSubDrawingRef.current?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
+          setSelectedDrawingId(hitId);
+        }}
+        className="relative h-full w-full"
+      >
+        <div ref={containerRef} className="h-full w-full" />
+        <canvas
+          ref={divCanvasRef}
+          className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+        />
+        <DrawingOverlay
+          chart={chartReadyApi}
+          series={primarySeriesApi}
+          candles={candles}
+          symbol={symbol}
+          targetIndicatorId={indicator.id}
+          snapValuesByTime={primaryValueMap}
+          timeframe={timeframe}
+          precision={indicator.type === 'ATR' ? 4 : indicator.type === 'CVD' ? 0 : 2}
+          width={subSize.width}
+          height={subSize.height}
+          theme={theme}
+          onHitTestExpose={(fn) => {
+            hitTestSubDrawingRef.current = fn;
+          }}
+        />
+      </div>
+    </div>
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>
+
+<<<=== PATCH: src/components/chart/ChartPane.tsx ===>>>
+<<<--- FIND --->>>
+      {subPaneIndicators.map((ind) => (
+        <div
+          key={ind.id}
+          onMouseDown={() => setSelectedDrawingId(null)}
+        >
+          <SubPaneChart
+            indicator={ind}
+            candles={displayCandles}
+            timeframe={pane.timeframe}
+            theme={theme}
+            bgColorDark={chartSettings.bgColorDark || '#131722'}
+            mainChart={chartRef.current}
+            syncedSubTime={paneCrosshairTime}
+            onSubCrosshairMove={handleSubCrosshairMove}
+            orderFlowMap={orderFlowMapRef.current}
+            orderFlowTickVersion={orderFlowTickVersion}
+            onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
+            onRemove={() => removeIndicator(pane.id, ind.id)}
+          />
+        </div>
+      ))}
+<<<--- REPLACE --->>>
+      {subPaneIndicators.map((ind) => (
+        <SubPaneChart
+          key={ind.id}
+          indicator={ind}
+          symbol={pane.symbol}
+          candles={displayCandles}
+          timeframe={pane.timeframe}
+          theme={theme}
+          bgColorDark={chartSettings.bgColorDark || '#131722'}
+          mainChart={chartRef.current}
+          syncedSubTime={paneCrosshairTime}
+          onSubCrosshairMove={handleSubCrosshairMove}
+          orderFlowMap={orderFlowMapRef.current}
+          orderFlowTickVersion={orderFlowTickVersion}
+          onToggleVisibility={() => toggleIndicatorVisibility(pane.id, ind.id)}
+          onRemove={() => removeIndicator(pane.id, ind.id)}
+        />
+      ))}
+<<<--- END HUNK --->>>
+<<<=== END PATCH ===>>>
