@@ -172,20 +172,48 @@ export const DrawingToolbar: React.FC = () => {
     [panes, activePaneId]
   );
 
-  const [openFlyout, setOpenFlyout] = useState<DrawingToolGroupId | null>(null);
-  const [colorOpen, setColorOpen] = useState(false);
+  const [flyout, setFlyout] = useState<{
+    groupId: DrawingToolGroupId;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  const [colorPos, setColorPos] = useState<{ top: number; left: number } | null>(null);
   const barRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (barRef.current && !barRef.current.contains(e.target as Node)) {
-        setOpenFlyout(null);
-        setColorOpen(false);
+        setFlyout(null);
+        setColorPos(null);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFlyout(null);
+        setColorPos(null);
       }
     };
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      window.removeEventListener('keydown', onEsc);
+    };
   }, []);
+
+  const openGroupFlyout = (groupId: DrawingToolGroupId, el: HTMLElement, toolCount: number) => {
+    if (flyout?.groupId === groupId) {
+      setFlyout(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const estHeight = Math.min(340, toolCount * 32 + 40);
+    const top = Math.max(44, Math.min(rect.top, window.innerHeight - estHeight - 12));
+    const left = rect.right + 6;
+    setColorPos(null);
+    setFlyout({ groupId, top, left });
+  };
 
   const handleClearAll = () => {
     const count = (drawingsBySymbol[activeSymbol] ?? []).length;
@@ -195,6 +223,11 @@ export const DrawingToolbar: React.FC = () => {
       variant: 'info',
     });
   };
+
+  const flyoutMeta = flyout ? GROUP_ORDER.find((g) => g.id === flyout.groupId) : null;
+  const flyoutTools = flyout
+    ? DRAWING_TOOLS_CATALOG.filter((t) => t.group === flyout.groupId)
+    : [];
 
   return (
     <aside
@@ -218,19 +251,23 @@ export const DrawingToolbar: React.FC = () => {
             <div key={group.id} className="relative flex items-center">
               <button
                 type="button"
-                onClick={() => {
-                  setActiveTool(displayTool);
-                  setOpenFlyout(null);
+                onClick={(e) => {
+                  if (hasFlyout && isGroupActive) {
+                    openGroupFlyout(group.id, e.currentTarget, groupTools.length);
+                  } else {
+                    setActiveTool(displayTool);
+                    setFlyout(null);
+                  }
                 }}
                 onContextMenu={(e) => {
                   if (hasFlyout) {
                     e.preventDefault();
-                    setOpenFlyout(openFlyout === group.id ? null : group.id);
+                    openGroupFlyout(group.id, e.currentTarget, groupTools.length);
                   }
                 }}
                 title={`${displayMeta.label}${
                   displayMeta.shortcut ? ` (${displayMeta.shortcut})` : ''
-                }${hasFlyout ? ' — Click ▸ for more tools' : ''}`}
+                }${hasFlyout ? ' — Click again or ▸ for sub-tools' : ''}`}
                 className={cn(
                   'relative flex h-8 w-8 items-center justify-center rounded-md transition',
                   isGroupActive
@@ -249,55 +286,20 @@ export const DrawingToolbar: React.FC = () => {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setOpenFlyout(openFlyout === group.id ? null : group.id);
-                    setColorOpen(false);
+                    const parentBtn = e.currentTarget.parentElement;
+                    openGroupFlyout(
+                      group.id,
+                      parentBtn ?? e.currentTarget,
+                      groupTools.length
+                    );
                   }}
-                  title={`Expand ${group.label}`}
-                  className="absolute -right-1 bottom-0.5 flex h-3 w-3 items-center justify-center text-[#787B86] hover:text-[#2962FF]"
+                  title={`Show ${group.label} (${groupTools.length})`}
+                  className="absolute -right-0.5 bottom-0 flex h-4 w-4 items-center justify-center rounded-sm text-[#787B86] hover:text-[#2962FF]"
                 >
                   <svg viewBox="0 0 8 8" className="h-2 w-2 fill-current">
                     <polygon points="8,8 8,2 2,8" />
                   </svg>
                 </button>
-              )}
-
-              {openFlyout === group.id && (
-                <div className="absolute left-11 top-0 z-50 w-60 rounded-lg border border-slate-200 bg-white py-1.5 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
-                  <div className="border-b border-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#787B86] dark:border-[#2A2E39]">
-                    {group.label} ({groupTools.length})
-                  </div>
-                  <div className="max-h-72 overflow-y-auto py-1">
-                    {groupTools.map((tool) => {
-                      const sel = activeTool === tool.id;
-                      return (
-                        <button
-                          key={tool.id}
-                          type="button"
-                          onClick={() => {
-                            setGroupTool(group.id, tool.id);
-                            setOpenFlyout(null);
-                          }}
-                          className={cn(
-                            'flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition',
-                            sel
-                              ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
-                              : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
-                          )}
-                        >
-                          <span className="flex items-center gap-2.5">
-                            {renderToolIcon(tool.id)}
-                            <span>{tool.label}</span>
-                          </span>
-                          {tool.shortcut && (
-                            <span className="font-mono text-[10px] text-[#787B86]">
-                              {tool.shortcut}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
               )}
             </div>
           );
@@ -305,38 +307,25 @@ export const DrawingToolbar: React.FC = () => {
 
         <div className="my-1 h-px w-6 bg-slate-200 dark:bg-[#2A2E39]" />
 
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setColorOpen(!colorOpen);
-              setOpenFlyout(null);
-            }}
-            title="Default Drawing Color"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]"
-          >
-            <Palette className="h-4 w-4" style={{ color: drawingColor }} />
-          </button>
-          {colorOpen && (
-            <div className="absolute left-11 top-0 z-50 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
-              {PALETTE_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => {
-                    setDrawingColor(c);
-                    setColorOpen(false);
-                  }}
-                  style={{ backgroundColor: c }}
-                  className={cn(
-                    'h-4 w-4 rounded-full transition hover:scale-110',
-                    drawingColor === c && 'ring-2 ring-white ring-offset-2 ring-offset-[#1E222D]'
-                  )}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            setFlyout(null);
+            if (colorPos) {
+              setColorPos(null);
+              return;
+            }
+            const rect = e.currentTarget.getBoundingClientRect();
+            setColorPos({
+              top: Math.max(44, Math.min(rect.top, window.innerHeight - 50)),
+              left: rect.right + 6,
+            });
+          }}
+          title="Default Drawing Color"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]"
+        >
+          <Palette className="h-4 w-4" style={{ color: drawingColor }} />
+        </button>
 
         <button
           type="button"
@@ -421,6 +410,71 @@ export const DrawingToolbar: React.FC = () => {
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Fixed Flyout Sub-Tools Menu (Never clipped by overflow-y-auto!) */}
+      {flyout && flyoutMeta && (
+        <div
+          style={{ top: flyout.top, left: flyout.left }}
+          className="fixed z-[60] w-64 rounded-lg border border-slate-200 bg-white py-1.5 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        >
+          <div className="border-b border-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#787B86] dark:border-[#2A2E39]">
+            {flyoutMeta.label} ({flyoutTools.length})
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {flyoutTools.map((tool) => {
+              const sel = activeTool === tool.id;
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => {
+                    setGroupTool(flyout.groupId, tool.id);
+                    setFlyout(null);
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition',
+                    sel
+                      ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                  )}
+                >
+                  <span className="flex items-center gap-2.5">
+                    {renderToolIcon(tool.id)}
+                    <span>{tool.label}</span>
+                  </span>
+                  {tool.shortcut && (
+                    <span className="font-mono text-[10px] text-[#787B86]">{tool.shortcut}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Fixed Color Picker Popover */}
+      {colorPos && (
+        <div
+          style={{ top: colorPos.top, left: colorPos.left }}
+          className="fixed z-[60] flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        >
+          {PALETTE_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => {
+                setDrawingColor(c);
+                setColorPos(null);
+              }}
+              style={{ backgroundColor: c }}
+              className={cn(
+                'h-4 w-4 rounded-full transition hover:scale-110',
+                drawingColor === c && 'ring-2 ring-white ring-offset-2 ring-offset-[#1E222D]'
+              )}
+            />
+          ))}
+        </div>
+      )}
     </aside>
   );
 };

@@ -1,6 +1,14 @@
+// patch.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+
+function getPartNumber(filename) {
+  const m = filename.match(/part(\d+)/i);
+  if (m) return Number(m[1]);
+  const fallback = filename.match(/(\d+)/);
+  return fallback ? Number(fallback[1]) : 0;
+}
 
 function loadPatchContent() {
   const cwd = process.cwd();
@@ -23,14 +31,14 @@ function loadPatchContent() {
   for (const regex of prefixes) {
     const matched = files
       .filter((f) => regex.test(f))
-      .sort((a, b) => Number(a.match(/(\d+)/)?.[1] ?? 0) - Number(b.match(/(\d+)/)?.[1] ?? 0));
+      .sort((a, b) => getPartNumber(a) - getPartNumber(b));
     if (matched.length > 0) {
       console.log(`📦 Membaca ${matched.length} file part: ${matched.join(', ')}`);
       return matched.map((f) => fs.readFileSync(path.join(cwd, f), 'utf8')).join('\n');
     }
   }
 
-  console.error('❌ File v5-part*.txt tidak ditemukan!');
+  console.error('❌ File part patch tidak ditemukan!');
   process.exit(1);
 }
 
@@ -57,7 +65,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('🚀 ApexChart Pro V5 — Applying Footprint Order Flow, Delete UX Fix & Mobile Polish...\n');
+  console.log('🔧 ApexChart Pro — Applying Patch...\n');
   const raw = loadPatchContent();
   const entries = extractFiles(raw);
 
@@ -82,12 +90,12 @@ function main() {
   console.log('\n🔍 Memeriksa TypeScript via pnpm typecheck...');
   try {
     execSync('pnpm typecheck', { cwd, stdio: 'inherit' });
-    console.log('\n✅ V5 Upgrade berhasil diterapkan & lolos TypeScript check!');
+    console.log('\n✅ Patch berhasil diterapkan & lolos TypeScript check!');
   } catch {
     console.warn('\n⚠️  Typecheck selesai dengan peringatan/error. Cek output di atas.');
   }
 
-  console.log('\n🔥 Jalankan `pnpm dev` untuk menikmati ApexChart Pro V5!\n');
+  console.log('\n🔥 Jalankan `pnpm dev`!\n');
 }
 
 main();
