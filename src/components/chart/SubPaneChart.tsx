@@ -721,7 +721,7 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
       />
 
       <div
-        className={`pointer-events-auto absolute top-1 z-10 flex max-w-[calc(100%-74px)] flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px] ${
+        className={`pointer-events-none absolute top-1 z-10 flex max-w-[calc(100%-74px)] flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px] ${
           isLeftScale ? 'left-20' : 'left-2.5'
         }`}
       >
@@ -735,21 +735,21 @@ export const SubPaneChart: React.FC<SubPaneChartProps> = ({
         <button
           onClick={() => setEditingIndicatorId(indicator.id)}
           title="Indicator Settings"
-          className="text-[#787B86] hover:text-white"
+          className="pointer-events-auto rounded p-0.5 text-[#787B86] transition hover:bg-white/10 hover:text-white"
         >
           <Settings2 className="h-3 w-3" />
         </button>
         <button
           onClick={onToggleVisibility}
           title={indicator.visible ? 'Hide' : 'Show'}
-          className="text-[#787B86] hover:text-white"
+          className="pointer-events-auto rounded p-0.5 text-[#787B86] transition hover:bg-white/10 hover:text-white"
         >
           {indicator.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
         </button>
         <button
           onClick={onRemove}
           title="Remove Indicator"
-          className="text-[#787B86] hover:text-rose-400"
+          className="pointer-events-auto rounded p-0.5 text-[#787B86] transition hover:bg-rose-500/15 hover:text-rose-400"
         >
           <X className="h-3 w-3" />
         </button>

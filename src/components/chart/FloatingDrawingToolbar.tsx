@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Copy, Lock, Settings2, Trash2, Unlock, Zap } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Copy, GripVertical, Lock, Settings2, Trash2, Unlock, Zap } from 'lucide-react';
 import { getSymbolInfo } from '@/data/symbols';
 import { cn } from '@/lib/utils';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -28,6 +28,161 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
   const placeMarketOrder = useTradingStore((s) => s.placeMarketOrder);
 
   const [colorMenu, setColorMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem('apexchart_floating_toolbar_pos');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown };
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+        return { x: parsed.x, y: parsed.y };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    origX: number;
+    origY: number;
+    pointerId: number;
+  } | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const pendingPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clampPos = useCallback((x: number, y: number) => {
+    const el = toolbarRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return { x, y };
+    const pad = 8;
+    const maxX = Math.max(pad, parent.clientWidth - el.offsetWidth - pad);
+    const maxY = Math.max(pad, parent.clientHeight - el.offsetHeight - pad);
+    return {
+      x: Math.round(Math.min(maxX, Math.max(pad, x))),
+      y: Math.round(Math.min(maxY, Math.max(pad, y))),
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = toolbarRef.current;
+    const parent = el?.parentElement;
+    if (!parent) return;
+
+    const ro = new ResizeObserver(() => {
+      setPos((prev) => (prev ? clampPos(prev.x, prev.y) : prev));
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [clampPos]);
+
+  useEffect(() => {
+    return () => {
+      if (dragRafRef.current !== null) {
+        window.cancelAnimationFrame(dragRafRef.current);
+      }
+    };
+  }, []);
+
+  const startDrag = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (e.button !== 0) return;
+      const el = toolbarRef.current;
+      const parent = el?.parentElement;
+      if (!el || !parent) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+
+      const elRect = el.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      const origX = pos ? pos.x : elRect.left - parentRect.left;
+      const origY = pos ? pos.y : elRect.top - parentRect.top;
+
+      dragRef.current = {
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origX,
+        origY,
+        pointerId: e.pointerId,
+      };
+      setIsDragging(true);
+
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore if unsupported
+      }
+    },
+    [pos]
+  );
+
+  const onDragMove = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      e.stopPropagation();
+
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+      pendingPosRef.current = clampPos(drag.origX + dx, drag.origY + dy);
+
+      if (dragRafRef.current === null) {
+        dragRafRef.current = window.requestAnimationFrame(() => {
+          dragRafRef.current = null;
+          if (pendingPosRef.current) {
+            setPos(pendingPosRef.current);
+          }
+        });
+      }
+    },
+    [clampPos]
+  );
+
+  const endDrag = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      e.stopPropagation();
+
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+      const finalPos = clampPos(drag.origX + dx, drag.origY + dy);
+
+      dragRef.current = null;
+      pendingPosRef.current = null;
+      setIsDragging(false);
+      setPos(finalPos);
+
+      try {
+        localStorage.setItem('apexchart_floating_toolbar_pos', JSON.stringify(finalPos));
+      } catch {
+        // ignore storage quota errors
+      }
+
+      try {
+        if (e.currentTarget.hasPointerCapture(drag.pointerId)) {
+          e.currentTarget.releasePointerCapture(drag.pointerId);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [clampPos]
+  );
+
+  const resetPosition = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPos(null);
+    try {
+      localStorage.removeItem('apexchart_floating_toolbar_pos');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   if (!selectedId) return null;
   const drawing = (drawingsBySymbol[symbol] ?? []).find((d) => d.id === selectedId);
@@ -62,12 +217,41 @@ export const FloatingDrawingToolbar: React.FC<FloatingDrawingToolbarProps> = ({ 
 
   return (
     <div
-      onPointerDown={(e) => e.stopPropagation()}
+      ref={toolbarRef}
+      style={pos ? { left: `${pos.x}px`, top: `${pos.y}px`, transform: 'none' } : undefined}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        const target = e.target as HTMLElement;
+        if (!target.closest('button, input, select, a, [data-no-drag]')) {
+          startDrag(e);
+        }
+      }}
+      onPointerMove={onDragMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="pointer-events-auto absolute left-1/2 top-2.5 z-40 flex max-w-[95%] -translate-x-1/2 flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 shadow-xl backdrop-blur dark:border-[#2A2E39] dark:bg-[#1E222D]/95"
+      className={cn(
+        'pointer-events-auto absolute z-40 flex max-w-[95%] flex-wrap items-center gap-1 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 shadow-xl backdrop-blur-md dark:border-[#283044] dark:bg-[#161B26]/95',
+        pos === null && 'left-1/2 top-3 -translate-x-1/2',
+        isDragging && 'ring-1 ring-[#2962FF]/50 shadow-2xl select-none'
+      )}
     >
-      <span className="px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+      <div
+        role="button"
+        tabIndex={0}
+        onPointerDown={startDrag}
+        onDoubleClick={resetPosition}
+        title="Drag to move toolbar (Double-click to reset)"
+        className={cn(
+          'flex h-6 w-5 touch-none items-center justify-center rounded-md text-[#787B86] transition-colors hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#222938] dark:hover:text-white',
+          isDragging ? 'cursor-grabbing text-[#2962FF]' : 'cursor-grab'
+        )}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </div>
+
+      <span className="cursor-grab select-none px-1 text-[10px] font-bold uppercase tracking-wider text-[#787B86] active:cursor-grabbing">
         {drawing.type.replace(/_/g, ' ')}
       </span>
 

@@ -233,7 +233,7 @@ export const DrawingToolbar: React.FC = () => {
     <aside
       ref={barRef}
       className={cn(
-        'relative z-30 w-[44px] shrink-0 flex-col items-center justify-between border-r border-slate-200 bg-white py-1.5 dark:border-[#2A2E39] dark:bg-[#131722]',
+        'relative z-30 w-[46px] shrink-0 flex-col items-center justify-between border-r border-slate-200/80 bg-white/95 py-2 dark:border-[#222836] dark:bg-[#0F131D]/95',
         mobileOpen ? 'flex' : 'hidden sm:flex'
       )}
     >
@@ -269,15 +269,15 @@ export const DrawingToolbar: React.FC = () => {
                   displayMeta.shortcut ? ` (${displayMeta.shortcut})` : ''
                 }${hasFlyout ? ' — Click again or ▸ for sub-tools' : ''}`}
                 className={cn(
-                  'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+                  'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
                   isGroupActive
-                    ? 'bg-[#2962FF]/20 text-[#2962FF]'
-                    : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+                    ? 'bg-gradient-to-b from-[#2962FF]/25 to-[#2962FF]/10 text-[#4C82FF] ring-1 ring-[#2962FF]/35 shadow-glowBlue'
+                    : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
                 )}
               >
                 {renderToolIcon(displayTool)}
                 {isGroupActive && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-[#2962FF]" />
+                  <span className="absolute -left-1 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[#2962FF] shadow-[0_0_8px_#2962FF]" />
                 )}
               </button>
 
@@ -415,12 +415,12 @@ export const DrawingToolbar: React.FC = () => {
       {flyout && flyoutMeta && (
         <div
           style={{ top: flyout.top, left: flyout.left }}
-          className="fixed z-[60] w-64 rounded-lg border border-slate-200 bg-white py-1.5 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+          className="glass-popover animate-slideRight fixed z-[60] w-64 rounded-xl border border-slate-200/80 bg-white/95 py-1.5 dark:border-[#262C3D] dark:bg-[#161B26]/95"
         >
-          <div className="border-b border-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#787B86] dark:border-[#2A2E39]">
+          <div className="border-b border-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86] dark:border-[#242B3A]">
             {flyoutMeta.label} ({flyoutTools.length})
           </div>
-          <div className="max-h-72 overflow-y-auto py-1">
+          <div className="max-h-72 overflow-y-auto p-1">
             {flyoutTools.map((tool) => {
               const sel = activeTool === tool.id;
               return (
@@ -432,10 +432,10 @@ export const DrawingToolbar: React.FC = () => {
                     setFlyout(null);
                   }}
                   className={cn(
-                    'flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition',
+                    'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-all duration-150',
                     sel
                       ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
-                      : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                      : 'text-slate-700 hover:translate-x-0.5 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#222938]'
                   )}
                 >
                   <span className="flex items-center gap-2.5">
@@ -443,7 +443,9 @@ export const DrawingToolbar: React.FC = () => {
                     <span>{tool.label}</span>
                   </span>
                   {tool.shortcut && (
-                    <span className="font-mono text-[10px] text-[#787B86]">{tool.shortcut}</span>
+                    <kbd className="rounded border border-slate-200 px-1 py-[1px] font-mono text-[9px] text-[#787B86] dark:border-[#2A3142] dark:bg-[#0F131D]">
+                      {tool.shortcut}
+                    </kbd>
                   )}
                 </button>
               );
@@ -456,7 +458,7 @@ export const DrawingToolbar: React.FC = () => {
       {colorPos && (
         <div
           style={{ top: colorPos.top, left: colorPos.left }}
-          className="fixed z-[60] flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+          className="glass-popover animate-slideRight fixed z-[60] flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/95 p-2.5 dark:border-[#262C3D] dark:bg-[#161B26]/95"
         >
           {PALETTE_COLORS.map((c) => (
             <button
@@ -468,8 +470,8 @@ export const DrawingToolbar: React.FC = () => {
               }}
               style={{ backgroundColor: c }}
               className={cn(
-                'h-4 w-4 rounded-full transition hover:scale-110',
-                drawingColor === c && 'ring-2 ring-white ring-offset-2 ring-offset-[#1E222D]'
+                'h-4 w-4 rounded-full transition-transform duration-150 hover:scale-125 active:scale-95',
+                drawingColor === c && 'ring-2 ring-white ring-offset-2 ring-offset-[#161B26]'
               )}
             />
           ))}

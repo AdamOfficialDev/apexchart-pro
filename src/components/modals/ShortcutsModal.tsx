@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Keyboard, X } from 'lucide-react';
 import { useTradingStore } from '@/store/useTradingStore';
 
@@ -24,34 +24,62 @@ export const ShortcutsModal: React.FC = () => {
   const open = useTradingStore((s) => s.shortcutsModalOpen);
   const setOpen = useTradingStore((s) => s.setShortcutsModalOpen);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
+
   if (!open) return null;
 
   return (
     <div
       onClick={() => setOpen(false)}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="apex-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-[#05070B]/70 p-3 sm:p-4 backdrop-blur-[6px]"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        className="apex-modal-card w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/90 bg-white/[0.98] dark:border-[#262E40] dark:bg-[#131823]/[0.98]"
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-[#2A2E39]">
-          <div className="flex items-center gap-2">
-            <Keyboard className="h-4 w-4 text-[#2962FF]" />
-            <h3 className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
-              Keyboard & Mouse Shortcuts
-            </h3>
+        <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-3.5 dark:border-[#22293A]">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2962FF]/12 text-[#4C82FF] ring-1 ring-[#2962FF]/25">
+              <Keyboard className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">
+                Keyboard & Mouse Shortcuts
+              </h3>
+              <div className="text-[10px] font-medium text-[#7D8596]">
+                Speed up chart navigation & drawing workflow
+              </div>
+            </div>
           </div>
-          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <kbd className="hidden sm:inline rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#787B86] dark:border-[#283144] dark:bg-[#0D111A]">
+              ESC
+            </kbd>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close modal"
+              className="rounded-lg p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#1E2536] dark:hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto divide-y divide-slate-100 p-2 dark:divide-[#2A2E39]/60">
+        <div className="max-h-[70vh] overflow-y-auto divide-y divide-slate-100 p-2.5 dark:divide-[#1E2434]">
           {SHORTCUTS.map((s) => (
-            <div key={s.keys} className="flex items-center justify-between px-2 py-2 text-xs">
-              <span className="text-slate-600 dark:text-[#D1D4DC]">{s.desc}</span>
-              <kbd className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-800 dark:bg-[#131722] dark:text-[#D1D4DC]">
+            <div
+              key={s.keys}
+              className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs transition-colors hover:bg-slate-50 dark:hover:bg-[#192030]"
+            >
+              <span className="text-slate-700 dark:text-[#D1D4DC]">{s.desc}</span>
+              <kbd className="shrink-0 rounded-lg border border-slate-200 bg-slate-100/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-800 shadow-[0_1px_0_rgba(0,0,0,0.08)] dark:border-[#283144] dark:bg-[#0D111A] dark:text-[#E2E6F0]">
                 {s.keys}
               </kbd>
             </div>

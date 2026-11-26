@@ -213,6 +213,23 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
   const hitTestDrawingRef = useRef<((x: number, y: number) => string | null) | null>(null);
   const isExternalCrosshairRef = useRef(false);
 
+  const displayCandlesRef = useRef<Candle[]>([]);
+  const fullCandlesRef = useRef<Candle[]>([]);
+  const chartStyleRef = useRef(pane.chartStyle);
+  const candleByTimeRef = useRef<Map<number, Candle>>(new Map());
+  const lastSeriesMetaRef = useRef<{
+    length: number;
+    firstTime: number;
+    style: string;
+    symbol: string;
+    tf: string;
+  } | null>(null);
+  const lastHaBarRef = useRef<Candle | null>(null);
+  const prevHaSecondLastRef = useRef<Candle | null>(null);
+  const rangeRafRef = useRef<number | null>(null);
+  const crosshairRafRef = useRef<number | null>(null);
+  const lastCrosshairTimeRef = useRef<number | null>(null);
+
   const orderFlowMapRef = useRef<Map<number, OrderFlowTick[]>>(new Map());
   const pendingTickRef = useRef<{ candle: Candle; source: FeedSourceType } | null>(null);
   const flushTimerRef = useRef<number | null>(null);
@@ -276,15 +293,40 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     return () => window.clearInterval(id);
   }, [tfMeta.seconds, tzPreset]);
 
-  const refreshLastPriceY = useCallback(() => {
-    if (!mainSeriesRef.current || displayCandles.length === 0) {
-      setLastPriceY(null);
+  chartStyleRef.current = pane.chartStyle;
+  fullCandlesRef.current = fullCandles;
+  displayCandlesRef.current = displayCandles;
+
+  useEffect(() => {
+    const map = candleByTimeRef.current;
+    if (
+      map.size === displayCandles.length &&
+      displayCandles.length > 0 &&
+      map.has(displayCandles[0].time)
+    ) {
+      const last = displayCandles[displayCandles.length - 1];
+      map.set(last.time, last);
       return;
     }
-    const last = displayCandles[displayCandles.length - 1];
-    const coord = mainSeriesRef.current.priceToCoordinate(last.close);
-    setLastPriceY(coord !== null ? Number(coord) : null);
+    map.clear();
+    for (const c of displayCandles) map.set(c.time, c);
   }, [displayCandles]);
+
+  const refreshLastPriceY = useCallback(() => {
+    const candles = displayCandlesRef.current;
+    if (!mainSeriesRef.current || candles.length === 0) {
+      setLastPriceY((prev) => (prev === null ? prev : null));
+      return;
+    }
+    const last = candles[candles.length - 1];
+    const coord = mainSeriesRef.current.priceToCoordinate(last.close);
+    const next = coord !== null ? Number(coord) : null;
+    setLastPriceY((prev) => {
+      if (prev === null && next === null) return prev;
+      if (prev !== null && next !== null && Math.abs(prev - next) < 0.5) return prev;
+      return next;
+    });
+  }, []);
 
   // 1. Initialize Chart
   useEffect(() => {
@@ -587,8 +629,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       pendingTickRef.current = null;
       const { candle: tickCandle, source } = pending;
 
-      setDataSource(source);
-      setOrderFlowTickVersion((v) => v + 1);
+      setDataSource((prev) => (prev === source ? prev : source));
+      if (chartStyleRef.current === 'footprint') {
+        setOrderFlowTickVersion((v) => v + 1);
+      }
       setFullCandles((prev) => {
         if (prev.length === 0) return [tickCandle];
         const tail = prev[prev.length - 1];
@@ -669,6 +713,9 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       }
       mainSeriesRef.current = null;
       priceLinesRef.current = [];
+      lastSeriesMetaRef.current = null;
+      lastHaBarRef.current = null;
+      prevHaSecondLastRef.current = null;
     }
 
     const priceFormat = {
@@ -766,30 +813,111 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     chartSettings.showSymbolAxisLabel,
   ]);
 
-  // 5. Feed Data & Reuse Overlay Series
+  // 5. Feed Data & Reuse Overlay Series (O(1) incremental update on live ticks)
   useEffect(() => {
     const chart = chartRef.current;
     const series = mainSeriesRef.current;
     if (!chart || !series || displayCandles.length === 0) return;
 
-    const effectiveCandles =
-      pane.chartStyle === 'heikin_ashi' ? computeHeikinAshi(displayCandles) : displayCandles;
+    const prevMeta = lastSeriesMetaRef.current;
+    const isSameStream =
+      prevMeta !== null &&
+      prevMeta.style === pane.chartStyle &&
+      prevMeta.symbol === pane.symbol &&
+      prevMeta.tf === pane.timeframe &&
+      prevMeta.firstTime === displayCandles[0].time &&
+      !pendingRangeShiftRef.current;
+    const isSameBarTick = isSameStream && displayCandles.length === prevMeta.length;
+    const isAppendBarTick = isSameStream && displayCandles.length === prevMeta.length + 1;
+    let didIncrementalMain = false;
 
-    if (pane.chartStyle === 'line' || pane.chartStyle === 'area') {
-      (series as ISeriesApi<'Line' | 'Area'>).setData(
-        effectiveCandles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }))
-      );
-    } else {
-      (series as ISeriesApi<'Candlestick' | 'Bar'>).setData(
-        effectiveCandles.map((c) => ({
-          time: c.time as UTCTimestamp,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-        }))
-      );
+    if (isSameBarTick || isAppendBarTick) {
+      const rawLast = displayCandles[displayCandles.length - 1];
+      try {
+        if (pane.chartStyle === 'heikin_ashi') {
+          if (isAppendBarTick && lastHaBarRef.current) {
+            prevHaSecondLastRef.current = lastHaBarRef.current;
+          }
+          const prevHa = prevHaSecondLastRef.current;
+          if (prevHa) {
+            const haOpen = (prevHa.open + prevHa.close) / 2;
+            const haClose = (rawLast.open + rawLast.high + rawLast.low + rawLast.close) / 4;
+            const haBar: Candle = {
+              time: rawLast.time,
+              open: haOpen,
+              high: Math.max(rawLast.high, haOpen, haClose),
+              low: Math.min(rawLast.low, haOpen, haClose),
+              close: haClose,
+              volume: rawLast.volume,
+            };
+            lastHaBarRef.current = haBar;
+            (series as ISeriesApi<'Candlestick' | 'Bar'>).update({
+              time: haBar.time as UTCTimestamp,
+              open: haBar.open,
+              high: haBar.high,
+              low: haBar.low,
+              close: haBar.close,
+            });
+            didIncrementalMain = true;
+          }
+        } else if (pane.chartStyle === 'line' || pane.chartStyle === 'area') {
+          (series as ISeriesApi<'Line' | 'Area'>).update({
+            time: rawLast.time as UTCTimestamp,
+            value: rawLast.close,
+          });
+          didIncrementalMain = true;
+        } else {
+          (series as ISeriesApi<'Candlestick' | 'Bar'>).update({
+            time: rawLast.time as UTCTimestamp,
+            open: rawLast.open,
+            high: rawLast.high,
+            low: rawLast.low,
+            close: rawLast.close,
+          });
+          didIncrementalMain = true;
+        }
+      } catch {
+        didIncrementalMain = false;
+      }
     }
+
+    if (!didIncrementalMain) {
+      const effectiveCandles =
+        pane.chartStyle === 'heikin_ashi' ? computeHeikinAshi(displayCandles) : displayCandles;
+
+      if (pane.chartStyle === 'heikin_ashi' && effectiveCandles.length > 0) {
+        lastHaBarRef.current = effectiveCandles[effectiveCandles.length - 1];
+        prevHaSecondLastRef.current =
+          effectiveCandles.length > 1 ? effectiveCandles[effectiveCandles.length - 2] : null;
+      } else {
+        lastHaBarRef.current = null;
+        prevHaSecondLastRef.current = null;
+      }
+
+      if (pane.chartStyle === 'line' || pane.chartStyle === 'area') {
+        (series as ISeriesApi<'Line' | 'Area'>).setData(
+          effectiveCandles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }))
+        );
+      } else {
+        (series as ISeriesApi<'Candlestick' | 'Bar'>).setData(
+          effectiveCandles.map((c) => ({
+            time: c.time as UTCTimestamp,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+          }))
+        );
+      }
+    }
+
+    lastSeriesMetaRef.current = {
+      length: displayCandles.length,
+      firstTime: displayCandles[0].time,
+      style: pane.chartStyle,
+      symbol: pane.symbol,
+      tf: pane.timeframe,
+    };
 
     if (pendingRangeShiftRef.current) {
       const { prevRange, addedCount } = pendingRangeShiftRef.current;
@@ -823,7 +951,8 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       })),
     });
 
-    if (overlaySignatureRef.current !== nextSig) {
+    const overlaysRecreated = overlaySignatureRef.current !== nextSig;
+    if (overlaysRecreated) {
       for (const list of overlaySeriesRef.current.values()) {
         for (const s of list) {
           try {
@@ -911,6 +1040,35 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       }
     }
 
+    const canIncrementalOverlay = didIncrementalMain && !overlaysRecreated;
+
+    const updateLineIncrementalOrSet = (
+      lineSeries: ISeriesApi<'Line'>,
+      pts: { time: number; value: number; color?: string }[],
+      withColor = false
+    ) => {
+      if (canIncrementalOverlay && pts.length > 1) {
+        const last = pts[pts.length - 1];
+        try {
+          lineSeries.update(
+            withColor && last.color
+              ? { time: last.time as UTCTimestamp, value: last.value, color: last.color }
+              : { time: last.time as UTCTimestamp, value: last.value }
+          );
+          return;
+        } catch {
+          // fallback to setData
+        }
+      }
+      lineSeries.setData(
+        pts.map((p) =>
+          withColor && p.color
+            ? { time: p.time as UTCTimestamp, value: p.value, color: p.color }
+            : { time: p.time as UTCTimestamp, value: p.value }
+        )
+      );
+    };
+
     for (const ind of overlays) {
       const seriesList = overlaySeriesRef.current.get(ind.id);
       if (!seriesList || seriesList.length === 0) continue;
@@ -918,7 +1076,22 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       const offset = ind.offset ?? 0;
 
       if (ind.type === 'VOLUME') {
-        (seriesList[0] as ISeriesApi<'Histogram'>).setData(
+        const hist = seriesList[0] as ISeriesApi<'Histogram'>;
+        if (canIncrementalOverlay) {
+          const last = displayCandles[displayCandles.length - 1];
+          try {
+            hist.update({
+              time: last.time as UTCTimestamp,
+              value: last.volume,
+              color:
+                last.close >= last.open ? 'rgba(8, 153, 129, 0.34)' : 'rgba(242, 54, 69, 0.34)',
+            });
+            continue;
+          } catch {
+            // fallback to setData
+          }
+        }
+        hist.setData(
           displayCandles.map((c) => ({
             time: c.time as UTCTimestamp,
             value: c.volume,
@@ -931,23 +1104,17 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           offset,
           tfMeta.seconds
         );
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
-        );
+        updateLineIncrementalOrSet(seriesList[0] as ISeriesApi<'Line'>, pts);
       } else if (ind.type === 'EMA') {
         const pts = applyIndicatorOffset(
           computeEMA(displayCandles, ind.params.period ?? 21, src),
           offset,
           tfMeta.seconds
         );
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
-        );
+        updateLineIncrementalOrSet(seriesList[0] as ISeriesApi<'Line'>, pts);
       } else if (ind.type === 'VWAP') {
         const pts = applyIndicatorOffset(computeVWAP(displayCandles), offset, tfMeta.seconds);
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          pts.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
-        );
+        updateLineIncrementalOrSet(seriesList[0] as ISeriesApi<'Line'>, pts);
       } else if (ind.type === 'BB' && seriesList.length === 3) {
         const bb = computeBollingerBands(
           displayCandles,
@@ -955,37 +1122,27 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           ind.params.stdDev ?? 2,
           src
         );
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          applyIndicatorOffset(bb.upper, offset, tfMeta.seconds).map((p) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
+        updateLineIncrementalOrSet(
+          seriesList[0] as ISeriesApi<'Line'>,
+          applyIndicatorOffset(bb.upper, offset, tfMeta.seconds)
         );
-        (seriesList[1] as ISeriesApi<'Line'>).setData(
-          applyIndicatorOffset(bb.middle, offset, tfMeta.seconds).map((p) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
+        updateLineIncrementalOrSet(
+          seriesList[1] as ISeriesApi<'Line'>,
+          applyIndicatorOffset(bb.middle, offset, tfMeta.seconds)
         );
-        (seriesList[2] as ISeriesApi<'Line'>).setData(
-          applyIndicatorOffset(bb.lower, offset, tfMeta.seconds).map((p) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
+        updateLineIncrementalOrSet(
+          seriesList[2] as ISeriesApi<'Line'>,
+          applyIndicatorOffset(bb.lower, offset, tfMeta.seconds)
         );
       } else if (ind.type === 'DONCHIAN' && seriesList.length === 2) {
         const dc = computeDonchian(displayCandles, ind.params.period ?? 20);
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          applyIndicatorOffset(dc.upper, offset, tfMeta.seconds).map((p) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
+        updateLineIncrementalOrSet(
+          seriesList[0] as ISeriesApi<'Line'>,
+          applyIndicatorOffset(dc.upper, offset, tfMeta.seconds)
         );
-        (seriesList[1] as ISeriesApi<'Line'>).setData(
-          applyIndicatorOffset(dc.lower, offset, tfMeta.seconds).map((p) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
+        updateLineIncrementalOrSet(
+          seriesList[1] as ISeriesApi<'Line'>,
+          applyIndicatorOffset(dc.lower, offset, tfMeta.seconds)
         );
       } else if (ind.type === 'SUPERTREND') {
         const st = applyIndicatorOffset(
@@ -999,14 +1156,14 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
           offset,
           tfMeta.seconds
         );
-        (seriesList[0] as ISeriesApi<'Line'>).setData(
-          st.map((p) => ({ time: p.time as UTCTimestamp, value: p.value, color: p.color }))
-        );
+        updateLineIncrementalOrSet(seriesList[0] as ISeriesApi<'Line'>, st, true);
       }
     }
   }, [
     displayCandles,
     pane.chartStyle,
+    pane.symbol,
+    pane.timeframe,
     pane.indicators,
     theme,
     tfMeta.group,
@@ -1164,45 +1321,57 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
     const chart = chartRef.current;
     if (!chart) return;
 
-    const candleByTime = new Map<number, Candle>();
-    for (const c of displayCandles) candleByTime.set(c.time, c);
-
     const onCrosshair = (param: { time?: Time }) => {
-      if (param.time !== undefined) {
-        const t = Number(param.time);
-        const found = candleByTime.get(t);
-        if (found) setHoveredBar(found);
-        if (!isExternalCrosshairRef.current) {
-          setPaneCrosshairTime(t);
-          if (syncCrosshair) setSyncedCrosshairTime(t);
+      const nextTime = param.time !== undefined ? Number(param.time) : null;
+      if (nextTime === lastCrosshairTimeRef.current) return;
+      lastCrosshairTimeRef.current = nextTime;
+
+      if (crosshairRafRef.current !== null) return;
+      crosshairRafRef.current = window.requestAnimationFrame(() => {
+        crosshairRafRef.current = null;
+        const t = lastCrosshairTimeRef.current;
+        if (t !== null) {
+          const found = candleByTimeRef.current.get(t);
+          if (found) setHoveredBar(found);
+          if (!isExternalCrosshairRef.current) {
+            setPaneCrosshairTime(t);
+            if (syncCrosshair) setSyncedCrosshairTime(t);
+          }
+        } else {
+          setHoveredBar(null);
+          if (!isExternalCrosshairRef.current) {
+            setPaneCrosshairTime(null);
+          }
         }
-      } else {
-        setHoveredBar(null);
-        if (!isExternalCrosshairRef.current) {
-          setPaneCrosshairTime(null);
-        }
-      }
+      });
     };
 
     const onRange = (range: LogicalRange | null) => {
-      refreshLastPriceY();
-      const pos = chart.timeScale().scrollPosition();
-      setScrolledAway(pos < -6);
+      if (rangeRafRef.current === null) {
+        rangeRafRef.current = window.requestAnimationFrame(() => {
+          rangeRafRef.current = null;
+          refreshLastPriceY();
+          const pos = chart.timeScale().scrollPosition();
+          const away = pos < -6;
+          setScrolledAway((prev) => (prev === away ? prev : away));
+        });
+      }
 
+      const currentFull = fullCandlesRef.current;
       if (
         range &&
         range.from < 20 &&
         !loading &&
         !loadingMoreRef.current &&
         !isThisPaneInReplay &&
-        fullCandles.length > 0 &&
-        fullCandles.length < 8000 &&
+        currentFull.length > 0 &&
+        currentFull.length < 8000 &&
         Date.now() - lastBackfillMsRef.current > 1200
       ) {
         loadingMoreRef.current = true;
         lastBackfillMsRef.current = Date.now();
         setLoadingMore(true);
-        const oldest = fullCandles[0];
+        const oldest = currentFull[0];
         const snapRange = { ...range };
 
         fetchOlderCandles(pane.symbol, pane.timeframe, oldest, dataFeed)
@@ -1236,9 +1405,10 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       }
       if (isThisPaneInReplay && replay.isSelectingStart && param.time !== undefined) {
         const clickedTime = Number(param.time);
-        const idx = fullCandles.findIndex((c) => c.time >= clickedTime);
+        const currentFull = fullCandlesRef.current;
+        const idx = currentFull.findIndex((c) => c.time >= clickedTime);
         if (idx >= 0) {
-          startReplayAt(pane.id, idx, fullCandles.length, fullCandles[idx].time);
+          startReplayAt(pane.id, idx, currentFull.length, currentFull[idx].time);
         }
       }
     };
@@ -1251,10 +1421,16 @@ export const ChartPane: React.FC<ChartPaneProps> = ({ pane, isActive, isMultiPan
       chart.unsubscribeCrosshairMove(onCrosshair);
       chart.unsubscribeClick(onClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+      if (rangeRafRef.current !== null) {
+        window.cancelAnimationFrame(rangeRafRef.current);
+        rangeRafRef.current = null;
+      }
+      if (crosshairRafRef.current !== null) {
+        window.cancelAnimationFrame(crosshairRafRef.current);
+        crosshairRafRef.current = null;
+      }
     };
   }, [
-    displayCandles,
-    fullCandles,
     loading,
     syncCrosshair,
     isThisPaneInReplay,

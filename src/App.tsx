@@ -28,7 +28,7 @@ export const App: React.FC = () => {
   useAlertMonitor();
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#F0F3FA] text-[#131722] dark:bg-[#0C0F17] dark:text-[#D1D4DC]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#EEF2F9] text-[#131722] transition-colors duration-200 selection:bg-[#2962FF]/25 selection:text-[#2962FF] dark:bg-[#090C12] dark:text-[#E2E6F0] dark:selection:text-white">
       <TopToolbar />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">

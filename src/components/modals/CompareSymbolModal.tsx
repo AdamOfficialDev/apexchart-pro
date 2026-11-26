@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { GitCompare, Search, Trash2, X } from 'lucide-react';
 import { getSymbolInfo, SYMBOLS } from '@/data/symbols';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -25,30 +25,53 @@ export const CompareSymbolModal: React.FC = () => {
     );
   }, [query, activePane.symbol]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
+
   if (!open) return null;
 
   return (
     <div
       onClick={() => setOpen(false)}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-16 backdrop-blur-sm"
+      className="apex-modal-backdrop fixed inset-0 z-50 flex items-start justify-center bg-[#05070B]/70 px-3 pt-16 backdrop-blur-[6px]"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        className="apex-modal-card w-full max-w-md overflow-hidden rounded-2xl border border-slate-200/90 bg-white/[0.98] dark:border-[#262E40] dark:bg-[#131823]/[0.98]"
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-[#2A2E39]">
-          <div className="flex items-center gap-2">
-            <GitCompare className="h-4 w-4 text-[#00D4AA]" />
-            <h3 className="text-sm font-bold text-slate-900 dark:text-[#D1D4DC]">
-              Compare / Overlay Symbol (% Performance)
-            </h3>
+        <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-3.5 dark:border-[#22293A]">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#00D4AA]/12 text-[#00D4AA] ring-1 ring-[#00D4AA]/25">
+              <GitCompare className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">
+                Compare / Overlay Symbol
+              </h3>
+              <div className="text-[10px] font-medium text-[#7D8596]">Normalized % Performance</div>
+            </div>
           </div>
-          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <kbd className="hidden sm:inline rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#787B86] dark:border-[#283144] dark:bg-[#0D111A]">
+              ESC
+            </kbd>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close modal"
+              className="rounded-lg p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#1E2536] dark:hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="border-b border-slate-200 p-3 dark:border-[#2A2E39]">
+        <div className="border-b border-slate-200/80 p-3.5 dark:border-[#22293A]">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#787B86]" />
             <input
@@ -56,13 +79,13 @@ export const CompareSymbolModal: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Compare against ETHUSDT, XAUUSD, SPY..."
-              className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-3 text-xs outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#131722] dark:text-[#D1D4DC]"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/90 py-2 pl-9 pr-3 text-xs text-slate-900 outline-none transition focus:border-[#2962FF] focus:ring-2 focus:ring-[#2962FF]/20 dark:border-[#262E40] dark:bg-[#0D111A] dark:text-white"
             />
           </div>
 
           {activePane.compareSymbol && (
-            <div className="mt-2 flex items-center justify-between rounded bg-[#2962FF]/15 px-2.5 py-1.5 text-xs">
-              <span className="font-semibold text-[#2962FF]">
+            <div className="mt-2.5 flex items-center justify-between rounded-xl border border-[#2962FF]/25 bg-[#2962FF]/12 px-3 py-2 text-xs">
+              <span className="font-semibold text-[#4C82FF]">
                 Comparing: {getSymbolInfo(activePane.compareSymbol).displaySymbol}
               </span>
               <button
@@ -70,7 +93,7 @@ export const CompareSymbolModal: React.FC = () => {
                   setPaneCompareSymbol(activePane.id, null);
                   setOpen(false);
                 }}
-                className="inline-flex items-center gap-1 text-[#F23645] hover:underline"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold text-[#F23645] transition hover:bg-[#F23645]/15"
               >
                 <Trash2 className="h-3 w-3" />
                 Remove
@@ -79,7 +102,7 @@ export const CompareSymbolModal: React.FC = () => {
           )}
         </div>
 
-        <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-[#2A2E39]/60">
+        <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-[#1E2434]">
           {query.trim().length >= 2 && (
             <button
               onClick={() => {
@@ -87,10 +110,10 @@ export const CompareSymbolModal: React.FC = () => {
                 setOpen(false);
                 setQuery('');
               }}
-              className="flex w-full items-center justify-between bg-[#00D4AA]/10 px-4 py-2 text-left text-xs font-semibold text-[#00D4AA]"
+              className="flex w-full items-center justify-between bg-[#00D4AA]/10 px-4 py-2.5 text-left text-xs font-semibold text-[#00D4AA] transition hover:bg-[#00D4AA]/15"
             >
               <span>Compare Custom: {query.trim().toUpperCase()}</span>
-              <span>OVERLAY</span>
+              <span className="rounded bg-[#00D4AA]/20 px-1.5 py-0.5 text-[10px]">OVERLAY</span>
             </button>
           )}
           {filtered.map((s) => (
@@ -101,15 +124,17 @@ export const CompareSymbolModal: React.FC = () => {
                 setOpen(false);
                 setQuery('');
               }}
-              className="flex w-full items-center justify-between px-4 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-[#2A2E39]/60"
+              className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs transition-colors hover:bg-slate-50 dark:hover:bg-[#192030]"
             >
               <div>
-                <span className="font-bold text-slate-900 dark:text-[#D1D4DC]">
+                <span className="font-bold text-slate-900 dark:text-white">
                   {s.displaySymbol}
                 </span>
-                <span className="ml-2 text-[#787B86]">{s.name}</span>
+                <span className="ml-2 text-[#7D8596]">{s.name}</span>
               </div>
-              <span className="text-[10px] text-[#787B86]">{s.exchange}</span>
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-[#787B86] dark:bg-[#0D111A]">
+                {s.exchange}
+              </span>
             </button>
           ))}
         </div>

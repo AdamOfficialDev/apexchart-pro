@@ -42,13 +42,15 @@ export const RightSidebar: React.FC = () => {
       {rightTab !== null && (
         <div
           style={{ width: rightWidth }}
-          className="fixed bottom-8 right-[42px] top-10 z-40 overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:static sm:bottom-auto sm:right-auto sm:top-auto sm:z-auto sm:h-full sm:shadow-none dark:border-[#2A2E39] dark:bg-[#131722]"
+          className="fixed bottom-8 right-[44px] top-11 z-40 overflow-hidden border-l border-slate-200/80 bg-white shadow-2xl sm:static sm:bottom-auto sm:right-auto sm:top-auto sm:z-auto sm:h-full sm:shadow-none dark:border-[#222836] dark:bg-[#0F131D]"
         >
           <div
             onMouseDown={startResize}
             title="Drag to resize sidebar"
-            className="hidden sm:block absolute inset-y-0 left-0 z-30 w-[5px] cursor-ew-resize hover:bg-[#2962FF]/60"
-          />
+            className="group hidden sm:flex absolute inset-y-0 left-0 z-30 w-[5px] cursor-ew-resize items-center justify-center transition-colors hover:bg-[#2962FF]/35"
+          >
+            <div className="h-8 w-[2px] rounded-full bg-transparent transition-colors group-hover:bg-[#2962FF]" />
+          </div>
           {rightTab === 'watchlist' && <WatchlistPanel />}
           {rightTab === 'orderbook' && <OrderBookPanel />}
           {rightTab === 'alerts' && <AlertsPanel />}
@@ -57,15 +59,15 @@ export const RightSidebar: React.FC = () => {
         </div>
       )}
 
-      <div className="flex w-[42px] shrink-0 flex-col items-center gap-1.5 border-l border-slate-200 bg-white py-2 dark:border-[#2A2E39] dark:bg-[#131722]">
+      <div className="flex w-[44px] shrink-0 flex-col items-center gap-1.5 border-l border-slate-200/80 bg-white/95 py-2 dark:border-[#222836] dark:bg-[#0F131D]/95">
         <button
           onClick={() => toggle('watchlist')}
           title="Watchlist & Markets"
           className={cn(
-            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
             rightTab === 'watchlist'
-              ? 'bg-[#2962FF]/20 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              ? 'bg-[#2962FF]/20 text-[#4C82FF] ring-1 ring-[#2962FF]/35 shadow-glowBlue'
+              : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
           )}
         >
           <ListFilter className="h-4 w-4" />
@@ -75,10 +77,10 @@ export const RightSidebar: React.FC = () => {
           onClick={() => toggle('technicals')}
           title="Technical Signals Gauge & Multi-Timeframe Scanner"
           className={cn(
-            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
             rightTab === 'technicals'
-              ? 'bg-[#00D4AA]/20 text-[#00D4AA]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              ? 'bg-[#00D4AA]/20 text-[#00D4AA] ring-1 ring-[#00D4AA]/35 shadow-glowCyan'
+              : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
           )}
         >
           <Gauge className="h-4 w-4" />
@@ -88,10 +90,10 @@ export const RightSidebar: React.FC = () => {
           onClick={() => toggle('orderbook')}
           title="Order Book & Trades Tape"
           className={cn(
-            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
             rightTab === 'orderbook'
-              ? 'bg-[#2962FF]/20 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              ? 'bg-[#2962FF]/20 text-[#4C82FF] ring-1 ring-[#2962FF]/35 shadow-glowBlue'
+              : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
           )}
         >
           <BookOpen className="h-4 w-4" />
@@ -101,15 +103,15 @@ export const RightSidebar: React.FC = () => {
           onClick={() => toggle('alerts')}
           title="Price Alerts"
           className={cn(
-            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
             rightTab === 'alerts'
-              ? 'bg-[#2962FF]/20 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              ? 'bg-[#2962FF]/20 text-[#4C82FF] ring-1 ring-[#2962FF]/35 shadow-glowBlue'
+              : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
           )}
         >
           <Bell className="h-4 w-4" />
           {activeAlertsCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-slate-950">
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-slate-950 shadow-[0_0_8px_rgba(245,158,11,0.75)]">
               {activeAlertsCount}
             </span>
           )}
@@ -119,10 +121,10 @@ export const RightSidebar: React.FC = () => {
           onClick={() => toggle('objects')}
           title="Object Tree (Drawings & Indicators)"
           className={cn(
-            'relative flex h-8 w-8 items-center justify-center rounded-md transition',
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 active:scale-90',
             rightTab === 'objects'
-              ? 'bg-[#2962FF]/20 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]'
+              ? 'bg-[#2962FF]/20 text-[#4C82FF] ring-1 ring-[#2962FF]/35 shadow-glowBlue'
+              : 'text-[#787B86] hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#181D2A] dark:hover:text-white'
           )}
         >
           <Layers className="h-4 w-4" />

@@ -128,7 +128,7 @@ export const TopToolbar: React.FC = () => {
   return (
     <header
       ref={navRef}
-      className="relative z-40 flex h-10 w-full shrink-0 items-center justify-between gap-1.5 border-b border-slate-200 bg-white px-2 dark:border-[#2A2E39] dark:bg-[#131722]"
+      className="glass-panel relative z-40 flex h-11 w-full shrink-0 items-center justify-between gap-1.5 border-b border-slate-200/80 bg-white/95 px-2.5 shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:border-[#222836] dark:bg-[#0F131D]/95 dark:shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]"
     >
       <div className="flex min-w-0 items-center gap-1">
         {/* Mobile Drawing Bar Toggle */}
@@ -136,45 +136,53 @@ export const TopToolbar: React.FC = () => {
           onClick={() => setMobileDrawingBarOpen(!mobileDrawingBarOpen)}
           title="Toggle Drawing Tools"
           className={cn(
-            'sm:hidden flex h-7 w-7 shrink-0 items-center justify-center rounded transition',
+            'sm:hidden flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all duration-150 active:scale-90',
             mobileDrawingBarOpen
-              ? 'bg-[#2962FF]/20 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-[#1E222D]'
+              ? 'bg-[#2962FF]/20 text-[#2962FF] ring-1 ring-[#2962FF]/35'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#181D2A]'
           )}
         >
           <PanelLeft className="h-4 w-4" />
         </button>
 
         {/* Brand */}
-        <div className="hidden sm:flex shrink-0 items-center gap-1.5 pr-1">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#2962FF] to-[#00D4AA] text-white">
+        <div className="hidden sm:flex shrink-0 items-center gap-2 pr-1.5">
+          <div className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#2962FF] via-[#2563EB] to-[#00D4AA] text-white shadow-glowBlue ring-1 ring-white/20">
             <Sparkles className="h-3.5 w-3.5" />
+            <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white bg-[#00D4AA] dark:border-[#0F131D]" />
           </div>
-          <span className="hidden 2xl:inline whitespace-nowrap text-xs font-bold tracking-tight text-slate-900 dark:text-[#D1D4DC]">
-            ApexChart
-          </span>
+          <div className="hidden 2xl:flex items-center gap-1.5">
+            <span className="whitespace-nowrap text-xs font-bold tracking-tight text-slate-900 dark:text-white">
+              ApexChart
+            </span>
+            <span className="rounded bg-[#2962FF]/15 px-1 py-[1px] text-[9px] font-extrabold tracking-wider text-[#2962FF] ring-1 ring-[#2962FF]/25">
+              PRO
+            </span>
+          </div>
         </div>
 
         {/* Symbol Search */}
         <button
           onClick={() => setSearchModalOpen(true)}
-          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-left transition hover:bg-slate-100 dark:hover:bg-[#1E222D]"
+          className="group flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-transparent bg-slate-100/70 px-2.5 py-1 text-left transition-all duration-150 hover:border-slate-200 hover:bg-slate-100 active:scale-[0.97] dark:bg-[#181D2A]/80 dark:hover:border-[#2C3344] dark:hover:bg-[#1E2434]"
         >
-          <Search className="h-3.5 w-3.5 shrink-0 text-[#787B86]" />
-          <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+          <Search className="h-3.5 w-3.5 shrink-0 text-[#787B86] transition-colors group-hover:text-[#2962FF]" />
+          <span className="text-xs font-bold tracking-tight text-slate-900 dark:text-white">
             {symbolInfo.displaySymbol}
           </span>
           {liveQuote && (
             <span
               className={cn(
-                'hidden md:inline font-mono text-[11px] font-semibold tabular-nums',
-                liveQuote.changePercent >= 0 ? 'text-[#089981]' : 'text-[#F23645]'
+                'hidden md:inline rounded px-1.5 py-[1px] font-mono text-[11px] font-semibold tabular-nums transition-colors',
+                liveQuote.changePercent >= 0
+                  ? 'bg-[#089981]/12 text-[#089981]'
+                  : 'bg-[#F23645]/12 text-[#F23645]'
               )}
             >
               {formatPrice(liveQuote.price, symbolInfo.precision)}
             </span>
           )}
-          <kbd className="hidden 2xl:inline rounded border border-slate-200 px-1 py-[1px] font-mono text-[9px] text-[#787B86] dark:border-[#2A2E39]">
+          <kbd className="hidden 2xl:inline rounded border border-slate-200 bg-white px-1.5 py-[1px] font-mono text-[9px] font-medium text-[#787B86] shadow-sm dark:border-[#2A3142] dark:bg-[#0F131D]">
             ⌘K
           </kbd>
         </button>
@@ -197,16 +205,16 @@ export const TopToolbar: React.FC = () => {
 
         {/* All Timeframes */}
         <div className="relative flex shrink-0 items-center gap-0.5">
-          <div className="hidden xl:flex items-center gap-0.5">
+          <div className="hidden xl:flex items-center gap-0.5 rounded-lg bg-slate-100/60 p-0.5 dark:bg-[#151A25]">
             {orderedFavorites.map((tf) => (
               <button
                 key={tf.id}
                 onClick={() => updatePaneTimeframe(activePane.id, tf.id)}
                 className={cn(
-                  'shrink-0 whitespace-nowrap rounded px-1.5 py-1 font-mono text-[11px] font-medium transition',
+                  'shrink-0 whitespace-nowrap rounded-md px-2 py-1 font-mono text-[11px] font-medium transition-all duration-150 active:scale-95',
                   activePane.timeframe === tf.id
-                    ? 'bg-[#2962FF]/15 text-[#2962FF] font-bold'
-                    : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                    ? 'bg-[#2962FF] text-white font-bold shadow-[0_2px_8px_-1px_rgba(41,98,255,0.55)]'
+                    : 'text-slate-600 hover:bg-white/80 hover:text-slate-900 dark:text-[#9CA3AF] dark:hover:bg-[#1E2434] dark:hover:text-white'
                 )}
               >
                 {tf.label}
@@ -218,20 +226,22 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setOpenMenu(openMenu === 'tf' ? null : 'tf')}
             title="All Timeframes (Seconds to Monthly)"
             className={cn(
-              'flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-xs font-medium transition',
+              'flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-xs font-medium transition-all duration-150 active:scale-95',
               openMenu === 'tf'
-                ? 'bg-[#2962FF]/15 text-[#2962FF]'
-                : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                ? 'bg-[#2962FF]/15 text-[#2962FF] ring-1 ring-[#2962FF]/30'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]'
             )}
           >
             <span className="xl:hidden font-mono font-bold text-[#2962FF]">
               {activePane.timeframe}
             </span>
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown
+              className={cn('h-3.5 w-3.5 transition-transform duration-200', openMenu === 'tf' && 'rotate-180')}
+            />
           </button>
 
           {openMenu === 'tf' && (
-            <div className="absolute left-0 top-9 z-50 w-72 rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="glass-popover animate-popIn origin-top-left absolute left-0 top-10 z-50 w-72 rounded-xl border border-slate-200/80 bg-white/95 p-3 dark:border-[#262C3D] dark:bg-[#161B26]/95">
               <div className="mb-2 flex items-center justify-between px-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
                   All Timeframes Unlocked
@@ -306,21 +316,23 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
             title="Chart Style (Candles, Heikin Ashi, Footprint)"
             className={cn(
-              'flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium transition',
+              'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-medium transition-all duration-150 active:scale-95',
               activePane.chartStyle === 'footprint'
-                ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
-                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                ? 'bg-[#00D4AA]/15 text-[#00D4AA] ring-1 ring-[#00D4AA]/30'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]'
             )}
           >
             <CandlestickChart className="h-4 w-4 shrink-0 text-[#2962FF]" />
             <span className="hidden 2xl:inline">
               {CHART_STYLES.find((c) => c.id === activePane.chartStyle)?.label}
             </span>
-            <ChevronDown className="h-3 w-3 text-[#787B86]" />
+            <ChevronDown
+              className={cn('h-3 w-3 text-[#787B86] transition-transform duration-200', openMenu === 'style' && 'rotate-180')}
+            />
           </button>
 
           {openMenu === 'style' && (
-            <div className="absolute left-0 top-9 z-50 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="glass-popover animate-popIn origin-top-left absolute left-0 top-10 z-50 w-56 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 dark:border-[#262C3D] dark:bg-[#161B26]/95">
               {CHART_STYLES.map((cs) => (
                 <button
                   key={cs.id}
@@ -355,11 +367,11 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={() => setIndicatorsModalOpen(true)}
           title="Indicators & Strategies"
-          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-medium text-slate-700 transition-all duration-150 hover:bg-slate-100 active:scale-95 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]"
         >
           <Activity className="h-3.5 w-3.5 shrink-0 text-[#00D4AA]" />
           <span className="hidden lg:inline">Indicators</span>
-          <span className="rounded bg-[#2962FF]/15 px-1 font-mono text-[10px] font-bold text-[#2962FF]">
+          <span className="rounded-md bg-[#2962FF]/15 px-1.5 py-[1px] font-mono text-[10px] font-bold text-[#2962FF] ring-1 ring-[#2962FF]/25">
             {activePane.indicators.length}
           </span>
         </button>
@@ -369,23 +381,23 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setOpenMenu(openMenu === 'smart' ? null : 'smart')}
             title="Smart AI Overlays, RSI Divergence Pro & Sessions"
             className={cn(
-              'flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition',
+              'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95',
               activeSmartCount > 0 || openMenu === 'smart'
-                ? 'bg-[#00D4AA]/15 text-[#00D4AA]'
-                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                ? 'bg-[#00D4AA]/15 text-[#00D4AA] ring-1 ring-[#00D4AA]/35 shadow-glowCyan'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]'
             )}
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden lg:inline">Smart AI</span>
             {activeSmartCount > 0 && (
-              <span className="rounded bg-[#00D4AA] px-1 font-mono text-[10px] font-bold text-slate-950">
+              <span className="rounded-full bg-[#00D4AA] px-1.5 py-[1px] font-mono text-[10px] font-extrabold text-slate-950">
                 {activeSmartCount}
               </span>
             )}
           </button>
 
           {openMenu === 'smart' && (
-            <div className="absolute left-0 top-9 z-50 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="glass-popover animate-popIn origin-top-left absolute left-0 top-10 z-50 w-76 rounded-xl border border-slate-200/80 bg-white/95 p-2.5 dark:border-[#262C3D] dark:bg-[#161B26]/95">
               <div className="mb-1.5 flex items-center justify-between px-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#00D4AA]">
                   Smart Quant & Divergence
@@ -445,16 +457,24 @@ export const TopToolbar: React.FC = () => {
                           : 'hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
                       )}
                     >
-                      <div>
+                      <div className="pr-3">
                         <div className="font-semibold">{item.title}</div>
                         <div className="text-[10px] text-[#787B86]">{item.sub}</div>
                       </div>
-                      <input
-                        type="checkbox"
-                        readOnly
-                        checked={active}
-                        className="mt-1 accent-[#00D4AA]"
-                      />
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'relative mt-0.5 inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200',
+                          active ? 'bg-[#00D4AA]' : 'bg-slate-300 dark:bg-[#2A3142]'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ease-spring',
+                            active ? 'translate-x-3' : 'translate-x-0'
+                          )}
+                        />
+                      </span>
                     </button>
                   );
                 })}
@@ -476,14 +496,15 @@ export const TopToolbar: React.FC = () => {
           onClick={() => (replay.enabled ? exitReplayMode() : enterReplayMode(activePane.id))}
           title="Bar Replay Mode"
           className={cn(
-            'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition',
+            'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95',
             replay.enabled
-              ? 'bg-amber-500 text-slate-950'
-              : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+              ? 'bg-amber-500 text-slate-950 shadow-[0_0_14px_-2px_rgba(245,158,11,0.65)]'
+              : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]'
           )}
         >
           <PlayCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="hidden md:inline">Replay</span>
+          {replay.enabled && <span className="h-1.5 w-1.5 rounded-full bg-slate-950 animate-pulse" />}
         </button>
       </div>
 
@@ -493,12 +514,18 @@ export const TopToolbar: React.FC = () => {
           onClick={() => openChartSettingsTab('feeds')}
           title="Configure Live Data Feeds & Twelve Data API Key"
           className={cn(
-            'hidden sm:inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-[11px] font-semibold transition',
+            'hidden sm:inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all duration-150 active:scale-95',
             hasTdKey
-              ? 'bg-[#089981]/15 text-[#089981]'
-              : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+              ? 'bg-[#089981]/15 text-[#089981] ring-1 ring-[#089981]/30'
+              : 'bg-amber-500/12 text-amber-400 ring-1 ring-amber-500/25 hover:bg-amber-500/20'
           )}
         >
+          <span
+            className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              hasTdKey ? 'bg-[#089981] animate-pulse' : 'bg-amber-400'
+            )}
+          />
           <Database className="h-3 w-3 shrink-0" />
           <span>{hasTdKey ? 'TD API' : 'Feeds'}</span>
         </button>
@@ -507,10 +534,10 @@ export const TopToolbar: React.FC = () => {
           onClick={() => updateChartSettings({ showQuickTrade: !chartSettings.showQuickTrade })}
           title="Toggle One-Click Buy/Sell Buttons"
           className={cn(
-            'hidden lg:inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition',
+            'hidden lg:inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-medium transition-all duration-150 active:scale-95',
             chartSettings.showQuickTrade
-              ? 'bg-[#2962FF]/15 text-[#2962FF]'
-              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#1E222D]'
+              ? 'bg-[#2962FF]/15 text-[#2962FF] ring-1 ring-[#2962FF]/30'
+              : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#181D2A]'
           )}
         >
           <Zap className="h-3.5 w-3.5 shrink-0" />
@@ -522,19 +549,21 @@ export const TopToolbar: React.FC = () => {
             onClick={() => setOpenMenu(openMenu === 'layout' ? null : 'layout')}
             title="Multi-Chart Layouts & Sync"
             className={cn(
-              'flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs font-medium transition',
+              'flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-medium transition-all duration-150 active:scale-95',
               layout !== '1x1'
-                ? 'bg-[#2962FF]/15 text-[#2962FF]'
-                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#1E222D]'
+                ? 'bg-[#2962FF]/15 text-[#2962FF] ring-1 ring-[#2962FF]/30'
+                : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#181D2A]'
             )}
           >
             <Grid2X2 className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline font-mono text-[11px]">{layout}</span>
-            <ChevronDown className="h-3 w-3 text-[#787B86]" />
+            <ChevronDown
+              className={cn('h-3 w-3 text-[#787B86] transition-transform duration-200', openMenu === 'layout' && 'rotate-180')}
+            />
           </button>
 
           {openMenu === 'layout' && (
-            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]">
+            <div className="glass-popover animate-popIn origin-top-right absolute right-0 top-10 z-50 w-60 rounded-xl border border-slate-200/80 bg-white/95 p-2.5 dark:border-[#262C3D] dark:bg-[#161B26]/95">
               <div className="mb-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
                 Multi-Chart Grid
               </div>
@@ -547,10 +576,10 @@ export const TopToolbar: React.FC = () => {
                       setOpenMenu(null);
                     }}
                     className={cn(
-                      'flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs transition',
+                      'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition-all duration-150',
                       layout === l.id
                         ? 'bg-[#2962FF]/15 font-semibold text-[#2962FF]'
-                        : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#2A2E39]'
+                        : 'text-slate-700 hover:bg-slate-100 dark:text-[#D1D4DC] dark:hover:bg-[#222938]'
                     )}
                   >
                     <span className="flex items-center gap-2">
@@ -562,38 +591,43 @@ export const TopToolbar: React.FC = () => {
                 ))}
               </div>
 
-              <div className="my-2 border-t border-slate-200 dark:border-[#2A2E39]" />
-              <div className="mb-1 px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+              <div className="my-2 border-t border-slate-200/80 dark:border-[#262C3D]" />
+              <div className="mb-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
                 Sync Across Charts
               </div>
-              <div className="space-y-0.5 text-xs dark:text-[#D1D4DC]">
-                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
-                  <span>Sync Crosshair</span>
-                  <input
-                    type="checkbox"
-                    checked={syncCrosshair}
-                    onChange={(e) => setSyncCrosshair(e.target.checked)}
-                    className="accent-[#2962FF]"
-                  />
-                </label>
-                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
-                  <span>Sync Symbol</span>
-                  <input
-                    type="checkbox"
-                    checked={syncSymbol}
-                    onChange={(e) => setSyncSymbol(e.target.checked)}
-                    className="accent-[#2962FF]"
-                  />
-                </label>
-                <label className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-[#2A2E39]">
-                  <span>Sync Timeframe</span>
-                  <input
-                    type="checkbox"
-                    checked={syncTimeframe}
-                    onChange={(e) => setSyncTimeframe(e.target.checked)}
-                    className="accent-[#2962FF]"
-                  />
-                </label>
+              <div className="space-y-1 text-xs dark:text-[#D1D4DC]">
+                {[
+                  { label: 'Sync Crosshair', checked: syncCrosshair, onChange: setSyncCrosshair },
+                  { label: 'Sync Symbol', checked: syncSymbol, onChange: setSyncSymbol },
+                  { label: 'Sync Timeframe', checked: syncTimeframe, onChange: setSyncTimeframe },
+                ].map((item) => (
+                  <label
+                    key={item.label}
+                    className="flex cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 transition hover:bg-slate-100 dark:hover:bg-[#222938]"
+                  >
+                    <span>{item.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={(e) => item.onChange(e.target.checked)}
+                      className="sr-only"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'relative inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200',
+                        item.checked ? 'bg-[#2962FF]' : 'bg-slate-300 dark:bg-[#2A3142]'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ease-spring',
+                          item.checked ? 'translate-x-3' : 'translate-x-0'
+                        )}
+                      />
+                    </span>
+                  </label>
+                ))}
               </div>
             </div>
           )}
@@ -602,7 +636,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={() => openChartSettingsTab('symbol')}
           title="Chart Settings"
-          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="shrink-0 rounded-lg p-1.5 text-[#787B86] transition-all duration-150 hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#181D2A] dark:hover:text-white"
         >
           <Settings2 className="h-4 w-4" />
         </button>
@@ -610,7 +644,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={triggerSnapshot}
           title="Export PNG Snapshot"
-          className="hidden sm:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden sm:inline-flex shrink-0 rounded-lg p-1.5 text-[#787B86] transition-all duration-150 hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#181D2A] dark:hover:text-white"
         >
           <Camera className="h-4 w-4" />
         </button>
@@ -618,15 +652,15 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={toggleTheme}
           title="Toggle Dark / Light Theme"
-          className="shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="shrink-0 rounded-lg p-1.5 text-[#787B86] transition-all duration-150 hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#181D2A] dark:hover:text-white"
         >
-          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />}
         </button>
 
         <button
           onClick={() => setShortcutsModalOpen(true)}
           title="Keyboard Shortcuts (?)"
-          className="hidden md:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden md:inline-flex shrink-0 rounded-lg p-1.5 text-[#787B86] transition-all duration-150 hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#181D2A] dark:hover:text-white"
         >
           <Keyboard className="h-4 w-4" />
         </button>
@@ -634,7 +668,7 @@ export const TopToolbar: React.FC = () => {
         <button
           onClick={toggleFullscreen}
           title="Fullscreen (Shift+F)"
-          className="hidden md:inline-flex shrink-0 rounded p-1.5 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-[#1E222D] dark:hover:text-[#D1D4DC]"
+          className="hidden md:inline-flex shrink-0 rounded-lg p-1.5 text-[#787B86] transition-all duration-150 hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#181D2A] dark:hover:text-white"
         >
           <Maximize2 className="h-4 w-4" />
         </button>

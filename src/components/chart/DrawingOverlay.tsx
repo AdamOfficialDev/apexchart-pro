@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IChartApi, ISeriesApi, Logical } from 'lightweight-charts';
+import { IChartApi, ISeriesApi, Logical, UTCTimestamp } from 'lightweight-charts';
 import {
   DEFAULT_FIB_EXT_LEVELS,
   DEFAULT_FIB_RETRACE_LEVELS,
@@ -280,6 +280,139 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
   const [hoverInteractive, setHoverInteractive] = useState(false);
   const [hoverLineDrag, setHoverLineDrag] = useState(false);
 
+  const syncRenderFnRef = useRef<() => void>(() => {});
+  const syncRafRef = useRef<number | null>(null);
+  const syncUntilRef = useRef<number>(0);
+  const syncLastCoordsRef = useRef<{
+    yLo: number | null;
+    yHi: number | null;
+    x0: number | null;
+    x1: number | null;
+  }>({ yLo: null, yHi: null, x0: null, x1: null });
+
+  const probePrices = useMemo(() => {
+    if (candles.length === 0) return null;
+    const start = Math.max(0, candles.length - 80);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = start; i < candles.length; i++) {
+      if (candles[i].low < lo) lo = candles[i].low;
+      if (candles[i].high > hi) hi = candles[i].high;
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+    if (Math.abs(hi - lo) < 1e-12) hi = lo + Math.max(Math.abs(lo) * 0.01, 1e-6);
+    return { lo, hi };
+  }, [candles]);
+
+  const checkAndRenderAxisSync = useCallback(() => {
+    if (!chart || !series || candles.length === 0 || !probePrices) return;
+    const yLoRaw = series.priceToCoordinate(probePrices.lo);
+    const yHiRaw = series.priceToCoordinate(probePrices.hi);
+    const x0Raw = chart.timeScale().logicalToCoordinate(0 as Logical);
+    const x1Raw = chart.timeScale().logicalToCoordinate((candles.length - 1) as Logical);
+
+    const yLo = yLoRaw !== null ? Number(yLoRaw) : null;
+    const yHi = yHiRaw !== null ? Number(yHiRaw) : null;
+    const x0 = x0Raw !== null ? Number(x0Raw) : null;
+    const x1 = x1Raw !== null ? Number(x1Raw) : null;
+
+    const prev = syncLastCoordsRef.current;
+    const diff = (a: number | null, b: number | null) =>
+      (a === null) !== (b === null) || (a !== null && b !== null && Math.abs(a - b) >= 0.05);
+
+    if (diff(yLo, prev.yLo) || diff(yHi, prev.yHi) || diff(x0, prev.x0) || diff(x1, prev.x1)) {
+      syncLastCoordsRef.current = { yLo, yHi, x0, x1 };
+      syncRenderFnRef.current();
+    }
+  }, [chart, series, candles.length, probePrices]);
+
+  const kickAxisSyncLoop = useCallback(
+    (durationMs = 360) => {
+      syncUntilRef.current = Math.max(syncUntilRef.current, performance.now() + durationMs);
+      if (syncRafRef.current !== null) return;
+
+      const tick = () => {
+        checkAndRenderAxisSync();
+        if (performance.now() < syncUntilRef.current) {
+          syncRafRef.current = window.requestAnimationFrame(tick);
+        } else {
+          syncRafRef.current = null;
+        }
+      };
+      syncRafRef.current = window.requestAnimationFrame(tick);
+    },
+    [checkAndRenderAxisSync]
+  );
+
+  useEffect(() => {
+    if (!chart) return;
+    const canvas = canvasRef.current;
+    const parent = canvas?.parentElement;
+
+    const onVisibleRange = () => {
+      checkAndRenderAxisSync();
+      kickAxisSyncLoop(220);
+    };
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleRange);
+
+    if (!parent) {
+      return () => {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleRange);
+        if (syncRafRef.current !== null) {
+          window.cancelAnimationFrame(syncRafRef.current);
+          syncRafRef.current = null;
+        }
+      };
+    }
+
+    let pointerPressed = false;
+
+    const onPointerDown = () => {
+      pointerPressed = true;
+      kickAxisSyncLoop(500);
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!pointerPressed && ev.buttons === 0) return;
+      kickAxisSyncLoop(400);
+      queueMicrotask(checkAndRenderAxisSync);
+    };
+
+    const onPointerUp = () => {
+      if (!pointerPressed) return;
+      pointerPressed = false;
+      kickAxisSyncLoop(380);
+      queueMicrotask(checkAndRenderAxisSync);
+    };
+
+    const onWheelOrDblClick = () => {
+      kickAxisSyncLoop(380);
+      queueMicrotask(checkAndRenderAxisSync);
+    };
+
+    parent.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
+    window.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: true });
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: true });
+    parent.addEventListener('wheel', onWheelOrDblClick, { capture: true, passive: true });
+    parent.addEventListener('dblclick', onWheelOrDblClick, { capture: true, passive: true });
+
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleRange);
+      parent.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      window.removeEventListener('pointermove', onPointerMove, { capture: true });
+      window.removeEventListener('pointerup', onPointerUp, { capture: true });
+      window.removeEventListener('pointercancel', onPointerUp, { capture: true });
+      parent.removeEventListener('wheel', onWheelOrDblClick, { capture: true });
+      parent.removeEventListener('dblclick', onWheelOrDblClick, { capture: true });
+      if (syncRafRef.current !== null) {
+        window.cancelAnimationFrame(syncRafRef.current);
+        syncRafRef.current = null;
+      }
+    };
+  }, [chart, checkAndRenderAxisSync, kickAxisSyncLoop]);
+
   const dragStateRef = useRef<{
     drawingId: string;
     mode: 'point' | 'move';
@@ -306,9 +439,23 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     brushPointsRef.current = [];
   }, [activeTool, symbol]);
 
+  const candleIndexByTime = useMemo(() => {
+    const map = new Map<number, number>();
+    for (let i = 0; i < candles.length; i++) {
+      map.set(candles[i].time, i);
+    }
+    return map;
+  }, [candles]);
+
   const timeToX = useCallback(
     (time: number): number | null => {
       if (!chart || candles.length === 0) return null;
+      const exactIdx = candleIndexByTime.get(time);
+      if (exactIdx !== undefined) {
+        const coord = chart.timeScale().logicalToCoordinate(exactIdx as Logical);
+        return coord !== null ? Number(coord) : null;
+      }
+
       const first = candles[0].time;
       const last = candles[candles.length - 1].time;
 
@@ -322,10 +469,6 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         let hi = candles.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
-          if (candles[mid].time === time) {
-            const coord = chart.timeScale().logicalToCoordinate(mid as Logical);
-            return coord !== null ? Number(coord) : null;
-          }
           if (candles[mid].time < time) lo = mid + 1;
           else hi = mid - 1;
         }
@@ -338,7 +481,7 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
       const coord = chart.timeScale().logicalToCoordinate(logical as Logical);
       return coord !== null ? Number(coord) : null;
     },
-    [chart, candles, tfSec]
+    [chart, candles, candleIndexByTime, tfSec]
   );
 
   const priceToY = useCallback(
@@ -573,25 +716,152 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const parent = canvas?.parentElement;
     if (!parent) return;
 
+    let probeRaf: number | null = null;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    const runProbe = () => {
+      probeRaf = null;
+      if (activeTool !== 'cursor' || dragStateRef.current || dragOrderLineRef.current) return;
+      const rect = parent.getBoundingClientRect();
+      const x = lastClientX - rect.left;
+      const y = lastClientY - rect.top;
+      const hit = hitTestDrawings(x, y);
+      if (hit) {
+        setHoverInteractive((prev) => (prev ? prev : true));
+        setHoverLineDrag((prev) => (prev ? false : prev));
+        return;
+      }
+      const hasLineHit = Boolean(hitTestOrderLines(y));
+      setHoverInteractive((prev) => (prev ? false : prev));
+      setHoverLineDrag((prev) => (prev === hasLineHit ? prev : hasLineHit));
+    };
+
     const onProbeMove = (ev: MouseEvent) => {
       if (activeTool !== 'cursor' || dragStateRef.current || dragOrderLineRef.current) return;
+      lastClientX = ev.clientX;
+      lastClientY = ev.clientY;
+      if (probeRaf === null) {
+        probeRaf = window.requestAnimationFrame(runProbe);
+      }
+    };
+
+    parent.addEventListener('mousemove', onProbeMove, { passive: true });
+    return () => {
+      parent.removeEventListener('mousemove', onProbeMove);
+      if (probeRaf !== null) window.cancelAnimationFrame(probeRaf);
+    };
+  }, [activeTool, hitTestDrawings, hitTestOrderLines]);
+
+  const crosshairPxRef = useRef<{ x: number; y: number } | null>(null);
+  const crosshairDrawRef = useRef<() => void>(() => {});
+  const crosshairRafRef = useRef<number | null>(null);
+  const activeToolRef = useRef(activeTool);
+  const hoverInteractiveRef = useRef(hoverInteractive);
+  const hoverLineDragRef = useRef(hoverLineDrag);
+  const chartSettingsRef = useRef(chartSettings);
+
+  activeToolRef.current = activeTool;
+  hoverInteractiveRef.current = hoverInteractive;
+  hoverLineDragRef.current = hoverLineDrag;
+  chartSettingsRef.current = chartSettings;
+
+  const scheduleCrosshairDraw = useCallback(() => {
+    if (crosshairRafRef.current !== null) return;
+    crosshairRafRef.current = window.requestAnimationFrame(() => {
+      crosshairRafRef.current = null;
+      crosshairDrawRef.current();
+    });
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const parent = canvas?.parentElement;
+    if (!parent) return;
+
+    const onCrosshairMove = (ev: PointerEvent) => {
       const rect = parent.getBoundingClientRect();
       const x = ev.clientX - rect.left;
       const y = ev.clientY - rect.top;
-      const hit = hitTestDrawings(x, y);
-      if (hit) {
-        setHoverInteractive(true);
-        setHoverLineDrag(false);
+
+      const overlayOwnsPointer =
+        activeToolRef.current !== 'cursor' ||
+        dragStateRef.current !== null ||
+        dragOrderLineRef.current !== null ||
+        hoverInteractiveRef.current ||
+        hoverLineDragRef.current;
+
+      if (!overlayOwnsPointer) {
+        if (crosshairPxRef.current !== null) {
+          crosshairPxRef.current = null;
+          scheduleCrosshairDraw();
+        }
         return;
       }
-      const lineHit = hitTestOrderLines(y);
-      setHoverInteractive(false);
-      setHoverLineDrag(Boolean(lineHit));
+
+      crosshairPxRef.current = { x, y };
+
+      if (chart && series && candles.length > 0) {
+        const logical = chart.timeScale().coordinateToLogical(x);
+        const rawPrice = series.coordinateToPrice(y);
+        if (logical !== null && rawPrice !== null) {
+          const idx = Math.max(0, Math.min(candles.length - 1, Math.round(Number(logical))));
+          const barTime = candles[idx]?.time;
+          let targetPrice = Number(rawPrice);
+
+          if (magnetMode && activeToolRef.current !== 'cursor') {
+            const snapped = screenToData(x, y, true);
+            if (snapped) {
+              targetPrice = snapped.price;
+              const snappedY = series.priceToCoordinate(snapped.price);
+              if (snappedY !== null) {
+                crosshairPxRef.current = { x, y: Number(snappedY) };
+              }
+            }
+          }
+
+          if (barTime !== undefined) {
+            try {
+              chart.setCrosshairPosition(targetPrice, barTime as UTCTimestamp, series);
+            } catch {
+              // ignore out-of-range
+            }
+          }
+        }
+      }
+
+      scheduleCrosshairDraw();
     };
 
-    parent.addEventListener('mousemove', onProbeMove);
-    return () => parent.removeEventListener('mousemove', onProbeMove);
-  }, [activeTool, hitTestDrawings, hitTestOrderLines]);
+    const onCrosshairLeave = () => {
+      const hadCrosshair = crosshairPxRef.current !== null;
+      crosshairPxRef.current = null;
+      if (hadCrosshair) scheduleCrosshairDraw();
+      if (
+        chart &&
+        (activeToolRef.current !== 'cursor' ||
+          dragStateRef.current !== null ||
+          dragOrderLineRef.current !== null)
+      ) {
+        try {
+          chart.clearCrosshairPosition();
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    parent.addEventListener('pointermove', onCrosshairMove, { capture: true, passive: true });
+    parent.addEventListener('pointerleave', onCrosshairLeave, { passive: true });
+    return () => {
+      parent.removeEventListener('pointermove', onCrosshairMove, { capture: true });
+      parent.removeEventListener('pointerleave', onCrosshairLeave);
+      if (crosshairRafRef.current !== null) {
+        window.cancelAnimationFrame(crosshairRafRef.current);
+        crosshairRafRef.current = null;
+      }
+    };
+  }, [chart, series, candles, magnetMode, screenToData, scheduleCrosshairDraw]);
 
   const finishToolUsage = useCallback(() => {
     if (!stayInDrawingMode) {
@@ -599,13 +869,57 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     }
   }, [stayInDrawingMode, setActiveTool]);
 
+  const renderFnRef = useRef<() => void>(() => {});
+  const renderRafRef = useRef<number | null>(null);
+
+  const scheduleRender = useCallback(() => {
+    if (renderRafRef.current !== null) return;
+    renderRafRef.current = window.requestAnimationFrame(() => {
+      renderRafRef.current = null;
+      renderFnRef.current();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!chart) return;
+    const onVisibleRangeSync = () => {
+      // Immediate draw for 0-frame horizontal pan + rAF follow-up for Y auto-scale settling
+      renderFnRef.current();
+      scheduleRender();
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleRangeSync);
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleRangeSync);
+      if (renderRafRef.current !== null) {
+        window.cancelAnimationFrame(renderRafRef.current);
+        renderRafRef.current = null;
+      }
+    };
+  }, [chart, scheduleRender]);
+
   const render = useCallback(() => {
+    renderFnRef.current = render;
     const canvas = canvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
+    }
+
+    syncRenderFnRef.current = render;
+
+    if (chart && series && probePrices && candles.length > 0) {
+      const yLoRaw = series.priceToCoordinate(probePrices.lo);
+      const yHiRaw = series.priceToCoordinate(probePrices.hi);
+      const x0Raw = chart.timeScale().logicalToCoordinate(0 as Logical);
+      const x1Raw = chart.timeScale().logicalToCoordinate((candles.length - 1) as Logical);
+      syncLastCoordsRef.current = {
+        yLo: yLoRaw !== null ? Number(yLoRaw) : null,
+        yHi: yHiRaw !== null ? Number(yHiRaw) : null,
+        x0: x0Raw !== null ? Number(x0Raw) : null,
+        x1: x1Raw !== null ? Number(x1Raw) : null,
+      };
     }
 
     const ctx = canvas.getContext('2d');
@@ -618,6 +932,47 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
     const plotLeft = isLeftScale ? 70 : 0;
     const plotRight = isLeftScale ? width : Math.max(0, width - 70);
     const chartPlotWidth = Math.max(0, plotRight - plotLeft);
+
+    crosshairDrawRef.current = render;
+
+    const ch = crosshairPxRef.current;
+    const showOverlayCrosshair =
+      ch !== null &&
+      (activeToolRef.current !== 'cursor' ||
+        dragStateRef.current !== null ||
+        dragOrderLineRef.current !== null ||
+        hoverInteractiveRef.current ||
+        hoverLineDragRef.current);
+
+    if (showOverlayCrosshair && ch) {
+      const plotBottom = Math.max(0, height - 26);
+      if (ch.x >= plotLeft && ch.x <= plotRight && ch.y >= 0 && ch.y <= plotBottom) {
+        const chSettings = chartSettingsRef.current;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(plotLeft, 0, chartPlotWidth, plotBottom);
+        ctx.clip();
+
+        ctx.strokeStyle = chSettings.crosshairColor || 'rgba(148, 163, 184, 0.72)';
+        ctx.lineWidth = 1;
+        if (chSettings.crosshairStyle === 'dotted') ctx.setLineDash([2, 3]);
+        else if (chSettings.crosshairStyle === 'solid') ctx.setLineDash([]);
+        else ctx.setLineDash([5, 4]);
+
+        const px = Math.round(ch.x) + 0.5;
+        const py = Math.round(ch.y) + 0.5;
+
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, plotBottom);
+        ctx.moveTo(plotLeft, py);
+        ctx.lineTo(plotRight, py);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
 
     // -----------------------------------------------------------------------
     // 0. FOOTPRINT ORDER FLOW (Bid x Ask, Candle POC, Imbalances, Delta)
@@ -1811,66 +2166,291 @@ export const DrawingOverlay: React.FC<DrawingOverlayProps> = ({
         ctx.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
         ctx.stroke();
-      } else if ((type === 'long_pos' || type === 'short_pos') && pts.length >= 3) {
+      } else if ((type === 'long_pos' || type === 'short_pos') && pts.length >= 2) {
+        // [ApexChart Pro] TradingView Position Outcome Simulation
+        const isLong = type === 'long_pos';
         const entryPt = pts[0];
         const tpPt = pts[1];
-        const slPt = pts[2];
-        const boxLeft = Math.min(entryPt.x, tpPt.x);
-        const boxW = Math.max(Math.abs(tpPt.x - entryPt.x), 95);
+        const entryTime = ptsData[0].time;
+        const boxEndTime = Math.max(
+          entryTime,
+          ptsData[1]?.time ?? entryTime,
+          ptsData[2]?.time ?? entryTime
+        );
+        const entryPrice = ptsData[0].price;
+        const tpPrice = ptsData[1]?.price ?? entryPrice;
+        const slPrice =
+          ptsData[2]?.price ??
+          (isLong
+            ? entryPrice - Math.abs(tpPrice - entryPrice)
+            : entryPrice + Math.abs(tpPrice - entryPrice));
 
-        const tpTop = Math.min(entryPt.y, tpPt.y);
-        const tpH = Math.abs(tpPt.y - entryPt.y);
-        ctx.fillStyle = 'rgba(8, 153, 129, 0.22)';
-        ctx.fillRect(boxLeft, tpTop, boxW, tpH);
-        ctx.strokeStyle = '#089981';
-        ctx.lineWidth = 1.2;
-        ctx.strokeRect(boxLeft, tpTop, boxW, tpH);
+        const yEntry = entryPt.y;
+        const yTp = tpPt.y;
+        const ySlCoord = pts[2] ? pts[2].y : priceToY(slPrice);
+        const ySl =
+          ySlCoord !== null && ySlCoord !== undefined
+            ? Number(ySlCoord)
+            : yEntry + (isLong ? 40 : -40);
 
-        const slTop = Math.min(entryPt.y, slPt.y);
-        const slH = Math.abs(slPt.y - entryPt.y);
-        ctx.fillStyle = 'rgba(242, 54, 69, 0.22)';
-        ctx.fillRect(boxLeft, slTop, boxW, slH);
-        ctx.strokeStyle = '#F23645';
-        ctx.strokeRect(boxLeft, slTop, boxW, slH);
+        const x1 = Math.min(entryPt.x, tpPt.x);
+        const x2 = Math.max(entryPt.x, tpPt.x);
+        const boxW = Math.max(48, x2 - x1);
+        const boxRight = x1 + boxW;
 
-        ctx.strokeStyle = '#94A3B8';
+        ctx.setLineDash([]);
+
+        // 1. Base Target (TP) & Stop (SL) zones
+        ctx.fillStyle = 'rgba(8, 153, 129, 0.16)';
+        ctx.fillRect(x1, Math.min(yEntry, yTp), boxW, Math.abs(yTp - yEntry));
+        ctx.fillStyle = 'rgba(242, 54, 69, 0.16)';
+        ctx.fillRect(x1, Math.min(yEntry, ySl), boxW, Math.abs(ySl - yEntry));
+
+        const risk = Math.abs(entryPrice - slPrice);
+        const reward = Math.abs(tpPrice - entryPrice);
+        const rr = risk > 0 ? reward / risk : 0;
+
+        // 2. TradingView Chronological Trade Outcome Simulation inside [entryTime .. boxEndTime]
+        let outcome: 'tp_hit' | 'sl_hit' | 'open' = 'open';
+        let exitTime = entryTime;
+        let exitPrice = entryPrice;
+        let hasWindowBars = false;
+
+        if (candles.length > 0) {
+          // Binary search first candle with time > entryTime
+          let lo = 0;
+          let hi = candles.length - 1;
+          let startIdx = candles.length;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (candles[mid].time > entryTime) {
+              startIdx = mid;
+              hi = mid - 1;
+            } else {
+              lo = mid + 1;
+            }
+          }
+
+          let lastBarInWindow = null as (typeof candles)[number] | null;
+          for (let i = startIdx; i < candles.length; i++) {
+            const bar = candles[i];
+            if (bar.time > boxEndTime) break;
+            hasWindowBars = true;
+            lastBarInWindow = bar;
+
+            const touchedTp = isLong ? bar.high >= tpPrice : bar.low <= tpPrice;
+            const touchedSl = isLong ? bar.low <= slPrice : bar.high >= slPrice;
+
+            if (touchedTp && touchedSl) {
+              const distToSl = Math.abs(bar.open - slPrice);
+              const distToTp = Math.abs(bar.open - tpPrice);
+              if (distToSl <= distToTp) {
+                outcome = 'sl_hit';
+                exitTime = bar.time;
+                exitPrice = slPrice;
+              } else {
+                outcome = 'tp_hit';
+                exitTime = bar.time;
+                exitPrice = tpPrice;
+              }
+              break;
+            } else if (touchedSl) {
+              outcome = 'sl_hit';
+              exitTime = bar.time;
+              exitPrice = slPrice;
+              break;
+            } else if (touchedTp) {
+              outcome = 'tp_hit';
+              exitTime = bar.time;
+              exitPrice = tpPrice;
+              break;
+            }
+          }
+
+          if (outcome === 'open' && lastBarInWindow) {
+            exitTime = lastBarInWindow.time;
+            exitPrice = lastBarInWindow.close;
+          }
+        }
+
+        // 3. Draw Shaded Progress Column & Diagonal Dashed Trade Arrow (TradingView Style)
+        if (hasWindowBars) {
+          const rawExitY = priceToY(exitPrice);
+          const rawExitX = timeToX(exitTime);
+
+          if (rawExitY !== null) {
+            const yExit =
+              outcome === 'tp_hit'
+                ? yTp
+                : outcome === 'sl_hit'
+                ? ySl
+                : Number(rawExitY);
+            const xExit =
+              rawExitX !== null ? Math.max(x1, Math.min(boxRight, rawExitX)) : boxRight;
+
+            const signedDiff = isLong ? exitPrice - entryPrice : entryPrice - exitPrice;
+            const isWinOrProfit = outcome === 'tp_hit' || (outcome === 'open' && signedDiff >= 0);
+            const outcomeColor = isWinOrProfit ? '#089981' : '#F23645';
+
+            // Clamped shaded fill from x1..xExit (exact TradingView filled column up to hit candle)
+            const topBound = Math.min(yEntry, yTp, ySl);
+            const bottomBound = Math.max(yEntry, yTp, ySl);
+            const clampedExitY = Math.max(topBound, Math.min(bottomBound, yExit));
+            const colW = Math.max(2, xExit - x1);
+
+            ctx.fillStyle = isWinOrProfit
+              ? 'rgba(8, 153, 129, 0.24)'
+              : 'rgba(242, 54, 69, 0.24)';
+            ctx.fillRect(
+              x1,
+              Math.min(yEntry, clampedExitY),
+              colW,
+              Math.abs(clampedExitY - yEntry)
+            );
+
+            // Diagonal dashed line + arrowhead from Entry (x1, yEntry) to Exit (xExit, yExit)
+            const segLen = Math.hypot(xExit - x1, yExit - yEntry);
+            ctx.save();
+            ctx.strokeStyle = 'rgba(203, 213, 225, 0.72)';
+            ctx.lineWidth = 1.15;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(x1, yEntry);
+            ctx.lineTo(xExit, yExit);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            if (segLen >= 10) {
+              const angle = Math.atan2(yExit - yEntry, xExit - x1);
+              const headLen = 6;
+              ctx.strokeStyle = 'rgba(203, 213, 225, 0.85)';
+              ctx.lineWidth = 1.25;
+              ctx.beginPath();
+              ctx.moveTo(
+                xExit - headLen * Math.cos(angle - Math.PI / 6),
+                yExit - headLen * Math.sin(angle - Math.PI / 6)
+              );
+              ctx.lineTo(xExit, yExit);
+              ctx.lineTo(
+                xExit - headLen * Math.cos(angle + Math.PI / 6),
+                yExit - headLen * Math.sin(angle + Math.PI / 6)
+              );
+              ctx.stroke();
+            }
+
+            // If position is still OPEN and reaches live candle, show live horizontal tracker & PnL pill
+            const lastCandle = candles[candles.length - 1];
+            const tracksLiveCandle =
+              outcome === 'open' && lastCandle && exitTime === lastCandle.time;
+
+            if (tracksLiveCandle) {
+              ctx.strokeStyle = outcomeColor;
+              ctx.lineWidth = 1.25;
+              ctx.setLineDash([3, 3]);
+              ctx.beginPath();
+              ctx.moveTo(x1, yExit);
+              ctx.lineTo(boxRight, yExit);
+              ctx.stroke();
+              ctx.setLineDash([]);
+
+              ctx.fillStyle = outcomeColor;
+              ctx.beginPath();
+              ctx.arc(xExit, yExit, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 1.1;
+              ctx.stroke();
+            }
+
+            // Show compact result pill when selected OR when actively tracking live candle
+            if (isSelected || tracksLiveCandle) {
+              const pct = entryPrice > 0 ? (signedDiff / entryPrice) * 100 : 0;
+              const liveR = risk > 0 ? signedDiff / risk : 0;
+              const statusTag =
+                outcome === 'tp_hit'
+                  ? 'TP HIT'
+                  : outcome === 'sl_hit'
+                  ? 'SL HIT'
+                  : isWinOrProfit
+                  ? 'OPEN'
+                  : 'OPEN';
+              const pnlText = `${statusTag} ${signedDiff >= 0 ? '+' : ''}${pct.toFixed(2)}% (${liveR >= 0 ? '+' : ''}${liveR.toFixed(2)}R)`;
+
+              ctx.font = '700 10px Inter, sans-serif';
+              const badgeW = Math.ceil(ctx.measureText(pnlText).width) + 12;
+              const badgeH = 17;
+              const rawBadgeX = boxRight + 6;
+              const badgeX = Math.max(
+                plotLeft + 4,
+                Math.min(plotRight - badgeW - 4, rawBadgeX)
+              );
+              const badgeY = Math.max(4, Math.min(height - 30 - badgeH, yExit - badgeH / 2));
+
+              ctx.fillStyle = outcomeColor;
+              ctx.beginPath();
+              ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+              ctx.fill();
+
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillText(pnlText, badgeX + 6, badgeY + 12);
+            }
+            ctx.restore();
+          }
+        }
+
+        // 4. Entry Divider Line
+        ctx.strokeStyle = 'rgba(203, 213, 225, 0.45)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(boxLeft, entryPt.y);
-        ctx.lineTo(boxLeft + boxW, entryPt.y);
+        ctx.moveTo(x1, yEntry);
+        ctx.lineTo(boxRight, yEntry);
         ctx.stroke();
 
-        const reward = Math.abs(ptsData[1].price - ptsData[0].price);
-        const risk = Math.max(Math.abs(ptsData[2].price - ptsData[0].price), 1e-9);
-        const rr = reward / risk;
-        const pctReward = (reward / Math.max(ptsData[0].price, 1e-9)) * 100;
-        const pctRisk = (risk / Math.max(ptsData[0].price, 1e-9)) * 100;
-        const acct = obj?.accountSize ?? 100000;
-        const rPct = obj?.riskPercent ?? 1;
-        const riskUsd = acct * (rPct / 100);
-        const qtyCalc = riskUsd / risk;
+        // 5. Borders & Target/Stop Labels (shown cleanly on selection or when box is wide enough)
+        if (isSelected) {
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(8, 153, 129, 0.85)';
+          ctx.strokeRect(x1, Math.min(yEntry, yTp), boxW, Math.abs(yTp - yEntry));
+          ctx.strokeStyle = 'rgba(242, 54, 69, 0.85)';
+          ctx.strokeRect(x1, Math.min(yEntry, ySl), boxW, Math.abs(ySl - yEntry));
+        }
 
-        ctx.font = '600 10px "JetBrains Mono", monospace';
-        const rrText = `${type === 'long_pos' ? 'LONG' : 'SHORT'} R:R 1:${rr.toFixed(
-          2
-        )} • Qty ${qtyCalc >= 10 ? qtyCalc.toFixed(1) : qtyCalc.toFixed(3)}`;
-        ctx.fillStyle = theme === 'dark' ? 'rgba(19,23,34,0.92)' : 'rgba(255,255,255,0.94)';
-        const bw = ctx.measureText(rrText).width + 12;
-        ctx.fillRect(boxLeft + 6, entryPt.y - 10, bw, 18);
-        ctx.fillStyle = rr >= 1.5 ? '#089981' : '#F59E0B';
-        ctx.fillText(rrText, boxLeft + 12, entryPt.y + 3);
+        if (isSelected || boxW >= 120) {
+          const tpPct = entryPrice > 0 ? (Math.abs(tpPrice - entryPrice) / entryPrice) * 100 : 0;
+          const slPct = entryPrice > 0 ? (Math.abs(entryPrice - slPrice) / entryPrice) * 100 : 0;
 
-        ctx.fillStyle = '#089981';
-        ctx.fillText(
-          `TP +${pctReward.toFixed(2)}% (+$${(riskUsd * rr).toFixed(0)})`,
-          boxLeft + 6,
-          tpPt.y + (type === 'long_pos' ? 12 : -5)
-        );
-        ctx.fillStyle = '#F23645';
-        ctx.fillText(
-          `SL -${pctRisk.toFixed(2)}% (-$${riskUsd.toFixed(0)})`,
-          boxLeft + 6,
-          slPt.y + (type === 'long_pos' ? -5 : 12)
-        );
+          ctx.font = '600 10px Inter, sans-serif';
+          ctx.fillStyle = '#089981';
+          ctx.fillText(
+            `Target: ${formatPrice(tpPrice, precision)} (+${tpPct.toFixed(2)}%) • R:R ${rr.toFixed(2)}`,
+            x1 + 6,
+            Math.min(yEntry, yTp) + 14
+          );
+          ctx.fillStyle = '#F23645';
+          ctx.fillText(
+            `Stop: ${formatPrice(slPrice, precision)} (-${slPct.toFixed(2)}%)`,
+            x1 + 6,
+            Math.max(yEntry, ySl) - 6
+          );
+        }
+
+        // 6. Selection handles aligned with hitTestDrawings pts[0..2]
+        if (isSelected) {
+          const handlePts = [
+            { x: entryPt.x, y: yEntry, c: '#2962FF' },
+            { x: tpPt.x, y: yTp, c: '#089981' },
+            { x: pts[2]?.x ?? tpPt.x, y: ySl, c: '#F23645' },
+          ];
+          for (const hp of handlePts) {
+            ctx.fillStyle = '#0C0F17';
+            ctx.strokeStyle = hp.c;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(hp.x, hp.y, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
       } else if ((type === 'brush' || type === 'highlighter') && pts.length >= 2) {
         if (type === 'highlighter') {
           ctx.lineWidth = Math.max(12, lineWidth * 5);

@@ -56,31 +56,37 @@ export const OrderBookPanel: React.FC = () => {
   }, [activePane.symbol, midPrice, info.minMove, info.precision, info.category]);
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-[#131722]">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-[#2A2E39]">
+    <div className="flex h-full flex-col bg-white dark:bg-[#0F131D]">
+      <div className="flex items-center justify-between border-b border-slate-200/80 px-3 py-2.5 dark:border-[#222836]">
         <span className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
           Order Book • {info.displaySymbol}
         </span>
+        <span className="inline-flex items-center gap-1 rounded bg-[#089981]/12 px-1.5 py-0.5 text-[9px] font-bold text-[#089981]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#089981] animate-pulse" />
+          L2 LIVE
+        </span>
       </div>
 
-      <div className="grid grid-cols-3 px-3 py-1.5 text-[10px] font-semibold text-[#787B86]">
+      <div className="grid grid-cols-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#787B86]">
         <span>Price</span>
         <span className="text-right">Size</span>
         <span className="text-right">Total</span>
       </div>
 
-      <div className="space-y-[1px] px-1">
+      <div className="space-y-[2px] px-1.5">
         {book.asks.map((lvl, idx) => (
           <div
             key={`ask-${idx}`}
-            className="relative grid grid-cols-3 items-center px-2 py-0.5 font-mono text-[11px] tabular-nums"
+            className="relative grid grid-cols-3 items-center overflow-hidden rounded px-2 py-[3px] font-mono text-[11px] tabular-nums transition-colors hover:bg-[#F23645]/8"
           >
             <div
               style={{ width: `${lvl.pct}%` }}
-              className="pointer-events-none absolute inset-y-0 right-0 bg-[#F23645]/15"
+              className="pointer-events-none absolute inset-y-0 right-0 rounded-l bg-gradient-to-l from-[#F23645]/22 to-[#F23645]/6 transition-all duration-300 ease-spring"
             />
-            <span className="relative z-10 text-[#F23645]">{formatPrice(lvl.price, info.precision)}</span>
-            <span className="relative z-10 text-right text-slate-700 dark:text-[#D1D4DC]">
+            <span className="relative z-10 font-medium text-[#F23645]">
+              {formatPrice(lvl.price, info.precision)}
+            </span>
+            <span className="relative z-10 text-right text-slate-700 dark:text-[#E2E6F0]">
               {lvl.size}
             </span>
             <span className="relative z-10 text-right text-[#787B86]">{lvl.total}</span>
@@ -88,29 +94,29 @@ export const OrderBookPanel: React.FC = () => {
         ))}
       </div>
 
-      <div className="my-1 flex items-center justify-between border-y border-slate-200 bg-slate-50 px-3 py-1 font-mono text-[11px] dark:border-[#2A2E39] dark:bg-[#1E222D]">
+      <div className="mx-1.5 my-1.5 flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/90 px-2.5 py-1.5 font-mono text-[11px] dark:border-[#242B3A] dark:bg-[#161B26]">
         <span className="font-bold text-slate-900 dark:text-white">
           {formatPrice(midPrice, info.precision)}
         </span>
-        <span className="text-[10px] text-[#787B86]">
+        <span className="rounded bg-slate-200/60 px-1.5 py-0.5 text-[10px] text-[#787B86] dark:bg-[#0F131D]">
           Spread {formatPrice(book.spread, info.precision)} ({book.spreadPct.toFixed(3)}%)
         </span>
       </div>
 
-      <div className="space-y-[1px] px-1">
+      <div className="space-y-[2px] px-1.5">
         {book.bids.map((lvl, idx) => (
           <div
             key={`bid-${idx}`}
-            className="relative grid grid-cols-3 items-center px-2 py-0.5 font-mono text-[11px] tabular-nums"
+            className="relative grid grid-cols-3 items-center overflow-hidden rounded px-2 py-[3px] font-mono text-[11px] tabular-nums transition-colors hover:bg-[#089981]/8"
           >
             <div
               style={{ width: `${lvl.pct}%` }}
-              className="pointer-events-none absolute inset-y-0 right-0 bg-[#089981]/15"
+              className="pointer-events-none absolute inset-y-0 right-0 rounded-l bg-gradient-to-l from-[#089981]/22 to-[#089981]/6 transition-all duration-300 ease-spring"
             />
-            <span className="relative z-10 text-[#089981]">
+            <span className="relative z-10 font-medium text-[#089981]">
               {formatPrice(lvl.price, info.precision)}
             </span>
-            <span className="relative z-10 text-right text-slate-700 dark:text-[#D1D4DC]">
+            <span className="relative z-10 text-right text-slate-700 dark:text-[#E2E6F0]">
               {lvl.size}
             </span>
             <span className="relative z-10 text-right text-[#787B86]">{lvl.total}</span>
@@ -118,17 +124,31 @@ export const OrderBookPanel: React.FC = () => {
         ))}
       </div>
 
-      <div className="mt-2 flex flex-1 min-h-0 flex-col border-t border-slate-200 dark:border-[#2A2E39]">
-        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
+      <div className="mt-2 flex flex-1 min-h-0 flex-col border-t border-slate-200/80 dark:border-[#222836]">
+        <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#787B86]">
           Recent Trades Tape
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-0.5 font-mono text-[11px] tabular-nums">
+        <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-1 font-mono text-[11px] tabular-nums">
           {trades.map((tr) => (
-            <div key={tr.id} className="grid grid-cols-3 items-center">
-              <span className={cn(tr.side === 'buy' ? 'text-[#089981]' : 'text-[#F23645]')}>
+            <div
+              key={tr.id}
+              className="grid grid-cols-3 items-center rounded px-1 py-0.5 transition-colors hover:bg-slate-100/70 dark:hover:bg-[#161B26]"
+            >
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 font-medium',
+                  tr.side === 'buy' ? 'text-[#089981]' : 'text-[#F23645]'
+                )}
+              >
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    tr.side === 'buy' ? 'bg-[#089981]' : 'bg-[#F23645]'
+                  )}
+                />
                 {formatPrice(tr.price, info.precision)}
               </span>
-              <span className="text-right text-slate-700 dark:text-[#D1D4DC]">{tr.size}</span>
+              <span className="text-right text-slate-700 dark:text-[#E2E6F0]">{tr.size}</span>
               <span className="text-right text-[10px] text-[#787B86]">{tr.time}</span>
             </div>
           ))}

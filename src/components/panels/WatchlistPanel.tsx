@@ -65,9 +65,9 @@ export const WatchlistPanel: React.FC = () => {
   }, [query, category, starredOnly, watchlist]);
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-[#131722]">
+    <div className="flex h-full flex-col bg-white dark:bg-[#0F131D]">
       {/* Header */}
-      <div className="border-b border-slate-200 p-2.5 dark:border-[#2A2E39]">
+      <div className="border-b border-slate-200/80 p-3 dark:border-[#222836]">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[11px] font-bold uppercase tracking-wider text-[#787B86]">
             Watchlist
@@ -75,10 +75,10 @@ export const WatchlistPanel: React.FC = () => {
           <button
             onClick={() => setStarredOnly(!starredOnly)}
             className={cn(
-              'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold transition',
+              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold transition-all duration-150 active:scale-95',
               starredOnly
-                ? 'bg-amber-500/15 text-amber-400'
-                : 'text-[#787B86] hover:text-[#D1D4DC]'
+                ? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30'
+                : 'text-[#787B86] hover:bg-slate-100 dark:hover:bg-[#181D2A] dark:hover:text-white'
             )}
           >
             <Star className={cn('h-3 w-3', starredOnly && 'fill-amber-400')} />
@@ -86,13 +86,13 @@ export const WatchlistPanel: React.FC = () => {
           </button>
         </div>
 
-        <div className="relative mb-2">
+        <div className="relative mb-2.5">
           <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-[#787B86]" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter symbols..."
-            className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-900 outline-none focus:border-[#2962FF] dark:border-[#2A2E39] dark:bg-[#1E222D] dark:text-[#D1D4DC]"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-900 outline-none transition-all duration-150 focus:border-[#2962FF] focus:ring-2 focus:ring-[#2962FF]/20 dark:border-[#242B3A] dark:bg-[#161B26] dark:text-[#E2E6F0]"
           />
         </div>
 
@@ -102,10 +102,10 @@ export const WatchlistPanel: React.FC = () => {
               key={cat}
               onClick={() => setCategory(cat)}
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-semibold transition',
+                'rounded-md px-2 py-0.5 text-[10px] font-semibold transition-all duration-150 active:scale-95',
                 category === cat
-                  ? 'bg-[#2962FF] text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#1E222D] dark:text-[#787B86] dark:hover:text-[#D1D4DC]'
+                  ? 'bg-[#2962FF] text-white shadow-[0_2px_8px_-1px_rgba(41,98,255,0.5)]'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#181D2A] dark:text-[#7D8596] dark:hover:text-white'
               )}
             >
               {cat}
@@ -135,10 +135,10 @@ export const WatchlistPanel: React.FC = () => {
               key={sym.symbol}
               onClick={() => updatePaneSymbol(activePane.id, sym.symbol)}
               className={cn(
-                'group flex cursor-pointer items-center justify-between gap-2 px-2.5 py-1.5 transition',
+                'group flex cursor-pointer items-center justify-between gap-2 px-3 py-2 transition-all duration-150 active:scale-[0.99]',
                 isSelected
-                  ? 'bg-[#2962FF]/12 border-l-2 border-l-[#2962FF]'
-                  : 'hover:bg-slate-50 dark:hover:bg-[#1E222D]'
+                  ? 'bg-gradient-to-r from-[#2962FF]/15 to-transparent border-l-2 border-l-[#2962FF]'
+                  : 'hover:bg-slate-50 dark:hover:bg-[#161B26]'
               )}
             >
               <div className="flex min-w-0 items-center gap-1.5">
@@ -173,8 +173,8 @@ export const WatchlistPanel: React.FC = () => {
                 </div>
                 <div
                   className={cn(
-                    'text-[10px] font-semibold',
-                    isUp ? 'text-[#089981]' : 'text-[#F23645]'
+                    'mt-0.5 inline-block rounded px-1.5 py-[1px] text-[10px] font-semibold',
+                    isUp ? 'bg-[#089981]/12 text-[#089981]' : 'bg-[#F23645]/12 text-[#F23645]'
                   )}
                 >
                   {isUp ? '+' : ''}
@@ -187,21 +187,25 @@ export const WatchlistPanel: React.FC = () => {
       </div>
 
       {/* Selected Instrument Quick Summary */}
-      <div className="border-t border-slate-200 bg-slate-50/70 p-2.5 dark:border-[#2A2E39] dark:bg-[#0C0F17]/50">
+      <div className="border-t border-slate-200/80 bg-slate-50/80 p-3 dark:border-[#222836] dark:bg-[#090C12]/70">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 dark:text-[#D1D4DC]">
+          <span className="text-xs font-bold text-slate-900 dark:text-white">
             {activeInfo.displaySymbol}
           </span>
-          <span className="text-[10px] font-semibold text-[#2962FF]">{activeInfo.category}</span>
+          <span className="rounded bg-[#2962FF]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#2962FF]">
+            {activeInfo.category}
+          </span>
         </div>
-        <p className="mb-2 line-clamp-2 text-[10px] text-[#787B86]">{activeInfo.description}</p>
-        <div className="grid grid-cols-2 gap-1.5">
+        <p className="mb-2.5 line-clamp-2 text-[10px] leading-relaxed text-[#787B86]">
+          {activeInfo.description}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => {
               setBottomPanelTab('trade');
               setBottomPanelOpen(true);
             }}
-            className="flex items-center justify-center gap-1 rounded bg-[#089981] py-1.5 text-[11px] font-bold text-white transition hover:brightness-110"
+            className="flex items-center justify-center gap-1 rounded-lg bg-gradient-to-b from-[#0AA88E] to-[#089981] py-1.5 text-[11px] font-bold text-white shadow-[0_4px_12px_-2px_rgba(8,153,129,0.45)] transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
           >
             <TrendingUp className="h-3.5 w-3.5" />
             Buy {activeQuote ? formatPrice(activeQuote.price, activeInfo.precision) : ''}
@@ -211,7 +215,7 @@ export const WatchlistPanel: React.FC = () => {
               setBottomPanelTab('trade');
               setBottomPanelOpen(true);
             }}
-            className="flex items-center justify-center gap-1 rounded bg-[#F23645] py-1.5 text-[11px] font-bold text-white transition hover:brightness-110"
+            className="flex items-center justify-center gap-1 rounded-lg bg-gradient-to-b from-[#F54957] to-[#F23645] py-1.5 text-[11px] font-bold text-white shadow-[0_4px_12px_-2px_rgba(242,54,69,0.45)] transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
           >
             <TrendingDown className="h-3.5 w-3.5" />
             Sell {activeQuote ? formatPrice(activeQuote.price, activeInfo.precision) : ''}

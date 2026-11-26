@@ -201,20 +201,22 @@ export const TradingTerminal: React.FC = () => {
   };
 
   return (
-    <div className="relative z-30 shrink-0 border-t border-slate-200 bg-white dark:border-[#2A2E39] dark:bg-[#131722]">
+    <div className="relative z-30 shrink-0 border-t border-slate-200/80 bg-white/95 dark:border-[#222836] dark:bg-[#0F131D]/95">
       {open && (
         <div
           onMouseDown={startResize}
           title="Drag to resize terminal height"
-          className="absolute inset-x-0 -top-[2px] z-40 h-[5px] cursor-ns-resize hover:bg-[#2962FF]/60"
-        />
+          className="group absolute inset-x-0 -top-[2px] z-40 flex h-[6px] cursor-ns-resize items-center justify-center transition-colors hover:bg-[#2962FF]/30"
+        >
+          <div className="h-[2px] w-10 rounded-full bg-transparent transition-colors group-hover:bg-[#2962FF]" />
+        </div>
       )}
 
-      <div className="flex h-8 items-center justify-between px-3">
-        <div className="flex items-center gap-4">
+      <div className="flex h-9 items-center justify-between px-3">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setOpen(!open)}
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-[#2962FF] dark:text-[#D1D4DC]"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-bold text-slate-800 transition-all duration-150 hover:bg-slate-100 hover:text-[#2962FF] active:scale-95 dark:text-[#E2E6F0] dark:hover:bg-[#181D2A]"
           >
             <Terminal className="h-3.5 w-3.5 text-[#2962FF]" />
             <span>Trading & Strategy Tester</span>
@@ -227,10 +229,10 @@ export const TradingTerminal: React.FC = () => {
               setOpen(true);
             }}
             className={cn(
-              'hidden sm:inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold transition',
+              'hidden sm:inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-all duration-150 active:scale-95',
               open && tab === 'backtest'
-                ? 'bg-[#00D4AA]/20 text-[#00D4AA]'
-                : 'text-[#787B86] hover:text-[#00D4AA]'
+                ? 'bg-[#00D4AA]/15 text-[#00D4AA] ring-1 ring-[#00D4AA]/30 shadow-glowCyan'
+                : 'text-[#787B86] hover:bg-slate-100 hover:text-[#00D4AA] dark:hover:bg-[#181D2A]'
             )}
           >
             <BarChart3 className="h-3 w-3" />

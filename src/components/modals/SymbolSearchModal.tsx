@@ -72,14 +72,14 @@ export const SymbolSearchModal: React.FC = () => {
   return (
     <div
       onClick={() => setOpen(false)}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-16 backdrop-blur-sm"
+      className="animate-fadeIn fixed inset-0 z-50 flex items-start justify-center bg-[#06080E]/70 px-3 pt-16 backdrop-blur-md"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-[#2A2E39] dark:bg-[#1E222D]"
+        className="glass-popover animate-popIn w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 dark:border-[#283044] dark:bg-[#151A25]/95"
       >
-        <div className="flex items-center gap-2.5 border-b border-slate-200 px-4 py-3 dark:border-[#2A2E39]">
-          <Search className="h-4 w-4 text-[#2962FF]" />
+        <div className="flex items-center gap-2.5 border-b border-slate-200/80 px-4 py-3.5 dark:border-[#242B3A]">
+          <Search className="h-4 w-4 shrink-0 text-[#2962FF]" />
           <input
             autoFocus
             value={query}
@@ -97,23 +97,29 @@ export const SymbolSearchModal: React.FC = () => {
               }
             }}
             placeholder="Search or type ANY ticker (e.g. PEPEUSDT, SUIUSDT, MSFT, ADRO.JK)..."
-            className="flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-[#787B86] dark:text-[#D1D4DC]"
+            className="flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-[#787B86] dark:text-white"
           />
-          <button onClick={() => setOpen(false)} className="text-[#787B86] hover:text-white">
+          <kbd className="hidden sm:inline rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-[#787B86] dark:border-[#2A3142] dark:bg-[#0F131D]">
+            ESC
+          </kbd>
+          <button
+            onClick={() => setOpen(false)}
+            className="rounded-lg p-1 text-[#787B86] transition hover:bg-slate-100 hover:text-slate-900 active:scale-90 dark:hover:bg-[#222938] dark:hover:text-white"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 border-b border-slate-200 px-4 py-2 dark:border-[#2A2E39]">
+        <div className="flex flex-wrap gap-1.5 border-b border-slate-200/80 px-4 py-2.5 dark:border-[#242B3A]">
           {CATS.map((c) => (
             <button
               key={c}
               onClick={() => setCat(c)}
               className={cn(
-                'rounded px-2.5 py-1 text-xs font-semibold transition',
+                'rounded-lg px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95',
                 cat === c
-                  ? 'bg-[#2962FF] text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#131722] dark:text-[#D1D4DC]'
+                  ? 'bg-[#2962FF] text-white shadow-[0_2px_8px_-1px_rgba(41,98,255,0.5)]'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#0F131D] dark:text-[#9CA3AF] dark:hover:text-white'
               )}
             >
               {c}
@@ -156,10 +162,10 @@ export const SymbolSearchModal: React.FC = () => {
                   key={s.symbol}
                   onClick={() => choose(s.symbol)}
                   className={cn(
-                    'flex w-full items-center justify-between px-4 py-2.5 text-left transition',
+                    'flex w-full items-center justify-between px-4 py-2.5 text-left transition-all duration-150',
                     idx === selectedIdx
-                      ? 'bg-[#2962FF]/15'
-                      : 'hover:bg-slate-50 dark:hover:bg-[#2A2E39]/60'
+                      ? 'bg-[#2962FF]/15 border-l-2 border-l-[#2962FF]'
+                      : 'hover:bg-slate-50 dark:hover:bg-[#1E2434]/70'
                   )}
                 >
                   <div>
